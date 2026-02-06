@@ -122,6 +122,14 @@ class Orchestrator:
         summary["tickers_fetched"] = len(data)
         log.info("market_data_ready", tickers=len(data), rows=len(closes))
 
+        # Step 2.5: Missed day recovery
+        try:
+            recovered = await self.recovery_check(today, closes)
+            if recovered:
+                summary["recovered_days"] = recovered
+        except Exception as e:
+            log.warning("recovery_check_failed", error=str(e))
+
         # Step 3: Fetch macro data
         log.info("step_3_fetching_macro_data")
         yield_curve = None
@@ -486,6 +494,122 @@ class Orchestrator:
         return await self._notifier.wait_for_ticker_approval(
             request_id, PORTFOLIO_B.approval_timeout_seconds
         )
+
+    async def recovery_check(
+        self, today: date, closes: pd.DataFrame,
+    ) -> list[str]:
+        """Detect missed trading days and backfill snapshots.
+
+        Compares DB snapshots against the business day calendar to find
+        gaps. For each missed day, creates a snapshot using the closes
+        data for that date.
+
+        Args:
+            today: Current trading date.
+            closes: Full historical closes DataFrame.
+
+        Returns:
+            List of recovered date strings (ISO format).
+        """
+        from config.strategies import PORTFOLIO_A, PORTFOLIO_B
+
+        recovered_dates: list[str] = []
+
+        for pname, initial in [
+            ("A", PORTFOLIO_A.allocation_usd),
+            ("B", PORTFOLIO_B.allocation_usd),
+        ]:
+            snapshots = await self._db.get_snapshots(pname)
+            if not snapshots:
+                continue
+
+            snapshot_dates = {s.date for s in snapshots}
+            last_snap_date = max(snapshot_dates)
+
+            # Build expected trading days between last snapshot and today
+            expected = pd.bdate_range(
+                start=last_snap_date, end=today, inclusive="neither",
+            )
+
+            missed = [
+                d.date() for d in expected
+                if d.date() not in snapshot_dates
+                and d.date() in closes.index.date
+            ]
+
+            if not missed:
+                continue
+
+            log.warning(
+                "missed_days_detected",
+                portfolio=pname,
+                missed=len(missed),
+                dates=[str(d) for d in missed],
+            )
+
+            # Backfill snapshots
+            prev_total = snapshots[-1].total_value
+            for miss_date in missed:
+                prices = {}
+                for t in closes.columns:
+                    mask = closes.index.date == miss_date
+                    if mask.any():
+                        val = closes.loc[mask, t].iloc[-1]
+                        if pd.notna(val):
+                            prices[t] = float(val)
+
+                if not prices:
+                    continue
+
+                # Calculate value from existing positions
+                portfolio = await self._db.get_portfolio(pname)
+                if portfolio is None:
+                    continue
+
+                positions = await self._db.get_positions(pname)
+                pos_value = sum(
+                    p.shares * prices.get(p.ticker, p.avg_price)
+                    for p in positions
+                )
+                total_value = portfolio.cash + pos_value
+
+                daily_ret = None
+                if prev_total > 0:
+                    daily_ret = (
+                        (total_value - prev_total) / prev_total * 100
+                    )
+                cum_ret = ((total_value - initial) / initial) * 100
+
+                await self._db.save_snapshot(
+                    portfolio=pname,
+                    snapshot_date=miss_date,
+                    total_value=total_value,
+                    cash=portfolio.cash,
+                    positions_value=pos_value,
+                    daily_return_pct=daily_ret,
+                    cumulative_return_pct=cum_ret,
+                )
+
+                recovered_dates.append(str(miss_date))
+                prev_total = total_value
+
+        if recovered_dates:
+            log.info(
+                "recovery_backfill_complete",
+                days=len(recovered_dates),
+            )
+            # Notify via Telegram
+            if self._notifier_available():
+                try:
+                    msg = (
+                        f"Recovery: backfilled {len(recovered_dates)} "
+                        f"missed snapshot(s): {', '.join(recovered_dates)}"
+                    )
+                    await self._notifier.send_message(msg)
+                except Exception:
+                    pass
+
+        return recovered_dates
 
     async def _send_notifications(
         self,
