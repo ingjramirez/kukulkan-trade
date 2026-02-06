@@ -1,0 +1,185 @@
+"""Market data fetcher using yfinance (temporary until IBKR account approved).
+
+Provides OHLCV data for the full ticker universe with caching to SQLite.
+"""
+
+from datetime import date, timedelta
+
+import pandas as pd
+import structlog
+import yfinance as yf
+
+from config.universe import FULL_UNIVERSE
+from src.storage.database import Database
+from src.storage.models import MarketDataRow
+
+log = structlog.get_logger()
+
+# Set to True when IBKR account is approved and ib_insync is configured
+USE_IBKR = False
+
+
+class MarketDataFetcher:
+    """Fetches and caches OHLCV market data."""
+
+    def __init__(self, db: Database) -> None:
+        self._db = db
+
+    async def fetch_ticker(
+        self,
+        ticker: str,
+        period: str = "6mo",
+        start: date | None = None,
+        end: date | None = None,
+    ) -> pd.DataFrame:
+        """Fetch OHLCV data for a single ticker.
+
+        Args:
+            ticker: The ticker symbol.
+            period: yfinance period string (e.g., '6mo', '1y'). Ignored if start is set.
+            start: Start date for data fetch.
+            end: End date for data fetch.
+
+        Returns:
+            DataFrame with columns: Open, High, Low, Close, Volume, indexed by date.
+        """
+        if USE_IBKR:
+            raise NotImplementedError("IBKR data source not yet implemented")
+
+        log.debug("fetching_ticker", ticker=ticker, period=period)
+        yf_ticker = yf.Ticker(ticker)
+
+        if start:
+            df = yf_ticker.history(
+                start=start.isoformat(),
+                end=(end or date.today()).isoformat(),
+            )
+        else:
+            df = yf_ticker.history(period=period)
+
+        if df.empty:
+            log.warning("no_data_returned", ticker=ticker)
+            return df
+
+        # Normalize column names and index
+        df.index = pd.to_datetime(df.index).date
+        df.index.name = "date"
+        df = df[["Open", "High", "Low", "Close", "Volume"]]
+        return df
+
+    async def fetch_universe(
+        self,
+        tickers: list[str] | None = None,
+        period: str = "6mo",
+    ) -> dict[str, pd.DataFrame]:
+        """Fetch OHLCV for multiple tickers.
+
+        Args:
+            tickers: List of tickers. Defaults to FULL_UNIVERSE.
+            period: yfinance period string.
+
+        Returns:
+            Dict mapping ticker -> DataFrame.
+        """
+        tickers = tickers or FULL_UNIVERSE
+        log.info("fetching_universe", count=len(tickers), period=period)
+
+        results: dict[str, pd.DataFrame] = {}
+        # yfinance supports batch download
+        data = yf.download(
+            tickers,
+            period=period,
+            group_by="ticker",
+            threads=True,
+            progress=False,
+        )
+
+        for ticker in tickers:
+            try:
+                if len(tickers) == 1:
+                    df = data[["Open", "High", "Low", "Close", "Volume"]].copy()
+                else:
+                    df = data[ticker][["Open", "High", "Low", "Close", "Volume"]].copy()
+                df = df.dropna()
+                if not df.empty:
+                    df.index = pd.to_datetime(df.index).date
+                    df.index.name = "date"
+                    results[ticker] = df
+            except (KeyError, TypeError):
+                log.warning("ticker_fetch_failed", ticker=ticker)
+
+        log.info("universe_fetched", success=len(results), total=len(tickers))
+        return results
+
+    async def fetch_and_cache(
+        self,
+        tickers: list[str] | None = None,
+        period: str = "6mo",
+    ) -> dict[str, pd.DataFrame]:
+        """Fetch data and persist to SQLite cache.
+
+        Args:
+            tickers: List of tickers. Defaults to FULL_UNIVERSE.
+            period: yfinance period string.
+
+        Returns:
+            Dict mapping ticker -> DataFrame.
+        """
+        data = await self.fetch_universe(tickers=tickers, period=period)
+
+        for ticker, df in data.items():
+            rows = [
+                MarketDataRow(
+                    ticker=ticker,
+                    date=row_date,
+                    open=row["Open"],
+                    high=row["High"],
+                    low=row["Low"],
+                    close=row["Close"],
+                    volume=row["Volume"],
+                )
+                for row_date, row in df.iterrows()
+            ]
+            await self._db.save_market_data(rows)
+
+        log.info("market_data_cached", tickers=len(data))
+        return data
+
+    async def get_closes(
+        self,
+        tickers: list[str] | None = None,
+        period: str = "6mo",
+    ) -> pd.DataFrame:
+        """Get a DataFrame of close prices for multiple tickers.
+
+        Args:
+            tickers: List of tickers. Defaults to FULL_UNIVERSE.
+            period: yfinance period string.
+
+        Returns:
+            DataFrame with tickers as columns and dates as index.
+        """
+        data = await self.fetch_universe(tickers=tickers, period=period)
+        closes = pd.DataFrame({
+            ticker: df["Close"] for ticker, df in data.items()
+        })
+        return closes.sort_index()
+
+    @staticmethod
+    def get_latest_price(ticker: str) -> float | None:
+        """Get the most recent price for a ticker (synchronous convenience method).
+
+        Args:
+            ticker: The ticker symbol.
+
+        Returns:
+            Latest close price, or None if unavailable.
+        """
+        try:
+            t = yf.Ticker(ticker)
+            hist = t.history(period="1d")
+            if not hist.empty:
+                return float(hist["Close"].iloc[-1])
+        except Exception:
+            log.warning("latest_price_failed", ticker=ticker)
+        return None
