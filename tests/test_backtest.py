@@ -1,6 +1,7 @@
 """Tests for the backtest runner — MockPortfolioB, BacktestRunner with synthetic data."""
 
 from datetime import date
+from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
@@ -244,3 +245,62 @@ class TestBacktestRunnerUnit:
         for pname in ("A", "B"):
             snapshots = await db.get_snapshots(pname)
             assert len(snapshots) == 5
+
+    def test_dry_run_mock(self) -> None:
+        """Dry run with mock strategy estimates zero API cost."""
+        runner = BacktestRunner.__new__(BacktestRunner)
+        result = runner._estimate_cost(126, use_ai=False)
+
+        assert result["dry_run"] is True
+        assert result["estimated_api_calls"] == 0
+        assert result["estimated_cost_usd"] == 0.0
+        assert "no API calls" in result["note"].lower() or "mock" in result["note"].lower()
+
+    def test_dry_run_ai(self) -> None:
+        """Dry run with AI estimates token cost."""
+        runner = BacktestRunner.__new__(BacktestRunner)
+        result = runner._estimate_cost(126, use_ai=True)
+
+        assert result["dry_run"] is True
+        assert result["estimated_api_calls"] == 126
+        assert result["estimated_tokens"] > 0
+        assert result["estimated_cost_usd"] > 0
+
+    @pytest.mark.asyncio
+    async def test_run_portfolio_b_ai(self, runner_and_db) -> None:
+        """Portfolio B AI uses the real strategy with mocked agent."""
+        runner, db = runner_and_db
+        from src.agent.claude_agent import ClaudeAgent
+        from src.strategies.portfolio_b import AIAutonomyStrategy
+
+        tickers = ["XLK", "XLF", "QQQ", "GLD", "AAPL", "MSFT"]
+        closes = _make_closes(tickers, days=60)
+        volumes = _make_volumes(tickers, days=60)
+
+        trader = PaperTrader(db)
+        await trader.initialize_portfolios()
+
+        # Create strategy with mocked agent
+        strategy = AIAutonomyStrategy(
+            agent=ClaudeAgent(api_key="fake-key"),
+        )
+        mock_response = {
+            "regime_assessment": "Test regime",
+            "reasoning": "Backtest AI test",
+            "trades": [
+                {"ticker": "XLK", "side": "BUY", "weight": 0.15, "reason": "test"},
+            ],
+            "risk_notes": "test",
+            "_raw": "{}",
+            "_tokens_used": 100,
+            "_model": "test-model",
+        }
+        strategy._agent.analyze = MagicMock(return_value=mock_response)
+        strategy._agent._client = MagicMock()
+
+        trades = await runner._run_portfolio_b_ai(
+            strategy, closes, volumes, trader, date.today(),
+        )
+
+        assert isinstance(trades, list)
+        strategy._agent.analyze.assert_called_once()

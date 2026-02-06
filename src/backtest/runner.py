@@ -136,12 +136,20 @@ class BacktestRunner:
         self._db_url = f"sqlite+aiosqlite:///{db_path}"
         self._db: Database | None = None
 
-    async def run(self, months: int = 6, clean: bool = False) -> dict:
+    async def run(
+        self,
+        months: int = 6,
+        clean: bool = False,
+        use_ai: bool = False,
+        dry_run: bool = False,
+    ) -> dict:
         """Execute the full backtest.
 
         Args:
             months: Number of months of history to simulate.
             clean: If True, drop and recreate all tables before running.
+            use_ai: If True, use real Claude AI for Portfolio B.
+            dry_run: If True, estimate token cost without running.
 
         Returns:
             Summary dict with performance metrics.
@@ -184,11 +192,24 @@ class BacktestRunner:
             end=str(sim_dates[-1]),
         )
 
+        # Dry run: estimate token cost without executing
+        if dry_run:
+            return self._estimate_cost(len(sim_dates), use_ai)
+
         # Step 3: Initialize
         trader = PaperTrader(self._db)
         await trader.initialize_portfolios()
         strategy_a = MomentumStrategy()
-        mock_b = MockPortfolioB()
+
+        # Portfolio B: real AI or mock
+        ai_strategy = None
+        mock_b = None
+        if use_ai:
+            from src.strategies.portfolio_b import AIAutonomyStrategy
+            ai_strategy = AIAutonomyStrategy()
+            log.info("backtest_using_real_ai")
+        else:
+            mock_b = MockPortfolioB()
 
         # Step 4: Day-by-day simulation
         trade_counts = {"A": 0, "B": 0}
@@ -210,11 +231,19 @@ class BacktestRunner:
             except Exception as e:
                 log.warning("backtest_portfolio_a_error", day=str(sim_date), error=str(e))
 
-            # Portfolio B (mock)
+            # Portfolio B
             try:
-                trades_b = await self._run_portfolio_b_mock(
-                    mock_b, closes_slice, trader, sim_date
-                )
+                if use_ai and ai_strategy is not None:
+                    trades_b = await self._run_portfolio_b_ai(
+                        ai_strategy, closes_slice, volumes,
+                        trader, sim_date,
+                    )
+                elif mock_b is not None:
+                    trades_b = await self._run_portfolio_b_mock(
+                        mock_b, closes_slice, trader, sim_date
+                    )
+                else:
+                    trades_b = []
                 all_trades.extend(trades_b)
                 trade_counts["B"] += len(trades_b)
             except Exception as e:
@@ -313,6 +342,123 @@ class BacktestRunner:
         total_value = portfolio.total_value if portfolio else 66_000.0
 
         return mock.generate_trades(closes, position_map, cash, total_value)
+
+    async def _run_portfolio_b_ai(
+        self,
+        strategy,
+        closes: pd.DataFrame,
+        volumes: pd.DataFrame,
+        trader: PaperTrader,
+        sim_date: date,
+    ) -> list[TradeSchema]:
+        """Run Portfolio B using the real AI strategy.
+
+        Args:
+            strategy: AIAutonomyStrategy instance.
+            closes: Historical closes up to sim_date.
+            volumes: Historical volumes up to sim_date.
+            trader: PaperTrader instance.
+            sim_date: Current simulation date.
+
+        Returns:
+            List of generated trades.
+        """
+        portfolio = await self._db.get_portfolio("B")
+        positions = await self._db.get_positions("B")
+        position_map = {p.ticker: p.shares for p in positions}
+        cash = portfolio.cash if portfolio else 66_000.0
+        total_value = portfolio.total_value if portfolio else 66_000.0
+
+        positions_for_agent = [
+            {
+                "ticker": p.ticker,
+                "shares": p.shares,
+                "avg_price": p.avg_price,
+                "market_value": (
+                    p.shares * float(closes[p.ticker].iloc[-1])
+                    if p.ticker in closes.columns else 0
+                ),
+            }
+            for p in positions
+        ]
+
+        recent_trades_raw = await self._db.get_trades("B")
+        recent_trades = [
+            {
+                "ticker": t.ticker,
+                "side": t.side,
+                "shares": t.shares,
+                "price": t.price,
+                "reason": t.reason or "",
+            }
+            for t in recent_trades_raw[:5]
+        ]
+
+        context = strategy.prepare_context(
+            closes=closes,
+            volumes=volumes,
+            positions=positions_for_agent,
+            cash=cash,
+            total_value=total_value,
+            recent_trades=recent_trades,
+        )
+
+        response = strategy._agent.analyze(**context)
+
+        trades = strategy.agent_response_to_trades(
+            response=response,
+            total_value=total_value,
+            current_positions=position_map,
+            latest_prices=closes.iloc[-1],
+        )
+
+        await strategy.save_decision(self._db, sim_date, response, trades)
+
+        log.info(
+            "backtest_ai_decision",
+            date=str(sim_date),
+            trades=len(trades),
+            tokens=response.get("_tokens_used", 0),
+        )
+        return trades
+
+    def _estimate_cost(self, sim_days: int, use_ai: bool) -> dict:
+        """Estimate API cost for a backtest run.
+
+        Args:
+            sim_days: Number of simulation days.
+            use_ai: Whether real AI is being used.
+
+        Returns:
+            Summary dict with cost estimate.
+        """
+        if not use_ai:
+            return {
+                "dry_run": True,
+                "sim_days": sim_days,
+                "estimated_api_calls": 0,
+                "estimated_tokens": 0,
+                "estimated_cost_usd": 0.0,
+                "note": "Mock strategy — no API calls needed.",
+            }
+
+        # Estimate: ~1500 input + ~500 output tokens per call
+        tokens_per_call = 2000
+        total_tokens = sim_days * tokens_per_call
+        # Sonnet pricing: ~$3/M input + ~$15/M output ≈ $6/M blended
+        cost = total_tokens * 6.0 / 1_000_000
+
+        return {
+            "dry_run": True,
+            "sim_days": sim_days,
+            "estimated_api_calls": sim_days,
+            "estimated_tokens": total_tokens,
+            "estimated_cost_usd": round(cost, 2),
+            "note": (
+                f"~{sim_days} Claude API calls. "
+                f"Estimated ${cost:.2f} at Sonnet rates."
+            ),
+        }
 
     async def _compute_summary(self, trade_counts: dict) -> dict:
         """Compute final backtest metrics."""

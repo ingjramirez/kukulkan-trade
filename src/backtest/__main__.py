@@ -29,24 +29,56 @@ def main() -> None:
         "--clean", action="store_true",
         help="Drop and recreate all tables before running",
     )
+    parser.add_argument(
+        "--use-ai", action="store_true",
+        help="Use real Claude AI for Portfolio B (costs API tokens)",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Estimate token cost without running the backtest",
+    )
     args = parser.parse_args()
 
-    print(f"Starting backtest: {args.months} months → {args.db}{' (clean)' if args.clean else ''}")
+    mode = "mock"
+    if args.use_ai:
+        mode = "AI"
+    if args.dry_run:
+        mode = "dry-run"
+
+    print(
+        f"Starting backtest: {args.months} months → {args.db}"
+        f" (mode={mode}{', clean' if args.clean else ''})"
+    )
+
     runner = BacktestRunner(db_path=args.db)
-    summary = asyncio.run(runner.run(months=args.months, clean=args.clean))
+    summary = asyncio.run(runner.run(
+        months=args.months,
+        clean=args.clean,
+        use_ai=args.use_ai,
+        dry_run=args.dry_run,
+    ))
+
+    if summary.get("dry_run"):
+        print("\n=== Dry Run Estimate ===")
+        print(f"  Simulation days: {summary.get('sim_days', 0)}")
+        print(f"  API calls: {summary.get('estimated_api_calls', 0)}")
+        print(f"  Est. tokens: {summary.get('estimated_tokens', 0):,}")
+        print(f"  Est. cost: ${summary.get('estimated_cost_usd', 0):.2f}")
+        print(f"  Note: {summary.get('note', '')}")
+        return
 
     print("\n=== Backtest Summary ===")
-    for key in ("portfolio_A", "portfolio_B", "portfolio_C"):
+    for key in ("portfolio_A", "portfolio_B"):
         data = summary.get(key, {})
         label = key.replace("portfolio_", "Portfolio ")
         print(f"\n{label}:")
         print(f"  Total Return: {data.get('total_return_pct', 0):+.2f}%")
         print(f"  Max Drawdown: {data.get('max_drawdown_pct', 0):.2f}%")
-        print(f"  Final Value:  ${data.get('final_value', 33_333):,.2f}")
+        print(f"  Final Value:  ${data.get('final_value', 0):,.2f}")
         print(f"  Snapshots:    {data.get('snapshots', 0)}")
 
     counts = summary.get("trade_counts", {})
-    print(f"\nTotal Trades: A={counts.get('A', 0)}, B={counts.get('B', 0)}, C={counts.get('C', 0)}")
+    print(f"\nTotal Trades: A={counts.get('A', 0)}, B={counts.get('B', 0)}")
 
 
 if __name__ == "__main__":
