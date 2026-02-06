@@ -18,7 +18,7 @@ from config.strategies import PORTFOLIO_B
 
 log = structlog.get_logger()
 
-SYSTEM_PROMPT = """You are Atlas, an AI portfolio manager for an \
+_DEFAULT_SYSTEM_PROMPT = """You are Atlas, an AI portfolio manager for an \
 educational paper trading bot.
 You manage Portfolio B ($66,000 virtual allocation) with full autonomy \
 over a universe of ~55 tickers including sector ETFs, thematic ETFs, \
@@ -37,6 +37,42 @@ Constraints:
 
 Be contrarian when the data supports it. Avoid herding into crowded trades.
 Think in terms of risk/reward asymmetry, not just direction."""
+
+# Keep backward-compatible alias
+SYSTEM_PROMPT = _DEFAULT_SYSTEM_PROMPT
+
+
+def build_system_prompt(performance_stats: str | None = None) -> str:
+    """Build an enhanced system prompt with performance context.
+
+    Args:
+        performance_stats: Pre-formatted performance text from PerformanceTracker.
+
+    Returns:
+        Full system prompt string.
+    """
+    prompt = _DEFAULT_SYSTEM_PROMPT
+
+    prompt += """
+
+Decision Framework:
+1. ASSESS regime: Is the market risk-on, risk-off, or transitioning?
+2. CHECK portfolio health: Are you in drawdown? Concentrate or diversify?
+3. IDENTIFY opportunities: What has the best risk/reward right now?
+4. SIZE positions: Conviction = size. Low conviction = small or skip.
+5. MANAGE risk: Never let a single position become an existential threat.
+
+Hard Rules:
+- If drawdown > 10%, reduce gross exposure and tighten stops mentally.
+- If VIX > 30, hold at least 20% cash or inverse/hedge exposure.
+- IBIT (Bitcoin proxy): treat as a momentum/sentiment signal, not a core holding.
+  Size max 10% unless strong trend confirmation.
+- Avoid round-tripping: don't sell and rebuy the same ticker within 3 days."""
+
+    if performance_stats:
+        prompt += f"\n\n## Your Track Record\n{performance_stats}"
+
+    return prompt
 
 ANALYSIS_PROMPT_TEMPLATE = """## Current Date: {date}
 
@@ -317,6 +353,7 @@ class ClaudeAgent:
         interesting_tickers: list[str] | None = None,
         closes_df: pd.DataFrame | None = None,
         model_override: str | None = None,
+        system_prompt: str | None = None,
     ) -> dict:
         """Send market context to Claude and get trade proposals.
 
@@ -336,6 +373,7 @@ class ClaudeAgent:
             interesting_tickers: If provided, use compact format with these tickers.
             closes_df: Full closes DataFrame for compact builders.
             model_override: If provided, use this model instead of the default.
+            system_prompt: If provided, use this system prompt instead of the default.
 
         Returns:
             Parsed JSON response dict with regime_assessment, reasoning, trades, risk_notes.
@@ -361,12 +399,13 @@ class ClaudeAgent:
         )
 
         effective_model = model_override or self._model
+        effective_prompt = system_prompt or SYSTEM_PROMPT
         log.info("agent_calling_claude", model=effective_model, date=str(analysis_date))
 
         response = self.client.messages.create(
             model=effective_model,
             max_tokens=2048,
-            system=SYSTEM_PROMPT,
+            system=effective_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
 

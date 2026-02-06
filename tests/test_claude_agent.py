@@ -19,6 +19,7 @@ from src.agent.claude_agent import (
     build_positions_text,
     build_price_table,
     build_recent_trades_text,
+    build_system_prompt,
 )
 from src.strategies.portfolio_b import AIAutonomyStrategy, filter_interesting_tickers
 
@@ -434,6 +435,55 @@ class TestModelOverride:
 
         call_kwargs = mock_client.messages.create.call_args[1]
         assert call_kwargs["model"] == "claude-sonnet-4-5-20250929"
+
+
+class TestBuildSystemPrompt:
+    def test_default_prompt(self) -> None:
+        """Without perf stats, returns base prompt with decision framework."""
+        prompt = build_system_prompt()
+        assert "Atlas" in prompt
+        assert "Decision Framework" in prompt
+        assert "Hard Rules" in prompt
+        assert "Track Record" not in prompt
+
+    def test_with_performance_stats(self) -> None:
+        """With perf stats, appends track record section."""
+        perf = "Portfolio B Performance:\n  Value: $69,300.00 (+5.00%)"
+        prompt = build_system_prompt(performance_stats=perf)
+        assert "Track Record" in prompt
+        assert "$69,300.00" in prompt
+
+    def test_system_prompt_passed_to_api(self) -> None:
+        """Custom system prompt reaches the API call."""
+        agent = ClaudeAgent(api_key="fake-key")
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        resp_json = (
+            '{"regime_assessment":"test","reasoning":"",'
+            '"trades":[],"risk_notes":""}'
+        )
+        mock_response.content = [MagicMock(text=resp_json)]
+        mock_response.usage.input_tokens = 100
+        mock_response.usage.output_tokens = 50
+        mock_response.model = "test"
+        mock_client.messages.create.return_value = mock_response
+        agent._client = mock_client
+
+        custom = "You are a custom prompt."
+        agent.analyze(
+            analysis_date=date(2026, 2, 5),
+            cash=66_000.0,
+            total_value=66_000.0,
+            positions=[],
+            prices={"XLK": [200.0, 201.0, 199.5, 202.0, 203.5]},
+            tickers=["XLK"],
+            indicators={},
+            recent_trades=[],
+            system_prompt=custom,
+        )
+
+        call_kwargs = mock_client.messages.create.call_args[1]
+        assert call_kwargs["system"] == custom
 
 
 class TestSaveDecision:

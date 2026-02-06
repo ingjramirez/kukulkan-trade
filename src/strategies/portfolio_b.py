@@ -99,6 +99,7 @@ class AIAutonomyStrategy:
         yield_curve: float | None = None,
         vix: float | None = None,
         news_context: str = "",
+        system_prompt: str | None = None,
     ) -> dict:
         """Prepare all data needed for the Claude agent call.
 
@@ -148,7 +149,7 @@ class AIAutonomyStrategy:
                 except Exception:
                     pass
 
-        return {
+        ctx = {
             "analysis_date": date.today(),
             "cash": cash,
             "total_value": total_value,
@@ -164,6 +165,9 @@ class AIAutonomyStrategy:
             "interesting_tickers": interesting,
             "closes_df": closes,
         }
+        if system_prompt is not None:
+            ctx["system_prompt"] = system_prompt
+        return ctx
 
     def agent_response_to_trades(
         self,

@@ -14,8 +14,10 @@ from config.strategies import PORTFOLIO_B
 from config.universe import (
     get_dynamic_universe,
 )
+from src.agent.claude_agent import build_system_prompt
 from src.agent.complexity_detector import ComplexityDetector
 from src.agent.ticker_discovery import TickerDiscovery
+from src.analysis.performance import PerformanceTracker
 from src.analysis.risk_manager import RiskManager
 from src.analysis.technical import compute_all_indicators
 from src.data.macro_data import MacroDataFetcher
@@ -54,6 +56,7 @@ class Orchestrator:
         self._complexity_detector = ComplexityDetector()
         self._ticker_discovery = TickerDiscovery(db)
         self._risk_manager = RiskManager()
+        self._performance_tracker = PerformanceTracker()
 
     async def run_daily(self, today: date | None = None) -> dict:
         """Execute the full daily pipeline.
@@ -357,6 +360,19 @@ class Orchestrator:
                 return []
             # "sonnet" or timeout → model_override stays None
 
+        # ── Compute performance stats for dynamic system prompt ────────
+        perf_text: str | None = None
+        try:
+            stats = await self._performance_tracker.get_portfolio_stats(
+                self._db, "B", PORTFOLIO_B.allocation_usd,
+            )
+            if stats.days_tracked > 0:
+                perf_text = self._performance_tracker.format_for_prompt(stats)
+        except Exception as e:
+            log.warning("performance_stats_failed", error=str(e))
+
+        dynamic_prompt = build_system_prompt(performance_stats=perf_text)
+
         # ── Prepare context and call agent ───────────────────────────────
         context = self._strategy_b.prepare_context(
             closes=closes,
@@ -369,6 +385,7 @@ class Orchestrator:
             yield_curve=yield_curve,
             vix=vix,
             news_context=news_context,
+            system_prompt=dynamic_prompt,
         )
         context["model_override"] = model_override
 
