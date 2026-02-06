@@ -30,7 +30,6 @@ class Base(DeclarativeBase):
 class PortfolioName(str, Enum):
     A = "A"
     B = "B"
-    C = "C"
 
 
 class OrderSide(str, Enum):
@@ -54,9 +53,9 @@ class PortfolioRow(Base):
     __tablename__ = "portfolios"
 
     id = Column(Integer, primary_key=True)
-    name = Column(String(1), unique=True, nullable=False)  # A, B, C
-    cash = Column(Float, nullable=False, default=33_333.0)
-    total_value = Column(Float, nullable=False, default=33_333.0)
+    name = Column(String(1), unique=True, nullable=False)  # A, B
+    cash = Column(Float, nullable=False, default=33_000.0)
+    total_value = Column(Float, nullable=False, default=33_000.0)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
@@ -121,28 +120,8 @@ class MomentumRankingRow(Base):
     rank = Column(Integer, nullable=False)
 
 
-class CompositeScoreRow(Base):
-    """Composite scores for Portfolio B (7-factor model)."""
-
-    __tablename__ = "composite_scores"
-    __table_args__ = (UniqueConstraint("date", "ticker"),)
-
-    id = Column(Integer, primary_key=True)
-    date = Column(Date, nullable=False)
-    ticker = Column(String(10), nullable=False)
-    momentum_score = Column(Float)
-    rsi_contrarian_score = Column(Float)
-    macro_regime_score = Column(Float)
-    volume_breakout_score = Column(Float)
-    value_tilt_score = Column(Float)
-    crowding_score = Column(Float)
-    btc_risk_score = Column(Float)
-    composite_score = Column(Float, nullable=False)
-    regime = Column(String(10))
-
-
 class AgentDecisionRow(Base):
-    """Claude's trade decisions for Portfolio C."""
+    """Claude's trade decisions for Portfolio B."""
 
     __tablename__ = "agent_decisions"
 
@@ -222,6 +201,22 @@ class NewsLogRow(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
+class DiscoveredTickerRow(Base):
+    """Dynamically discovered tickers for Portfolio B."""
+
+    __tablename__ = "discovered_tickers"
+
+    id = Column(Integer, primary_key=True)
+    ticker = Column(String(10), nullable=False, unique=True)
+    source = Column(String(20), nullable=False)  # "agent", "news", "screener"
+    rationale = Column(Text)
+    status = Column(String(10), nullable=False, default="proposed")  # proposed/approved/rejected/expired
+    proposed_at = Column(Date, nullable=False)
+    expires_at = Column(Date, nullable=False)
+    sector = Column(String(50))
+    market_cap = Column(Float)
+
+
 class WeeklyReportRow(Base):
     """Weekly performance reports."""
 
@@ -232,7 +227,6 @@ class WeeklyReportRow(Base):
     week_end = Column(Date, nullable=False)
     portfolio_a_return = Column(Float)
     portfolio_b_return = Column(Float)
-    portfolio_c_return = Column(Float)
     benchmark_return = Column(Float)  # SPY
     report_text = Column(Text)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -292,6 +286,5 @@ class DailyBrief(BaseModel):
     regime: Regime | None = None
     portfolio_a: PortfolioSnapshot
     portfolio_b: PortfolioSnapshot
-    portfolio_c: PortfolioSnapshot
     proposed_trades: list[TradeSchema] = []
     commentary: str = ""

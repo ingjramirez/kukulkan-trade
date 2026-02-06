@@ -4,11 +4,18 @@ Sends formatted market summaries and trade proposals.
 Receives approval/rejection commands from the user.
 """
 
+from __future__ import annotations
+
 import asyncio
 from datetime import date
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.agent.complexity_detector import ComplexityResult
+    from src.storage.models import DiscoveredTickerRow
 
 import structlog
-from telegram import Bot, Update
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 
 from config.settings import settings
@@ -76,7 +83,6 @@ class TelegramNotifier:
         regime: str | None,
         portfolio_a: dict,
         portfolio_b: dict,
-        portfolio_c: dict,
         proposed_trades: list[TradeSchema],
         commentary: str = "",
     ) -> bool:
@@ -86,8 +92,7 @@ class TelegramNotifier:
             brief_date: Date of the brief.
             regime: Current market regime.
             portfolio_a: Dict with keys: total_value, cash, top_ticker, daily_return_pct.
-            portfolio_b: Dict with keys: total_value, cash, selected, daily_return_pct.
-            portfolio_c: Dict with keys: total_value, cash, reasoning, daily_return_pct.
+            portfolio_b: Dict with keys: total_value, cash, reasoning, daily_return_pct.
             proposed_trades: Trades proposed for today.
             commentary: AI-generated market commentary.
 
@@ -99,7 +104,6 @@ class TelegramNotifier:
             regime=regime,
             portfolio_a=portfolio_a,
             portfolio_b=portfolio_b,
-            portfolio_c=portfolio_c,
             proposed_trades=proposed_trades,
             commentary=commentary,
         )
@@ -132,6 +136,179 @@ class TelegramNotifier:
         text = f"⚠️ <b>Atlas Error</b>\n\n{_escape_html(error_msg)}"
         return await self.send_message(text)
 
+    async def send_approval_request(
+        self,
+        complexity: "ComplexityResult",
+        request_id: str,
+    ) -> int | None:
+        """Send a model escalation approval request with inline keyboard.
+
+        Args:
+            complexity: ComplexityResult with score and signals.
+            request_id: Unique ID to match callback responses.
+
+        Returns:
+            Message ID if sent successfully, None otherwise.
+        """
+        if not self._chat_id:
+            log.warning("telegram_no_chat_id")
+            return None
+
+        text = format_approval_request(complexity)
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("Use Opus", callback_data=f"{request_id}:opus"),
+                InlineKeyboardButton("Keep Sonnet", callback_data=f"{request_id}:sonnet"),
+                InlineKeyboardButton("Skip Portfolio B", callback_data=f"{request_id}:skip"),
+            ]
+        ])
+
+        try:
+            msg = await self.bot.send_message(
+                chat_id=self._chat_id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboard,
+            )
+            log.info("approval_request_sent", request_id=request_id, message_id=msg.message_id)
+            return msg.message_id
+        except Exception as e:
+            log.error("approval_request_failed", error=str(e))
+            return None
+
+    async def wait_for_approval(
+        self,
+        request_id: str,
+        timeout_seconds: int = 300,
+    ) -> str:
+        """Poll for user's inline keyboard response.
+
+        Args:
+            request_id: The request ID to match in callback_data.
+            timeout_seconds: Max seconds to wait before defaulting to Sonnet.
+
+        Returns:
+            "opus", "sonnet", or "skip". Defaults to "sonnet" on timeout.
+        """
+        elapsed = 0
+        poll_interval = 2
+        last_update_id: int | None = None
+
+        while elapsed < timeout_seconds:
+            try:
+                kwargs: dict = {"timeout": 1}
+                if last_update_id is not None:
+                    kwargs["offset"] = last_update_id + 1
+
+                updates = await self.bot.get_updates(**kwargs)
+                for update in updates:
+                    last_update_id = update.update_id
+                    if update.callback_query and update.callback_query.data:
+                        data = update.callback_query.data
+                        if data.startswith(f"{request_id}:"):
+                            choice = data.split(":", 1)[1]
+                            if choice in ("opus", "sonnet", "skip"):
+                                log.info(
+                                    "approval_received",
+                                    request_id=request_id,
+                                    choice=choice,
+                                )
+                                return choice
+            except Exception as e:
+                log.warning("approval_poll_error", error=str(e))
+
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+        log.info("approval_timeout", request_id=request_id, timeout=timeout_seconds)
+        return "sonnet"
+
+    async def send_ticker_proposal(
+        self,
+        ticker_row: "DiscoveredTickerRow",
+        request_id: str,
+    ) -> int | None:
+        """Send a ticker discovery approval request with inline keyboard.
+
+        Args:
+            ticker_row: DiscoveredTickerRow with ticker info.
+            request_id: Unique ID to match callback responses.
+
+        Returns:
+            Message ID if sent successfully, None otherwise.
+        """
+        if not self._chat_id:
+            log.warning("telegram_no_chat_id")
+            return None
+
+        text = format_ticker_proposal(ticker_row)
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("Approve", callback_data=f"{request_id}:approve"),
+                InlineKeyboardButton("Reject", callback_data=f"{request_id}:reject"),
+            ]
+        ])
+
+        try:
+            msg = await self.bot.send_message(
+                chat_id=self._chat_id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboard,
+            )
+            log.info("ticker_proposal_sent", request_id=request_id, ticker=ticker_row.ticker)
+            return msg.message_id
+        except Exception as e:
+            log.error("ticker_proposal_failed", error=str(e))
+            return None
+
+    async def wait_for_ticker_approval(
+        self,
+        request_id: str,
+        timeout_seconds: int = 300,
+    ) -> str:
+        """Poll for user's ticker approval response.
+
+        Args:
+            request_id: The request ID to match in callback_data.
+            timeout_seconds: Max seconds to wait.
+
+        Returns:
+            "approve" or "reject". Defaults to "reject" on timeout.
+        """
+        elapsed = 0
+        poll_interval = 2
+        last_update_id: int | None = None
+
+        while elapsed < timeout_seconds:
+            try:
+                kwargs: dict = {"timeout": 1}
+                if last_update_id is not None:
+                    kwargs["offset"] = last_update_id + 1
+
+                updates = await self.bot.get_updates(**kwargs)
+                for update in updates:
+                    last_update_id = update.update_id
+                    if update.callback_query and update.callback_query.data:
+                        data = update.callback_query.data
+                        if data.startswith(f"{request_id}:"):
+                            choice = data.split(":", 1)[1]
+                            if choice in ("approve", "reject"):
+                                log.info(
+                                    "ticker_approval_received",
+                                    request_id=request_id,
+                                    choice=choice,
+                                )
+                                return choice
+            except Exception as e:
+                log.warning("ticker_approval_poll_error", error=str(e))
+
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+        log.info("ticker_approval_timeout", request_id=request_id)
+        return "reject"
+
 
 # ── Message formatting ───────────────────────────────────────────────────────
 
@@ -141,7 +318,6 @@ def format_daily_brief(
     regime: str | None,
     portfolio_a: dict,
     portfolio_b: dict,
-    portfolio_c: dict,
     proposed_trades: list[TradeSchema],
     commentary: str = "",
 ) -> str:
@@ -152,7 +328,6 @@ def format_daily_brief(
         regime: Current regime string.
         portfolio_a: Portfolio A summary dict.
         portfolio_b: Portfolio B summary dict.
-        portfolio_c: Portfolio C summary dict.
         proposed_trades: Today's proposed trades.
         commentary: AI commentary text.
 
@@ -183,21 +358,10 @@ def format_daily_brief(
     # Portfolio B
     b_ret = portfolio_b.get("daily_return_pct")
     b_ret_str = f"{b_ret:+.2f}%" if b_ret is not None else "N/A"
-    selected = portfolio_b.get("selected", [])
     lines.extend([
-        "<b>Portfolio B</b> (Sector Rotation)",
+        "<b>Portfolio B</b> (AI Autonomy)",
         f"  Value: ${portfolio_b.get('total_value', 0):,.0f} ({b_ret_str})",
-        f"  Holdings: {', '.join(selected) if selected else 'cash'}",
-        "",
-    ])
-
-    # Portfolio C
-    c_ret = portfolio_c.get("daily_return_pct")
-    c_ret_str = f"{c_ret:+.2f}%" if c_ret is not None else "N/A"
-    lines.extend([
-        "<b>Portfolio C</b> (AI Autonomy)",
-        f"  Value: ${portfolio_c.get('total_value', 0):,.0f} ({c_ret_str})",
-        f"  AI: {_escape_html(portfolio_c.get('reasoning', 'N/A')[:150])}",
+        f"  AI: {_escape_html(portfolio_b.get('reasoning', 'N/A')[:150])}",
         "",
     ])
 
@@ -205,9 +369,8 @@ def format_daily_brief(
     total = (
         portfolio_a.get("total_value", 0)
         + portfolio_b.get("total_value", 0)
-        + portfolio_c.get("total_value", 0)
     )
-    initial = 99_999.0
+    initial = 99_000.0
     total_ret = ((total - initial) / initial) * 100 if initial > 0 else 0
     lines.extend([
         f"<b>Combined:</b> ${total:,.0f} ({total_ret:+.2f}%)",
@@ -266,6 +429,58 @@ def format_trade_confirmation(trades: list[TradeSchema]) -> str:
     total_sell = sum(t.total for t in trades if t.side.value == "SELL")
     lines.append(f"Total bought: ${total_buy:,.0f} | Total sold: ${total_sell:,.0f}")
 
+    return "\n".join(lines)
+
+
+def format_approval_request(complexity: "ComplexityResult") -> str:
+    """Format a model escalation approval request as HTML.
+
+    Args:
+        complexity: ComplexityResult with score and signals.
+
+    Returns:
+        HTML-formatted message string.
+    """
+    lines = [
+        "🧠 <b>Model Escalation Request</b>",
+        "",
+        f"Complexity score: <b>{complexity.score}/100</b>",
+        "",
+        "<b>Triggered signals:</b>",
+    ]
+    for signal in complexity.signals:
+        lines.append(f"  • {_escape_html(signal)}")
+
+    lines.extend([
+        "",
+        "Choose model for Portfolio B analysis:",
+    ])
+    return "\n".join(lines)
+
+
+def format_ticker_proposal(ticker_row: "DiscoveredTickerRow") -> str:
+    """Format a ticker discovery proposal as HTML.
+
+    Args:
+        ticker_row: DiscoveredTickerRow with ticker info.
+
+    Returns:
+        HTML-formatted message string.
+    """
+    mcap_str = f"${ticker_row.market_cap / 1e9:.1f}B" if ticker_row.market_cap else "N/A"
+    lines = [
+        "🔍 <b>New Ticker Proposal</b>",
+        "",
+        f"Ticker: <b>{_escape_html(ticker_row.ticker)}</b>",
+        f"Sector: {_escape_html(ticker_row.sector or 'Unknown')}",
+        f"Market Cap: {mcap_str}",
+        f"Source: {_escape_html(ticker_row.source)}",
+        f"Expires: {ticker_row.expires_at.isoformat()}",
+        "",
+        f"<b>Rationale:</b> {_escape_html(ticker_row.rationale or 'N/A')}",
+        "",
+        "Add to Portfolio B universe?",
+    ]
     return "\n".join(lines)
 
 

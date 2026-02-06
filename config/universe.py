@@ -1,8 +1,7 @@
 """Ticker universe organized by category and portfolio access.
 
 Portfolio A (Aggressive Momentum): SECTOR_ETFS + THEMATIC_ETFS only
-Portfolio B (Sector Rotation): Full ETF universe + individual stocks
-Portfolio C (AI Full Autonomy): Everything
+Portfolio B (AI Full Autonomy): Full ETF universe + individual stocks
 """
 
 # --- Core Sector ETFs (SPDR Select Sector) ---
@@ -81,7 +80,25 @@ PORTFOLIO_A_UNIVERSE: list[str] = SECTOR_ETFS + THEMATIC_ETFS
 PORTFOLIO_B_UNIVERSE: list[str] = (
     SECTOR_ETFS + THEMATIC_ETFS + INVERSE_ETFS + COMMODITY_ETFS + INDIVIDUAL_STOCKS + CRYPTO
 )
-PORTFOLIO_C_UNIVERSE: list[str] = PORTFOLIO_B_UNIVERSE  # Claude gets everything
 
 # Full universe (for data fetching)
 FULL_UNIVERSE: list[str] = sorted(set(PORTFOLIO_B_UNIVERSE))
+
+
+async def get_dynamic_universe(db: "Database") -> list[str]:
+    """Get the full universe including approved dynamic tickers.
+
+    Merges the static FULL_UNIVERSE with any approved discovered tickers
+    from the database.
+
+    Args:
+        db: Database instance for querying discovered tickers.
+
+    Returns:
+        Sorted, deduplicated list of all active tickers.
+    """
+    from src.storage.database import Database
+
+    approved = await db.get_approved_tickers()
+    dynamic = [r.ticker for r in approved]
+    return sorted(set(FULL_UNIVERSE + dynamic))

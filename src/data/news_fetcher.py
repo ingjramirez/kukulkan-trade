@@ -148,28 +148,45 @@ class NewsFetcher:
 
         return articles
 
-    def get_news_context(self, tickers: list[str], n_results: int = 15) -> str:
+    def get_news_context(self, tickers: list[str], n_results: int = 8) -> str:
         """Build a news context string for the Claude agent prompt.
 
         Searches ChromaDB for the most relevant recent headlines
-        across the given tickers.
+        across the given tickers. Deduplicates by ticker to maximize
+        coverage across different names.
 
         Args:
             tickers: Tickers to search news for.
-            n_results: Max headlines to include.
+            n_results: Max headlines to include (default 8).
 
         Returns:
             Formatted text block for the agent prompt.
         """
-        # Search with a broad market query
+        # Search with a broad market query — fetch extra for dedup
         query = f"market news for {', '.join(tickers[:10])}"
-        articles = self.search_relevant(query, n_results=n_results)
+        articles = self.search_relevant(query, n_results=n_results * 2)
 
         if not articles:
             return "  (no recent news available)"
 
-        lines = []
+        # Deduplicate: prefer unique tickers first
+        seen_tickers: set[str] = set()
+        unique_first: list[dict] = []
+        duplicates: list[dict] = []
+
         for a in articles:
+            ticker = a.get("ticker", "")
+            if ticker not in seen_tickers:
+                seen_tickers.add(ticker)
+                unique_first.append(a)
+            else:
+                duplicates.append(a)
+
+        # Fill up to n_results, unique tickers first
+        selected = (unique_first + duplicates)[:n_results]
+
+        lines = []
+        for a in selected:
             ticker = a.get("ticker", "")
             title = a.get("title", "")
             publisher = a.get("publisher", "")

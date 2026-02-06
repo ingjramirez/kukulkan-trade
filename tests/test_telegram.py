@@ -8,10 +8,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.agent.complexity_detector import ComplexityResult
 from src.notifications.telegram_bot import (
     TelegramNotifier,
     _escape_html,
     _split_message,
+    format_approval_request,
     format_daily_brief,
     format_trade_confirmation,
 )
@@ -93,26 +95,22 @@ class TestFormatDailyBrief:
             brief_date=date(2026, 2, 5),
             regime="BULL",
             portfolio_a={"total_value": 34000, "cash": 0, "top_ticker": "QQQ", "daily_return_pct": 1.5},
-            portfolio_b={"total_value": 33500, "cash": 500, "selected": ["XLK", "XLF"], "daily_return_pct": 0.3},
-            portfolio_c={"total_value": 33800, "cash": 1000, "reasoning": "Bullish on tech", "daily_return_pct": -0.2},
+            portfolio_b={"total_value": 67000, "cash": 1000, "reasoning": "Bullish on tech", "daily_return_pct": -0.2},
             proposed_trades=[],
         )
         assert "2026-02-05" in msg
         assert "BULL" in msg
-        assert "🟢" in msg
         assert "Portfolio A" in msg
         assert "QQQ" in msg
         assert "$34,000" in msg
-        assert "XLK, XLF" in msg
 
     def test_with_trades(self) -> None:
         trades = [_make_trade(ticker="QQQ", side=OrderSide.BUY, shares=5, price=500)]
         msg = format_daily_brief(
             brief_date=date(2026, 2, 5),
             regime="NEUTRAL",
-            portfolio_a={"total_value": 33333, "daily_return_pct": None},
-            portfolio_b={"total_value": 33333, "daily_return_pct": None},
-            portfolio_c={"total_value": 33333, "daily_return_pct": None, "reasoning": "N/A"},
+            portfolio_a={"total_value": 33000, "daily_return_pct": None},
+            portfolio_b={"total_value": 66000, "daily_return_pct": None, "reasoning": "N/A"},
             proposed_trades=trades,
         )
         assert "Proposed Trades (1)" in msg
@@ -124,38 +122,34 @@ class TestFormatDailyBrief:
             brief_date=date(2026, 2, 5),
             regime="BEAR",
             portfolio_a={"total_value": 30000, "daily_return_pct": -2.0},
-            portfolio_b={"total_value": 31000, "daily_return_pct": -1.0},
-            portfolio_c={"total_value": 32000, "daily_return_pct": -0.5, "reasoning": "Defensive"},
+            portfolio_b={"total_value": 65000, "daily_return_pct": -0.5, "reasoning": "Defensive"},
             proposed_trades=[],
             commentary="Markets are volatile today.",
         )
         assert "Market Commentary" in msg
         assert "Markets are volatile today." in msg
-        assert "🔴" in msg  # BEAR regime
+        assert "BEAR" in msg
 
     def test_unknown_regime(self) -> None:
         msg = format_daily_brief(
             brief_date=date(2026, 2, 5),
             regime=None,
-            portfolio_a={"total_value": 33333, "daily_return_pct": None},
-            portfolio_b={"total_value": 33333, "daily_return_pct": None},
-            portfolio_c={"total_value": 33333, "daily_return_pct": None, "reasoning": "N/A"},
+            portfolio_a={"total_value": 33000, "daily_return_pct": None},
+            portfolio_b={"total_value": 66000, "daily_return_pct": None, "reasoning": "N/A"},
             proposed_trades=[],
         )
         assert "Unknown" in msg
-        assert "❓" in msg
 
     def test_combined_total(self) -> None:
         msg = format_daily_brief(
             brief_date=date(2026, 2, 5),
             regime="ROTATION",
             portfolio_a={"total_value": 35000, "daily_return_pct": 1.0},
-            portfolio_b={"total_value": 34000, "daily_return_pct": 0.5},
-            portfolio_c={"total_value": 33000, "daily_return_pct": -0.3, "reasoning": "test"},
+            portfolio_b={"total_value": 68000, "daily_return_pct": -0.3, "reasoning": "test"},
             proposed_trades=[],
         )
-        assert "$102,000" in msg
-        assert "🔄" in msg  # ROTATION regime
+        assert "$103,000" in msg
+        assert "ROTATION" in msg
 
 
 # ── Trade Confirmation Formatting ────────────────────────────────────────────
@@ -240,8 +234,7 @@ class TestTelegramNotifier:
             brief_date=date(2026, 2, 5),
             regime="BULL",
             portfolio_a={"total_value": 34000, "daily_return_pct": 1.0},
-            portfolio_b={"total_value": 33500, "daily_return_pct": 0.5, "selected": ["XLK"]},
-            portfolio_c={"total_value": 33800, "daily_return_pct": -0.1, "reasoning": "test"},
+            portfolio_b={"total_value": 67000, "daily_return_pct": -0.1, "reasoning": "test"},
             proposed_trades=[],
         )
         assert result is True
@@ -283,7 +276,163 @@ class TestTelegramNotifier:
         bot = notifier.bot
         assert bot is not None
 
-    def test_bot_no_token_raises(self) -> None:
+    @patch("src.notifications.telegram_bot.settings")
+    def test_bot_no_token_raises(self, mock_settings) -> None:
+        mock_settings.telegram.bot_token = ""
         notifier = TelegramNotifier(bot_token="", chat_id="12345")
         with pytest.raises(ValueError, match="TELEGRAM_BOT_TOKEN"):
             _ = notifier.bot
+
+
+# ── Approval Request Formatting ─────────────────────────────────────────────
+
+
+class TestFormatApprovalRequest:
+    def test_contains_score(self) -> None:
+        complexity = ComplexityResult(
+            score=65, should_escalate=True, signals=["VIX elevated at 32.0"]
+        )
+        msg = format_approval_request(complexity)
+        assert "65/100" in msg
+
+    def test_contains_signals(self) -> None:
+        complexity = ComplexityResult(
+            score=40,
+            should_escalate=False,
+            signals=["Drawdown 6.2% from peak", "Regime changed: BULL → BEAR"],
+        )
+        msg = format_approval_request(complexity)
+        assert "Drawdown" in msg
+        assert "Regime changed" in msg
+
+    def test_html_escapes_signals(self) -> None:
+        complexity = ComplexityResult(
+            score=50, should_escalate=True, signals=["A<B & C>D"]
+        )
+        msg = format_approval_request(complexity)
+        assert "&lt;" in msg
+        assert "&amp;" in msg
+
+    def test_header_present(self) -> None:
+        complexity = ComplexityResult(score=50, should_escalate=True, signals=["test"])
+        msg = format_approval_request(complexity)
+        assert "Model Escalation Request" in msg
+
+
+# ── Approval Request Sending ────────────────────────────────────────────────
+
+
+class TestSendApprovalRequest:
+    async def test_sends_with_keyboard(self) -> None:
+        notifier = TelegramNotifier(bot_token="test-token", chat_id="12345")
+        mock_bot = AsyncMock()
+        mock_msg = MagicMock()
+        mock_msg.message_id = 42
+        mock_bot.send_message.return_value = mock_msg
+        notifier._bot = mock_bot
+
+        complexity = ComplexityResult(
+            score=60, should_escalate=True, signals=["VIX elevated at 28.0"]
+        )
+        result = await notifier.send_approval_request(complexity, "req123")
+
+        assert result == 42
+        call_kwargs = mock_bot.send_message.call_args[1]
+        assert call_kwargs["reply_markup"] is not None
+        # Check keyboard has 3 buttons
+        keyboard = call_kwargs["reply_markup"]
+        assert len(keyboard.inline_keyboard) == 1
+        assert len(keyboard.inline_keyboard[0]) == 3
+
+    async def test_keyboard_callback_data(self) -> None:
+        notifier = TelegramNotifier(bot_token="test-token", chat_id="12345")
+        mock_bot = AsyncMock()
+        mock_msg = MagicMock()
+        mock_msg.message_id = 1
+        mock_bot.send_message.return_value = mock_msg
+        notifier._bot = mock_bot
+
+        complexity = ComplexityResult(score=50, should_escalate=True, signals=["test"])
+        await notifier.send_approval_request(complexity, "abc123")
+
+        keyboard = mock_bot.send_message.call_args[1]["reply_markup"]
+        buttons = keyboard.inline_keyboard[0]
+        assert buttons[0].callback_data == "abc123:opus"
+        assert buttons[1].callback_data == "abc123:sonnet"
+        assert buttons[2].callback_data == "abc123:skip"
+
+    async def test_returns_none_without_chat_id(self) -> None:
+        notifier = TelegramNotifier(bot_token="test-token", chat_id="")
+        complexity = ComplexityResult(score=50, should_escalate=True, signals=["test"])
+        result = await notifier.send_approval_request(complexity, "req123")
+        assert result is None
+
+    async def test_returns_none_on_api_error(self) -> None:
+        notifier = TelegramNotifier(bot_token="test-token", chat_id="12345")
+        mock_bot = AsyncMock()
+        mock_bot.send_message.side_effect = Exception("API error")
+        notifier._bot = mock_bot
+
+        complexity = ComplexityResult(score=50, should_escalate=True, signals=["test"])
+        result = await notifier.send_approval_request(complexity, "req123")
+        assert result is None
+
+
+# ── Approval Polling ────────────────────────────────────────────────────────
+
+
+class TestWaitForApproval:
+    async def test_receives_opus_choice(self) -> None:
+        notifier = TelegramNotifier(bot_token="test-token", chat_id="12345")
+        mock_bot = AsyncMock()
+
+        # Simulate callback query with opus choice
+        mock_update = MagicMock()
+        mock_update.update_id = 1
+        mock_update.callback_query.data = "req123:opus"
+        mock_bot.get_updates.return_value = [mock_update]
+        notifier._bot = mock_bot
+
+        result = await notifier.wait_for_approval("req123", timeout_seconds=5)
+        assert result == "opus"
+
+    async def test_receives_skip_choice(self) -> None:
+        notifier = TelegramNotifier(bot_token="test-token", chat_id="12345")
+        mock_bot = AsyncMock()
+
+        mock_update = MagicMock()
+        mock_update.update_id = 1
+        mock_update.callback_query.data = "req123:skip"
+        mock_bot.get_updates.return_value = [mock_update]
+        notifier._bot = mock_bot
+
+        result = await notifier.wait_for_approval("req123", timeout_seconds=5)
+        assert result == "skip"
+
+    async def test_ignores_unrelated_updates(self) -> None:
+        notifier = TelegramNotifier(bot_token="test-token", chat_id="12345")
+        mock_bot = AsyncMock()
+
+        # First poll: unrelated update. Second poll: matching update.
+        unrelated = MagicMock()
+        unrelated.update_id = 1
+        unrelated.callback_query.data = "other_req:opus"
+
+        matching = MagicMock()
+        matching.update_id = 2
+        matching.callback_query.data = "req123:sonnet"
+
+        mock_bot.get_updates.side_effect = [[unrelated], [matching]]
+        notifier._bot = mock_bot
+
+        result = await notifier.wait_for_approval("req123", timeout_seconds=10)
+        assert result == "sonnet"
+
+    async def test_timeout_defaults_to_sonnet(self) -> None:
+        notifier = TelegramNotifier(bot_token="test-token", chat_id="12345")
+        mock_bot = AsyncMock()
+        mock_bot.get_updates.return_value = []  # No updates ever
+        notifier._bot = mock_bot
+
+        result = await notifier.wait_for_approval("req123", timeout_seconds=1)
+        assert result == "sonnet"

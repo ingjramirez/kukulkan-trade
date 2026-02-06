@@ -4,13 +4,14 @@ from datetime import date, datetime
 from pathlib import Path
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.storage.models import (
     Base,
     DailySnapshotRow,
+    DiscoveredTickerRow,
     MarketDataRow,
     MomentumRankingRow,
     PortfolioRow,
@@ -174,8 +175,15 @@ class Database:
         daily_return_pct: float | None = None,
         cumulative_return_pct: float | None = None,
     ) -> None:
-        """Save end-of-day portfolio snapshot."""
+        """Save end-of-day portfolio snapshot (replaces if exists)."""
         async with self.session() as s:
+            # Delete existing snapshot for this portfolio+date if re-running
+            await s.execute(
+                delete(DailySnapshotRow).where(
+                    DailySnapshotRow.portfolio == portfolio,
+                    DailySnapshotRow.date == snapshot_date,
+                )
+            )
             s.add(DailySnapshotRow(
                 portfolio=portfolio,
                 date=snapshot_date,
@@ -206,8 +214,17 @@ class Database:
     async def save_momentum_rankings(
         self, rankings: list[MomentumRankingRow]
     ) -> None:
-        """Save a batch of momentum rankings."""
+        """Save a batch of momentum rankings (replaces if exists for same date)."""
+        if not rankings:
+            return
         async with self.session() as s:
+            # Delete existing rankings for this date if re-running
+            ranking_date = rankings[0].date
+            await s.execute(
+                delete(MomentumRankingRow).where(
+                    MomentumRankingRow.date == ranking_date
+                )
+            )
             s.add_all(rankings)
             await s.commit()
 
@@ -260,3 +277,66 @@ class Database:
             stmt = stmt.order_by(MarketDataRow.date)
             result = await s.execute(stmt)
             return list(result.scalars().all())
+
+    # ── Discovered Tickers ────────────────────────────────────────────────
+
+    async def get_approved_tickers(self) -> list[DiscoveredTickerRow]:
+        """Get all approved (non-expired) discovered tickers."""
+        async with self.session() as s:
+            result = await s.execute(
+                select(DiscoveredTickerRow).where(
+                    DiscoveredTickerRow.status == "approved"
+                )
+            )
+            return list(result.scalars().all())
+
+    async def get_discovered_ticker(self, ticker: str) -> DiscoveredTickerRow | None:
+        """Get a discovered ticker by symbol."""
+        async with self.session() as s:
+            result = await s.execute(
+                select(DiscoveredTickerRow).where(
+                    DiscoveredTickerRow.ticker == ticker
+                )
+            )
+            return result.scalar_one_or_none()
+
+    async def save_discovered_ticker(self, row: DiscoveredTickerRow) -> None:
+        """Save a new discovered ticker."""
+        async with self.session() as s:
+            s.add(row)
+            await s.commit()
+
+    async def update_discovered_ticker_status(
+        self, ticker: str, status: str
+    ) -> None:
+        """Update the status of a discovered ticker."""
+        async with self.session() as s:
+            row = (
+                await s.execute(
+                    select(DiscoveredTickerRow).where(
+                        DiscoveredTickerRow.ticker == ticker
+                    )
+                )
+            ).scalar_one_or_none()
+            if row:
+                row.status = status
+                await s.commit()
+
+    async def expire_old_tickers(self, today: date) -> int:
+        """Mark approved tickers past their expiry date as expired.
+
+        Returns:
+            Number of tickers expired.
+        """
+        async with self.session() as s:
+            result = await s.execute(
+                select(DiscoveredTickerRow).where(
+                    DiscoveredTickerRow.status == "approved",
+                    DiscoveredTickerRow.expires_at <= today,
+                )
+            )
+            expired = list(result.scalars().all())
+            for row in expired:
+                row.status = "expired"
+            await s.commit()
+            return len(expired)

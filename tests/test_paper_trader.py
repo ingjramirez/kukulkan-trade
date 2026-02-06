@@ -22,16 +22,19 @@ async def trader():
 
 class TestInitialization:
     async def test_portfolios_created(self, trader: PaperTrader) -> None:
-        for name in ("A", "B", "C"):
-            portfolio = await trader._db.get_portfolio(name)
-            assert portfolio is not None
-            assert portfolio.cash == 33_333.0
+        portfolio_a = await trader._db.get_portfolio("A")
+        assert portfolio_a is not None
+        assert portfolio_a.cash == 33_000.0
+
+        portfolio_b = await trader._db.get_portfolio("B")
+        assert portfolio_b is not None
+        assert portfolio_b.cash == 66_000.0
 
     async def test_idempotent_init(self, trader: PaperTrader) -> None:
         # Second init should not change anything
         await trader.initialize_portfolios()
         portfolio = await trader._db.get_portfolio("A")
-        assert portfolio.cash == 33_333.0
+        assert portfolio.cash == 33_000.0
 
 
 class TestExecuteTrades:
@@ -47,7 +50,7 @@ class TestExecuteTrades:
         assert len(executed) == 1
 
         portfolio = await trader._db.get_portfolio("A")
-        assert portfolio.cash == 33_333.0 - 20_000.0
+        assert portfolio.cash == 33_000.0 - 20_000.0
 
         positions = await trader._db.get_positions("A")
         assert len(positions) == 1
@@ -71,7 +74,7 @@ class TestExecuteTrades:
         assert len(executed) == 1
 
         portfolio = await trader._db.get_portfolio("A")
-        expected_cash = 33_333.0 - 20_000.0 + 10_500.0
+        expected_cash = 33_000.0 - 20_000.0 + 10_500.0
         assert portfolio.cash == expected_cash
 
         positions = await trader._db.get_positions("A")
@@ -80,7 +83,7 @@ class TestExecuteTrades:
     async def test_insufficient_cash_rejected(self, trader: PaperTrader) -> None:
         trade = TradeSchema(
             portfolio=PortfolioName.A, ticker="XLK", side=OrderSide.BUY,
-            shares=1000.0, price=200.0,  # $200K > $33K
+            shares=1000.0, price=200.0,  # $200K > $33K cash
         )
         executed = await trader.execute_trades([trade])
         assert len(executed) == 0
@@ -139,8 +142,8 @@ class TestSnapshot:
 
         snapshots = await trader._db.get_snapshots("A")
         assert len(snapshots) == 1
-        # cash = 33333 - 20000 = 13333, positions = 100*205 = 20500
-        assert snapshots[0].total_value == 13_333.0 + 20_500.0
+        # cash = 33000 - 20000 = 13000, positions = 100*205 = 20500
+        assert snapshots[0].total_value == 13_000.0 + 20_500.0
 
     async def test_daily_return_calculation(self, trader: PaperTrader) -> None:
         buy = TradeSchema(

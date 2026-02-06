@@ -14,7 +14,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from src.storage.models import (
     AgentDecisionRow,
     Base,
-    CompositeScoreRow,
     DailySnapshotRow,
     MomentumRankingRow,
     PortfolioRow,
@@ -39,7 +38,7 @@ def seeded_session(sync_session: Session):
     s = sync_session
 
     # Portfolios
-    for name, val in [("A", 34000), ("B", 33500), ("C", 33800)]:
+    for name, val in [("A", 34000), ("B", 67000)]:
         s.add(PortfolioRow(name=name, cash=5000, total_value=val))
 
     # Positions
@@ -47,10 +46,10 @@ def seeded_session(sync_session: Session):
     s.add(PositionRow(portfolio="B", ticker="XLK", shares=20, avg_price=200))
     s.add(PositionRow(portfolio="B", ticker="XLF", shares=30, avg_price=40))
 
-    # Snapshots (3 days x 3 portfolios)
+    # Snapshots (3 days x 2 portfolios)
     for day_offset in range(3):
         d = date(2026, 2, 3 + day_offset)
-        for name, base_val in [("A", 33333), ("B", 33333), ("C", 33333)]:
+        for name, base_val in [("A", 33000), ("B", 66000)]:
             val = base_val + day_offset * 200 + (ord(name) - 64) * 100
             s.add(DailySnapshotRow(
                 portfolio=name,
@@ -70,21 +69,6 @@ def seeded_session(sync_session: Session):
     # Momentum rankings
     for i, ticker in enumerate(["QQQ", "SMH", "XLK", "IWM", "EFA"]):
         s.add(MomentumRankingRow(date=date(2026, 2, 5), ticker=ticker, return_63d=15.0 - i * 2, rank=i + 1))
-
-    # Composite scores
-    for i, ticker in enumerate(["XLK", "XLF", "XLV", "XLE"]):
-        s.add(CompositeScoreRow(
-            date=date(2026, 2, 5),
-            ticker=ticker,
-            momentum_score=0.8 - i * 0.1,
-            rsi_contrarian_score=0.5,
-            volume_breakout_score=0.3,
-            value_tilt_score=0.4,
-            crowding_score=0.2,
-            btc_risk_score=0.5,
-            composite_score=0.7 - i * 0.1,
-            regime="BULL",
-        ))
 
     # Agent decisions
     s.add(AgentDecisionRow(
@@ -159,22 +143,6 @@ def _load_momentum(session: Session) -> pd.DataFrame:
     return pd.DataFrame([{"ticker": r.ticker, "return_63d": r.return_63d, "rank": r.rank} for r in rows])
 
 
-def _load_composite(session: Session) -> pd.DataFrame:
-    from sqlalchemy import select
-    latest = session.execute(
-        select(CompositeScoreRow.date).order_by(CompositeScoreRow.date.desc()).limit(1)
-    ).scalar_one_or_none()
-    if not latest:
-        return pd.DataFrame()
-    rows = session.execute(
-        select(CompositeScoreRow).where(CompositeScoreRow.date == latest)
-        .order_by(CompositeScoreRow.composite_score.desc())
-    ).scalars().all()
-    return pd.DataFrame([{
-        "ticker": r.ticker, "composite": r.composite_score, "regime": r.regime,
-    } for r in rows])
-
-
 def _load_decisions(session: Session) -> pd.DataFrame:
     from sqlalchemy import select
     rows = session.execute(
@@ -191,9 +159,9 @@ def _load_decisions(session: Session) -> pd.DataFrame:
 
 
 class TestLoadPortfolios:
-    def test_returns_all_three(self, seeded_session: Session) -> None:
+    def test_returns_both(self, seeded_session: Session) -> None:
         portfolios = _load_portfolios(seeded_session)
-        assert set(portfolios.keys()) == {"A", "B", "C"}
+        assert set(portfolios.keys()) == {"A", "B"}
 
     def test_values_correct(self, seeded_session: Session) -> None:
         portfolios = _load_portfolios(seeded_session)
@@ -209,7 +177,7 @@ class TestLoadSnapshots:
     def test_returns_dataframe(self, seeded_session: Session) -> None:
         df = _load_snapshots(seeded_session)
         assert isinstance(df, pd.DataFrame)
-        assert len(df) == 9  # 3 days x 3 portfolios
+        assert len(df) == 6  # 3 days x 2 portfolios
 
     def test_sorted_by_date(self, seeded_session: Session) -> None:
         df = _load_snapshots(seeded_session)
@@ -270,24 +238,6 @@ class TestLoadMomentum:
 
     def test_empty_db(self, sync_session: Session) -> None:
         df = _load_momentum(sync_session)
-        assert df.empty
-
-
-class TestLoadComposite:
-    def test_returns_scores(self, seeded_session: Session) -> None:
-        df = _load_composite(seeded_session)
-        assert len(df) == 4
-
-    def test_sorted_by_composite(self, seeded_session: Session) -> None:
-        df = _load_composite(seeded_session)
-        assert df["composite"].is_monotonic_decreasing
-
-    def test_regime_present(self, seeded_session: Session) -> None:
-        df = _load_composite(seeded_session)
-        assert df.iloc[0]["regime"] == "BULL"
-
-    def test_empty_db(self, sync_session: Session) -> None:
-        df = _load_composite(sync_session)
         assert df.empty
 
 

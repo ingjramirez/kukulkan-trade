@@ -1,4 +1,4 @@
-"""Market data fetcher using yfinance (temporary until IBKR account approved).
+"""Market data fetcher — IBKR first, yfinance fallback.
 
 Provides OHLCV data for the full ticker universe with caching to SQLite.
 """
@@ -15,15 +15,13 @@ from src.storage.models import MarketDataRow
 
 log = structlog.get_logger()
 
-# Set to True when IBKR account is approved and ib_insync is configured
-USE_IBKR = False
-
 
 class MarketDataFetcher:
-    """Fetches and caches OHLCV market data."""
+    """Fetches and caches OHLCV market data. IBKR-first, yfinance fallback."""
 
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database, ibkr_client=None) -> None:
         self._db = db
+        self._ibkr_client = ibkr_client
 
     async def fetch_ticker(
         self,
@@ -43,9 +41,6 @@ class MarketDataFetcher:
         Returns:
             DataFrame with columns: Open, High, Low, Close, Volume, indexed by date.
         """
-        if USE_IBKR:
-            raise NotImplementedError("IBKR data source not yet implemented")
-
         log.debug("fetching_ticker", ticker=ticker, period=period)
         yf_ticker = yf.Ticker(ticker)
 
@@ -72,7 +67,7 @@ class MarketDataFetcher:
         tickers: list[str] | None = None,
         period: str = "6mo",
     ) -> dict[str, pd.DataFrame]:
-        """Fetch OHLCV for multiple tickers.
+        """Fetch OHLCV for multiple tickers. Tries IBKR first, falls back to yfinance.
 
         Args:
             tickers: List of tickers. Defaults to FULL_UNIVERSE.
@@ -82,6 +77,58 @@ class MarketDataFetcher:
             Dict mapping ticker -> DataFrame.
         """
         tickers = tickers or FULL_UNIVERSE
+
+        if self._ibkr_client and self._ibkr_client.is_connected():
+            try:
+                return await self._fetch_from_ibkr(tickers, period)
+            except Exception as e:
+                log.warning("ibkr_data_failed_falling_back_to_yfinance", error=str(e))
+
+        return await self._fetch_from_yfinance(tickers, period)
+
+    async def _fetch_from_ibkr(
+        self,
+        tickers: list[str],
+        period: str,
+    ) -> dict[str, pd.DataFrame]:
+        """Fetch data from IBKR Gateway.
+
+        Args:
+            tickers: List of tickers.
+            period: Period string (converted to IB duration).
+
+        Returns:
+            Dict mapping ticker -> DataFrame.
+        """
+        # Convert yfinance period to IB duration
+        duration_map = {
+            "1mo": "1 M",
+            "3mo": "3 M",
+            "6mo": "6 M",
+            "1y": "1 Y",
+            "2y": "2 Y",
+        }
+        duration = duration_map.get(period, "1 Y")
+
+        log.info("fetching_from_ibkr", count=len(tickers), duration=duration)
+        return await self._ibkr_client.fetch_universe_historical(
+            tickers, duration=duration
+        )
+
+    async def _fetch_from_yfinance(
+        self,
+        tickers: list[str],
+        period: str,
+    ) -> dict[str, pd.DataFrame]:
+        """Fetch data from yfinance (original logic).
+
+        Args:
+            tickers: List of tickers.
+            period: yfinance period string.
+
+        Returns:
+            Dict mapping ticker -> DataFrame.
+        """
         log.info("fetching_universe", count=len(tickers), period=period)
 
         results: dict[str, pd.DataFrame] = {}

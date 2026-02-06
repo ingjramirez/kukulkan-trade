@@ -13,13 +13,15 @@ import pytest
 
 from src.agent.claude_agent import (
     ClaudeAgent,
+    build_compact_indicators,
+    build_compact_price_summary,
     build_indicators_table,
     build_macro_context,
     build_positions_text,
     build_price_table,
     build_recent_trades_text,
 )
-from src.strategies.portfolio_c import AIAutonomyStrategy
+from src.strategies.portfolio_b import AIAutonomyStrategy, filter_interesting_tickers
 
 
 # ── Prompt building tests ────────────────────────────────────────────────────
@@ -148,30 +150,30 @@ class TestAgentResponseToTrades:
             "trades": [{"ticker": "XLK", "side": "BUY", "weight": 0.15, "reason": "momentum"}],
         }
         trades = self.strategy.agent_response_to_trades(
-            response, total_value=33_333.0, current_positions={}, latest_prices=self.prices,
+            response, total_value=66_000.0, current_positions={}, latest_prices=self.prices,
         )
         assert len(trades) == 1
         assert trades[0].side.value == "BUY"
         assert trades[0].ticker == "XLK"
-        # 15% of $33,333 = $4,999, /200 = 24 shares
-        assert trades[0].shares == 24.0
+        # 15% of $66,000 = $9,900, /200 = 49 shares
+        assert trades[0].shares == 49.0
 
     def test_weight_capped_at_30_pct(self) -> None:
         response = {
             "trades": [{"ticker": "XLK", "side": "BUY", "weight": 0.50, "reason": "all in"}],
         }
         trades = self.strategy.agent_response_to_trades(
-            response, total_value=33_333.0, current_positions={}, latest_prices=self.prices,
+            response, total_value=66_000.0, current_positions={}, latest_prices=self.prices,
         )
-        # Should be capped at 30% = $9,999 / 200 = 49 shares
-        assert trades[0].shares == 49.0
+        # Should be capped at 30% = $19,800 / 200 = 99 shares
+        assert trades[0].shares == 99.0
 
     def test_invalid_ticker_skipped(self) -> None:
         response = {
             "trades": [{"ticker": "FAKE_TICKER", "side": "BUY", "weight": 0.10, "reason": "fake"}],
         }
         trades = self.strategy.agent_response_to_trades(
-            response, total_value=33_333.0, current_positions={}, latest_prices=self.prices,
+            response, total_value=66_000.0, current_positions={}, latest_prices=self.prices,
         )
         assert len(trades) == 0
 
@@ -181,7 +183,7 @@ class TestAgentResponseToTrades:
         }
         trades = self.strategy.agent_response_to_trades(
             response,
-            total_value=33_333.0,
+            total_value=66_000.0,
             current_positions={"XLK": 50.0},
             latest_prices=self.prices,
         )
@@ -192,7 +194,7 @@ class TestAgentResponseToTrades:
     def test_no_trades_proposed(self) -> None:
         response = {"trades": []}
         trades = self.strategy.agent_response_to_trades(
-            response, total_value=33_333.0, current_positions={}, latest_prices=self.prices,
+            response, total_value=66_000.0, current_positions={}, latest_prices=self.prices,
         )
         assert len(trades) == 0
 
@@ -205,7 +207,7 @@ class TestAgentResponseToTrades:
             "risk_notes": "",
         }
         trades = self.strategy.agent_response_to_trades(
-            response, total_value=33_333.0, current_positions={}, latest_prices=self.prices,
+            response, total_value=66_000.0, current_positions={}, latest_prices=self.prices,
         )
         assert len(trades) == 0
 
@@ -218,7 +220,7 @@ class TestAgentResponseToTrades:
             ],
         }
         trades = self.strategy.agent_response_to_trades(
-            response, total_value=33_333.0, current_positions={}, latest_prices=self.prices,
+            response, total_value=66_000.0, current_positions={}, latest_prices=self.prices,
         )
         assert len(trades) == 3
         tickers = {t.ticker for t in trades}
@@ -226,6 +228,202 @@ class TestAgentResponseToTrades:
 
 
 # ── Decision persistence test ────────────────────────────────────────────────
+
+
+# ── Compact format tests ────────────────────────────────────────────────────
+
+
+def _make_closes(tickers: list[str], days: int = 100) -> pd.DataFrame:
+    """Generate synthetic close prices for testing compact builders."""
+    rng = np.random.default_rng(42)
+    dates = pd.bdate_range(end="2026-02-05", periods=days)
+    data = {}
+    for t in tickers:
+        base = rng.uniform(50, 300)
+        returns = rng.normal(0.0005, 0.015, days)
+        prices = base * np.cumprod(1 + returns)
+        data[t] = prices
+    return pd.DataFrame(data, index=dates)
+
+
+class TestBuildCompactPriceSummary:
+    def test_csv_format(self) -> None:
+        closes = _make_closes(["XLK", "GLD", "AAPL"], days=30)
+        result = build_compact_price_summary(closes, ["XLK", "GLD"])
+        lines = result.strip().split("\n")
+        assert lines[0] == "Ticker,Price,1d%,5d%,20d%"
+        assert len(lines) == 3  # header + 2 tickers
+        assert "XLK" in lines[1]
+
+    def test_percentage_changes(self) -> None:
+        closes = _make_closes(["XLK"], days=30)
+        result = build_compact_price_summary(closes, ["XLK"])
+        lines = result.strip().split("\n")
+        parts = lines[1].split(",")
+        assert len(parts) == 5
+        # Check format: ticker, price, 1d%, 5d%, 20d%
+        assert parts[0] == "XLK"
+        float(parts[1])  # price is valid float
+        float(parts[2])  # percentages are valid floats
+
+    def test_skips_missing_ticker(self) -> None:
+        closes = _make_closes(["XLK"], days=30)
+        result = build_compact_price_summary(closes, ["XLK", "FAKE"])
+        lines = result.strip().split("\n")
+        assert len(lines) == 2  # header + 1 ticker
+
+    def test_short_data_handles_gracefully(self) -> None:
+        closes = _make_closes(["XLK"], days=3)
+        result = build_compact_price_summary(closes, ["XLK"])
+        # Should still work, just with 0% for missing lookback periods
+        assert "XLK" in result
+
+    def test_much_smaller_than_verbose(self) -> None:
+        tickers = ["XLK", "XLF", "GLD", "QQQ", "AAPL", "MSFT", "NVDA", "XLE"]
+        closes = _make_closes(tickers, days=30)
+        compact = build_compact_price_summary(closes, tickers)
+        # Build verbose version for comparison
+        prices = {}
+        for t in tickers:
+            vals = closes[t].dropna().tail(5).tolist()
+            if len(vals) >= 5:
+                prices[t] = vals
+        verbose = build_price_table(prices, tickers)
+        # Compact should be significantly smaller
+        assert len(compact) < len(verbose)
+
+
+class TestBuildCompactIndicators:
+    def test_csv_format(self) -> None:
+        closes = _make_closes(["XLK", "GLD"], days=50)
+        result = build_compact_indicators(closes, ["XLK", "GLD"])
+        lines = result.strip().split("\n")
+        assert lines[0] == "Ticker,RSI,MACD"
+        assert len(lines) >= 2  # header + at least 1 ticker
+
+    def test_rsi_and_macd_values(self) -> None:
+        closes = _make_closes(["XLK"], days=50)
+        result = build_compact_indicators(closes, ["XLK"])
+        lines = result.strip().split("\n")
+        parts = lines[1].split(",")
+        assert parts[0] == "XLK"
+        rsi = float(parts[1])
+        assert 0 <= rsi <= 100
+
+    def test_skips_short_data(self) -> None:
+        closes = _make_closes(["XLK"], days=10)
+        result = build_compact_indicators(closes, ["XLK"])
+        lines = result.strip().split("\n")
+        assert len(lines) == 1  # header only
+
+    def test_much_smaller_than_verbose(self) -> None:
+        tickers = ["XLK", "XLF", "GLD", "QQQ", "AAPL"]
+        closes = _make_closes(tickers, days=60)
+        compact = build_compact_indicators(closes, tickers)
+        # Build verbose version
+        from src.analysis.technical import compute_all_indicators
+        indicators = {}
+        for t in tickers:
+            ind = compute_all_indicators(closes[t].dropna())
+            latest = ind.iloc[-1]
+            indicators[t] = {
+                "rsi_14": float(latest["rsi_14"]) if pd.notna(latest["rsi_14"]) else None,
+                "macd": float(latest["macd"]) if pd.notna(latest["macd"]) else None,
+                "sma_20": float(latest["sma_20"]) if pd.notna(latest["sma_20"]) else None,
+                "sma_50": float(latest["sma_50"]) if pd.notna(latest["sma_50"]) else None,
+            }
+        verbose = build_indicators_table(indicators)
+        assert len(compact) < len(verbose)
+
+
+class TestFilterInterestingTickers:
+    def test_includes_current_holdings(self) -> None:
+        closes = _make_closes(["XLK", "XLF", "GLD", "QQQ", "AAPL"], days=50)
+        result = filter_interesting_tickers(closes, ["XLK", "GLD"])
+        assert "XLK" in result
+        assert "GLD" in result
+
+    def test_includes_top_movers(self) -> None:
+        closes = _make_closes(["XLK", "XLF", "GLD", "QQQ", "AAPL"], days=50)
+        result = filter_interesting_tickers(closes, [], top_movers=3)
+        assert len(result) >= 3
+
+    def test_fewer_than_full_universe(self) -> None:
+        from config.universe import PORTFOLIO_B_UNIVERSE
+        tickers = [t for t in PORTFOLIO_B_UNIVERSE[:20]]
+        closes = _make_closes(tickers, days=50)
+        result = filter_interesting_tickers(closes, [])
+        # Should be a subset (filtered), not the full universe
+        assert len(result) <= len(tickers)
+
+    def test_returns_list(self) -> None:
+        closes = _make_closes(["XLK", "XLF", "GLD"], days=50)
+        result = filter_interesting_tickers(closes, [])
+        assert isinstance(result, list)
+
+    def test_handles_short_data(self) -> None:
+        closes = _make_closes(["XLK", "XLF"], days=1)
+        result = filter_interesting_tickers(closes, ["XLK"])
+        # With only 1 day, can't compute % change — just returns all tickers
+        assert isinstance(result, list)
+
+
+# ── Decision persistence test ────────────────────────────────────────────────
+
+
+class TestModelOverride:
+    def test_model_override_used(self) -> None:
+        """When model_override is provided, it should be used instead of default."""
+        agent = ClaudeAgent(api_key="fake-key", model="claude-sonnet-4-5-20250929")
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text='{"regime_assessment":"test","reasoning":"","trades":[],"risk_notes":""}')]
+        mock_response.usage.input_tokens = 100
+        mock_response.usage.output_tokens = 50
+        mock_response.model = "claude-opus-4-6"
+        mock_client.messages.create.return_value = mock_response
+        agent._client = mock_client
+
+        agent.analyze(
+            analysis_date=date(2026, 2, 5),
+            cash=66_000.0,
+            total_value=66_000.0,
+            positions=[],
+            prices={"XLK": [200.0, 201.0, 199.5, 202.0, 203.5]},
+            tickers=["XLK"],
+            indicators={},
+            recent_trades=[],
+            model_override="claude-opus-4-6",
+        )
+
+        call_kwargs = mock_client.messages.create.call_args[1]
+        assert call_kwargs["model"] == "claude-opus-4-6"
+
+    def test_no_override_uses_default(self) -> None:
+        """Without model_override, the default model should be used."""
+        agent = ClaudeAgent(api_key="fake-key", model="claude-sonnet-4-5-20250929")
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text='{"regime_assessment":"test","reasoning":"","trades":[],"risk_notes":""}')]
+        mock_response.usage.input_tokens = 100
+        mock_response.usage.output_tokens = 50
+        mock_response.model = "claude-sonnet-4-5-20250929"
+        mock_client.messages.create.return_value = mock_response
+        agent._client = mock_client
+
+        agent.analyze(
+            analysis_date=date(2026, 2, 5),
+            cash=66_000.0,
+            total_value=66_000.0,
+            positions=[],
+            prices={"XLK": [200.0, 201.0, 199.5, 202.0, 203.5]},
+            tickers=["XLK"],
+            indicators={},
+            recent_trades=[],
+        )
+
+        call_kwargs = mock_client.messages.create.call_args[1]
+        assert call_kwargs["model"] == "claude-sonnet-4-5-20250929"
 
 
 class TestSaveDecision:

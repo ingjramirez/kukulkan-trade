@@ -1,7 +1,7 @@
 """Streamlit dashboard for portfolio visualization.
 
 Shows portfolio performance, positions, trade history,
-and strategy comparisons across all three portfolios.
+and strategy comparisons across both portfolios.
 
 Usage:
     streamlit run src/dashboard/app.py
@@ -21,7 +21,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from src.storage.models import (
     AgentDecisionRow,
     Base,
-    CompositeScoreRow,
     DailySnapshotRow,
     MomentumRankingRow,
     PortfolioRow,
@@ -116,7 +115,7 @@ def load_positions() -> pd.DataFrame:
             "ticker": r.ticker,
             "shares": r.shares,
             "avg_price": r.avg_price,
-            "market_value": r.market_value,
+            "market_value": r.market_value if r.market_value is not None else r.shares * r.avg_price,
         }
         for r in rows
     ]
@@ -178,44 +177,8 @@ def load_momentum_rankings() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=60)
-def load_composite_scores() -> pd.DataFrame:
-    """Load latest composite scores for Portfolio B."""
-    with get_session() as s:
-        latest = s.execute(
-            select(CompositeScoreRow.date)
-            .order_by(CompositeScoreRow.date.desc())
-            .limit(1)
-        ).scalar_one_or_none()
-
-        if not latest:
-            return pd.DataFrame()
-
-        rows = s.execute(
-            select(CompositeScoreRow)
-            .where(CompositeScoreRow.date == latest)
-            .order_by(CompositeScoreRow.composite_score.desc())
-        ).scalars().all()
-
-    data = [
-        {
-            "ticker": r.ticker,
-            "momentum": r.momentum_score,
-            "rsi_contrarian": r.rsi_contrarian_score,
-            "volume_breakout": r.volume_breakout_score,
-            "value_tilt": r.value_tilt_score,
-            "crowding": r.crowding_score,
-            "btc_risk": r.btc_risk_score,
-            "composite": r.composite_score,
-            "regime": r.regime,
-        }
-        for r in rows
-    ]
-    return pd.DataFrame(data)
-
-
-@st.cache_data(ttl=60)
 def load_agent_decisions() -> pd.DataFrame:
-    """Load Claude agent decisions for Portfolio C."""
+    """Load Claude agent decisions for Portfolio B."""
     with get_session() as s:
         rows = s.execute(
             select(AgentDecisionRow)
@@ -244,7 +207,7 @@ def load_agent_decisions() -> pd.DataFrame:
 st.sidebar.title("Atlas Trading Bot")
 page = st.sidebar.radio(
     "Navigate",
-    ["Overview", "Portfolio A", "Portfolio B", "Portfolio C", "Trade Log"],
+    ["Overview", "Portfolio A", "Portfolio B", "Trade Log"],
 )
 
 
@@ -252,14 +215,17 @@ page = st.sidebar.radio(
 
 STRATEGY_LABELS = {
     "A": "Momentum",
-    "B": "Sector Rotation",
-    "C": "AI Autonomy",
+    "B": "AI Autonomy",
 }
 
 COLORS = {
     "A": "#636EFA",   # blue
-    "B": "#EF553B",   # red
-    "C": "#00CC96",   # green
+    "B": "#00CC96",   # green
+}
+
+INITIAL_VALUES = {
+    "A": 33_000.0,
+    "B": 66_000.0,
 }
 
 
@@ -286,18 +252,19 @@ def page_overview() -> None:
         return
 
     # ── KPI metrics row ──────────────────────────────────────────────
-    cols = st.columns(4)
+    cols = st.columns(3)
 
     total_value = sum(p["total_value"] for p in portfolios.values())
-    initial = 99_999.0
+    initial = 99_000.0
     total_return = ((total_value - initial) / initial) * 100
 
     cols[0].metric("Combined Value", f"${total_value:,.0f}", f"{total_return:+.2f}%")
 
-    for i, name in enumerate(("A", "B", "C")):
+    for i, name in enumerate(("A", "B")):
         if name in portfolios:
             p = portfolios[name]
-            ret = ((p["total_value"] - 33_333.0) / 33_333.0) * 100
+            init_val = INITIAL_VALUES[name]
+            ret = ((p["total_value"] - init_val) / init_val) * 100
             cols[i + 1].metric(
                 f"Portfolio {name} ({STRATEGY_LABELS[name]})",
                 f"${p['total_value']:,.0f}",
@@ -384,7 +351,8 @@ def page_portfolio(name: str) -> None:
         return
 
     p = portfolios[name]
-    ret = ((p["total_value"] - 33_333.0) / 33_333.0) * 100
+    init_val = INITIAL_VALUES[name]
+    ret = ((p["total_value"] - init_val) / init_val) * 100
 
     # ── KPI row ──────────────────────────────────────────────────────
     c1, c2, c3 = st.columns(3)
@@ -433,8 +401,6 @@ def page_portfolio(name: str) -> None:
     if name == "A":
         _section_momentum()
     elif name == "B":
-        _section_composite_scores()
-    elif name == "C":
         _section_agent_decisions()
 
     # ── Recent trades ────────────────────────────────────────────────
@@ -480,48 +446,8 @@ def _section_momentum() -> None:
         )
 
 
-def _section_composite_scores() -> None:
-    """Composite scores section for Portfolio B."""
-    scores = load_composite_scores()
-    if scores.empty:
-        return
-
-    st.subheader("Composite Scores (7-Factor Model)")
-
-    if "regime" in scores.columns and not scores["regime"].isna().all():
-        regime = scores["regime"].iloc[0]
-        st.info(f"Current Regime: **{regime}**")
-
-    # Top 10 bar chart
-    fig = px.bar(
-        scores.head(10),
-        x="ticker",
-        y="composite",
-        color="composite",
-        color_continuous_scale="Viridis",
-        labels={"composite": "Score", "ticker": "Ticker"},
-    )
-    fig.update_layout(height=350)
-    st.plotly_chart(fig, use_container_width=True)
-
-    # Factor breakdown heatmap
-    factor_cols = ["momentum", "rsi_contrarian", "volume_breakout", "value_tilt", "crowding", "btc_risk"]
-    available = [c for c in factor_cols if c in scores.columns]
-    if available:
-        with st.expander("Factor Breakdown"):
-            heatmap_data = scores.head(10).set_index("ticker")[available]
-            fig2 = px.imshow(
-                heatmap_data.T,
-                labels=dict(x="Ticker", y="Factor", color="Score"),
-                color_continuous_scale="RdYlGn",
-                aspect="auto",
-            )
-            fig2.update_layout(height=300)
-            st.plotly_chart(fig2, use_container_width=True)
-
-
 def _section_agent_decisions() -> None:
-    """AI agent decisions section for Portfolio C."""
+    """AI agent decisions section for Portfolio B."""
     decisions = load_agent_decisions()
     if decisions.empty:
         return
@@ -557,7 +483,7 @@ def page_trade_log() -> None:
     col1, col2 = st.columns(2)
     with col1:
         portfolio_filter = st.multiselect(
-            "Portfolio", ["A", "B", "C"], default=["A", "B", "C"]
+            "Portfolio", ["A", "B"], default=["A", "B"]
         )
     with col2:
         side_filter = st.multiselect(
@@ -610,7 +536,5 @@ elif page == "Portfolio A":
     page_portfolio("A")
 elif page == "Portfolio B":
     page_portfolio("B")
-elif page == "Portfolio C":
-    page_portfolio("C")
 elif page == "Trade Log":
     page_trade_log()

@@ -8,6 +8,7 @@ from datetime import date
 
 import structlog
 
+from config.strategies import PORTFOLIO_A, PORTFOLIO_B
 from src.storage.database import Database
 from src.storage.models import TradeSchema
 
@@ -21,12 +22,12 @@ class PaperTrader:
         self._db = db
 
     async def initialize_portfolios(self) -> None:
-        """Create A, B, C portfolios with starting cash if they don't exist."""
-        for name in ("A", "B", "C"):
+        """Create A and B portfolios with starting cash if they don't exist."""
+        for name, alloc in [("A", PORTFOLIO_A.allocation_usd), ("B", PORTFOLIO_B.allocation_usd)]:
             existing = await self._db.get_portfolio(name)
             if existing is None:
-                await self._db.upsert_portfolio(name, cash=33_333.0, total_value=33_333.0)
-                log.info("portfolio_initialized", portfolio=name, cash=33_333.0)
+                await self._db.upsert_portfolio(name, cash=alloc, total_value=alloc)
+                log.info("portfolio_initialized", portfolio=name, cash=alloc)
 
     async def execute_trades(self, trades: list[TradeSchema]) -> list[TradeSchema]:
         """Execute a batch of trade signals.
@@ -161,7 +162,7 @@ class PaperTrader:
         """Record end-of-day portfolio snapshot.
 
         Args:
-            portfolio_name: A, B, or C.
+            portfolio_name: A or B.
             snapshot_date: Date of the snapshot.
             prices: Dict of ticker -> current price.
         """
@@ -175,6 +176,9 @@ class PaperTrader:
         )
         total_value = portfolio.cash + positions_value
 
+        # Portfolio-specific initial value
+        initial_value = PORTFOLIO_A.allocation_usd if portfolio_name == "A" else PORTFOLIO_B.allocation_usd
+
         # Calculate daily return
         snapshots = await self._db.get_snapshots(portfolio_name)
         daily_return_pct = None
@@ -183,9 +187,9 @@ class PaperTrader:
             prev = snapshots[-1]
             if prev.total_value > 0:
                 daily_return_pct = ((total_value - prev.total_value) / prev.total_value) * 100
-            cumulative_return_pct = ((total_value - 33_333.0) / 33_333.0) * 100
+            cumulative_return_pct = ((total_value - initial_value) / initial_value) * 100
         else:
-            cumulative_return_pct = ((total_value - 33_333.0) / 33_333.0) * 100
+            cumulative_return_pct = ((total_value - initial_value) / initial_value) * 100
 
         await self._db.save_snapshot(
             portfolio=portfolio_name,
