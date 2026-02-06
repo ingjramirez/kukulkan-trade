@@ -50,10 +50,24 @@ jobs:
             --exclude '*.egg-info' \
             ./ ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/opt/atlas-trading-bot/
 
-      - name: Restart service
+      - name: Deploy landing page
+        run: |
+          rsync -az \
+            deploy/landing/ \
+            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/var/www/kukulkan.trade/
+
+      - name: Deploy nginx configs
+        run: |
+          ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "\
+            cp /opt/atlas-trading-bot/deploy/nginx/kukulkan.trade /etc/nginx/sites-available/ && \
+            cp /opt/atlas-trading-bot/deploy/nginx/app.kukulkan.trade /etc/nginx/sites-available/ && \
+            nginx -t && systemctl reload nginx"
+
+      - name: Restart services
         run: |
           ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "\
             cd /opt/atlas-trading-bot && \
             source .venv/bin/activate && \
             pip install -e . && \
-            sudo systemctl restart atlas-bot"
+            sudo systemctl restart atlas-bot && \
+            sudo systemctl restart kukulkan-dashboard"

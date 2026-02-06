@@ -1,0 +1,48 @@
+# app.kukulkan.trade — Streamlit dashboard behind basic auth
+
+server {
+    listen 80;
+    listen 443 ssl;
+    server_name app.kukulkan.trade;
+
+    ssl_certificate /etc/nginx/ssl/kukulkan.crt;
+    ssl_certificate_key /etc/nginx/ssl/kukulkan.key;
+
+    # Basic auth
+    auth_basic "Kukulkan Dashboard";
+    auth_basic_user_file /etc/nginx/.htpasswd-kukulkan;
+
+    # Proxy to Streamlit
+    location / {
+        proxy_pass http://127.0.0.1:8501;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket support (required by Streamlit)
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        # Streamlit needs generous timeouts
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+    }
+
+    # Streamlit health check (no auth)
+    location /_stcore/health {
+        auth_basic off;
+        proxy_pass http://127.0.0.1:8501/_stcore/health;
+    }
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # Block dotfiles
+    location ~ /\. {
+        deny all;
+    }
+}

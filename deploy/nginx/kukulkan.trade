@@ -1,0 +1,46 @@
+# kukulkan.trade — Landing page
+
+# Redirect www → apex
+server {
+    listen 80;
+    listen 443 ssl;
+    server_name www.kukulkan.trade;
+
+    ssl_certificate /etc/nginx/ssl/kukulkan.crt;
+    ssl_certificate_key /etc/nginx/ssl/kukulkan.key;
+
+    return 301 https://kukulkan.trade$request_uri;
+}
+
+# Main site — static landing page
+server {
+    listen 80;
+    listen 443 ssl;
+    server_name kukulkan.trade;
+
+    ssl_certificate /etc/nginx/ssl/kukulkan.crt;
+    ssl_certificate_key /etc/nginx/ssl/kukulkan.key;
+
+    root /var/www/kukulkan.trade;
+    index index.html;
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # Cache static assets aggressively
+    location ~* \.(css|js|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    # Block dotfiles
+    location ~ /\. {
+        deny all;
+    }
+}

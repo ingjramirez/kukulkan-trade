@@ -1,0 +1,33 @@
+[Unit]
+Description=Kukulkan Dashboard — Streamlit UI
+After=network.target atlas-bot.service
+Wants=atlas-bot.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/atlas-trading-bot
+ExecStart=/opt/atlas-trading-bot/.venv/bin/streamlit run src/dashboard/app.py \
+    --server.port=8501 \
+    --server.address=127.0.0.1 \
+    --server.headless=true \
+    --browser.gatherUsageStats=false
+Restart=on-failure
+RestartSec=10
+
+# Environment
+EnvironmentFile=/opt/atlas-trading-bot/.env
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/atlas-trading-bot/data /opt/atlas-trading-bot/logs
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kukulkan-dashboard
+
+[Install]
+WantedBy=multi-user.target
