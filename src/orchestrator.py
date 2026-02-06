@@ -83,6 +83,13 @@ class Orchestrator:
         # Step 1: Initialize portfolios
         await self._executor.initialize_portfolios()
 
+        # Step 1.1: Sync positions with broker (if supported)
+        if hasattr(self._executor, "sync_positions"):
+            try:
+                await self._executor.sync_positions()
+            except Exception as e:
+                log.warning("position_sync_failed", error=str(e))
+
         # Step 1.5: Expire old dynamic tickers + build universe
         await self._ticker_discovery.expire_old(today)
         dynamic_universe = await get_dynamic_universe(self._db)
