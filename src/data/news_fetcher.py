@@ -196,6 +196,61 @@ class NewsFetcher:
         return "\n".join(lines)
 
 
+    def get_targeted_context(
+        self,
+        tickers: list[str],
+        n_per_ticker: int = 3,
+    ) -> str:
+        """Search ChromaDB per-ticker for targeted news context.
+
+        Unlike get_news_context() which does a single broad query,
+        this searches per-ticker for more precise results. Deduplicates
+        by title across tickers.
+
+        Args:
+            tickers: Specific tickers to search news for.
+            n_per_ticker: Max results per ticker query.
+
+        Returns:
+            Formatted text block for the agent prompt.
+        """
+        if not tickers:
+            return ""
+
+        seen_titles: set[str] = set()
+        selected: list[dict] = []
+
+        for ticker in tickers:
+            try:
+                results = self.search_relevant(
+                    f"{ticker} news", n_results=n_per_ticker,
+                )
+                for article in results:
+                    title = article.get("title", "")
+                    if title and title not in seen_titles:
+                        seen_titles.add(title)
+                        selected.append(article)
+            except Exception as e:
+                log.warning(
+                    "targeted_news_search_failed",
+                    ticker=ticker, error=str(e),
+                )
+
+        if not selected:
+            return ""
+
+        lines = []
+        for a in selected:
+            ticker = a.get("ticker", "")
+            title = a.get("title", "")
+            publisher = a.get("publisher", "")
+            source_str = f" ({publisher})" if publisher else ""
+            lines.append(f"  [{ticker}] {title}{source_str}")
+
+        log.info("targeted_news_context", articles=len(selected))
+        return "\n".join(lines)
+
+
 def _article_id(article: dict) -> str:
     """Generate a deterministic ID for an article based on title + ticker."""
     raw = f"{article.get('ticker', '')}:{article.get('title', '')}"

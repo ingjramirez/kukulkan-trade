@@ -291,6 +291,42 @@ class TestSearchRelevant:
 # ── News Context ─────────────────────────────────────────────────────────────
 
 
+class TestGetTargetedContext:
+    def test_returns_per_ticker_results(self) -> None:
+        vs = _mock_vector_store()
+        fetcher = NewsFetcher(vector_store=vs)
+
+        context = fetcher.get_targeted_context(["NVDA", "SPY"])
+
+        assert "NVDA" in context
+        assert "beats earnings" in context
+
+    def test_deduplicates_by_title(self) -> None:
+        """Same title from different ticker searches should be deduped."""
+        vs = _mock_vector_store()
+        fetcher = NewsFetcher(vector_store=vs)
+
+        context = fetcher.get_targeted_context(["NVDA", "SPY"])
+        lines = [ln for ln in context.strip().split("\n") if ln.strip()]
+        titles = [ln.split("]")[1].strip() if "]" in ln else ln for ln in lines]
+        assert len(titles) == len(set(titles))
+
+    def test_empty_tickers_returns_empty(self) -> None:
+        vs = _mock_vector_store()
+        fetcher = NewsFetcher(vector_store=vs)
+
+        context = fetcher.get_targeted_context([])
+        assert context == ""
+
+    def test_handles_search_error(self) -> None:
+        vs = _mock_vector_store()
+        vs.search_similar.side_effect = Exception("ChromaDB down")
+        fetcher = NewsFetcher(vector_store=vs)
+
+        context = fetcher.get_targeted_context(["NVDA"])
+        assert context == ""
+
+
 class TestGetNewsContext:
     def test_formats_context_string(self) -> None:
         vs = _mock_vector_store()

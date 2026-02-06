@@ -184,6 +184,35 @@ class Orchestrator:
             log.warning("news_fetch_failed", error=str(e))
             summary["errors"].append(f"News fetch failed: {e}")
 
+        # Step 5.5: Targeted news for held positions + top movers
+        try:
+            positions_b = await self._db.get_positions("B")
+            held_tickers = [p.ticker for p in positions_b]
+            # Add top 5 movers by absolute 1-day change
+            if len(closes) >= 2:
+                pct = (
+                    (closes.iloc[-1] - closes.iloc[-2]) / closes.iloc[-2]
+                ).abs().dropna()
+                top_movers = pct.sort_values(ascending=False).head(5)
+                movers = top_movers.index.tolist()
+            else:
+                movers = []
+            target_tickers = list(
+                dict.fromkeys(held_tickers + movers)
+            )[:15]
+            if target_tickers:
+                targeted = self._news_fetcher.get_targeted_context(
+                    target_tickers, n_per_ticker=3,
+                )
+                if targeted:
+                    news_context = (
+                        news_context + "\n" + targeted
+                        if news_context
+                        else targeted
+                    )
+        except Exception as e:
+            log.warning("targeted_news_failed", error=str(e))
+
         # Step 6: Portfolio B — AI Agent
         log.info("step_6_portfolio_b")
         trades_b: list = []
