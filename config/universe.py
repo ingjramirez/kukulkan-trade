@@ -91,6 +91,29 @@ PORTFOLIO_B_UNIVERSE: list[str] = (
 # Full universe (for data fetching)
 FULL_UNIVERSE: list[str] = sorted(set(PORTFOLIO_B_UNIVERSE))
 
+# --- Sector classification for risk management ---
+SECTOR_MAP: dict[str, str] = {
+    "XLK": "Technology", "QQQ": "Technology", "SMH": "Technology",
+    "ARKK": "Technology", "AAPL": "Technology", "MSFT": "Technology",
+    "GOOGL": "Technology", "NVDA": "Technology", "META": "Technology",
+    "NFLX": "Technology", "AMD": "Technology", "CRM": "Technology",
+    "XLF": "Financials", "JPM": "Financials", "V": "Financials",
+    "XLV": "Health Care", "UNH": "Health Care", "LLY": "Health Care",
+    "JNJ": "Health Care", "XBI": "Health Care",
+    "XLE": "Energy", "XOM": "Energy",
+    "XLI": "Industrials", "BA": "Industrials",
+    "XLY": "Consumer Discretionary", "AMZN": "Consumer Discretionary",
+    "TSLA": "Consumer Discretionary", "HD": "Consumer Discretionary",
+    "XLP": "Consumer Staples", "PG": "Consumer Staples", "COST": "Consumer Staples",
+    "XLU": "Utilities", "XLB": "Materials", "GDX": "Materials",
+    "XLRE": "Real Estate",
+    "IWM": "Broad Market", "EFA": "International", "EEM": "International",
+    "TLT": "Fixed Income", "HYG": "Fixed Income",
+    "SH": "Inverse", "PSQ": "Inverse", "TBF": "Inverse",
+    "GLD": "Commodities", "SLV": "Commodities", "USO": "Commodities",
+    "IBIT": "Crypto",
+}
+
 
 async def get_dynamic_universe(db: "Database") -> list[str]:
     """Get the full universe including approved dynamic tickers.

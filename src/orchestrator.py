@@ -16,6 +16,7 @@ from config.universe import (
 )
 from src.agent.complexity_detector import ComplexityDetector
 from src.agent.ticker_discovery import TickerDiscovery
+from src.analysis.risk_manager import RiskManager
 from src.analysis.technical import compute_all_indicators
 from src.data.macro_data import MacroDataFetcher
 from src.data.market_data import MarketDataFetcher
@@ -52,6 +53,7 @@ class Orchestrator:
         self._news_fetcher = NewsFetcher()
         self._complexity_detector = ComplexityDetector()
         self._ticker_discovery = TickerDiscovery(db)
+        self._risk_manager = RiskManager()
 
     async def run_daily(self, today: date | None = None) -> dict:
         """Execute the full daily pipeline.
@@ -122,15 +124,30 @@ class Orchestrator:
             log.warning("macro_data_fetch_failed", error=str(e))
             summary["errors"].append(f"Macro data fetch failed: {e}")
 
+        # Step 3.5: Circuit breaker check
+        halted_portfolios: set[str] = set()
+        for pname in ("A", "B"):
+            halted, reason = await self._risk_manager.check_circuit_breakers(
+                pname, self._db, today,
+            )
+            if halted:
+                halted_portfolios.add(pname)
+                summary["errors"].append(f"Portfolio {pname} halted: {reason}")
+                log.warning("portfolio_halted", portfolio=pname, reason=reason)
+
         # Step 4: Portfolio A — Momentum
         log.info("step_4_portfolio_a")
-        try:
-            trades_a = await self._run_portfolio_a(closes, today)
-            summary["trades"]["A"] = len(trades_a)
-        except Exception as e:
-            log.error("portfolio_a_failed", error=str(e))
-            summary["errors"].append(f"Portfolio A failed: {e}")
-            trades_a = []
+        trades_a: list = []
+        if "A" in halted_portfolios:
+            log.info("portfolio_a_skipped_circuit_breaker")
+            summary["trades"]["A"] = 0
+        else:
+            try:
+                trades_a = await self._run_portfolio_a(closes, today)
+                summary["trades"]["A"] = len(trades_a)
+            except Exception as e:
+                log.error("portfolio_a_failed", error=str(e))
+                summary["errors"].append(f"Portfolio A failed: {e}")
 
         # Step 5: Fetch news for AI context
         news_context = ""
@@ -151,20 +168,54 @@ class Orchestrator:
 
         # Step 6: Portfolio B — AI Agent
         log.info("step_6_portfolio_b")
-        try:
-            trades_b = await self._run_portfolio_b(
-                closes, volumes, yield_curve, vix, today,
-                news_context=news_context,
-            )
-            summary["trades"]["B"] = len(trades_b)
-        except Exception as e:
-            log.error("portfolio_b_failed", error=str(e))
-            summary["errors"].append(f"Portfolio B failed: {e}")
-            trades_b = []
+        trades_b: list = []
+        if "B" in halted_portfolios:
+            log.info("portfolio_b_skipped_circuit_breaker")
+            summary["trades"]["B"] = 0
+        else:
+            try:
+                trades_b = await self._run_portfolio_b(
+                    closes, volumes, yield_curve, vix, today,
+                    news_context=news_context,
+                )
+                summary["trades"]["B"] = len(trades_b)
+            except Exception as e:
+                log.error("portfolio_b_failed", error=str(e))
+                summary["errors"].append(f"Portfolio B failed: {e}")
 
-        # Step 7: Execute trades
-        log.info("step_7_executing_trades")
-        all_trades = trades_a + trades_b
+        # Step 6.5: Pre-trade risk filter
+        log.info("step_6_5_risk_filter")
+        all_trades: list = []
+        for pname, trades in [("A", trades_a), ("B", trades_b)]:
+            if not trades:
+                continue
+            portfolio = await self._db.get_portfolio(pname)
+            positions = await self._db.get_positions(pname)
+            position_map = {p.ticker: p.shares for p in positions}
+            pval = portfolio.total_value if portfolio else (33_000.0 if pname == "A" else 66_000.0)
+            pcash = portfolio.cash if portfolio else pval
+
+            latest_prices = {
+                t: float(closes[t].iloc[-1])
+                for t in closes.columns
+                if not pd.isna(closes[t].iloc[-1])
+            }
+            verdict = self._risk_manager.check_pre_trade(
+                trades=trades,
+                portfolio_name=pname,
+                current_positions=position_map,
+                latest_prices=latest_prices,
+                portfolio_value=pval,
+                cash=pcash,
+            )
+            all_trades.extend(verdict.allowed)
+            for blocked_trade, reason in verdict.blocked:
+                log.warning(
+                    "trade_blocked_by_risk",
+                    portfolio=pname,
+                    ticker=blocked_trade.ticker,
+                    reason=reason,
+                )
         if all_trades:
             executed = await self._executor.execute_trades(all_trades)
             summary["trades_executed"] = len(executed)
