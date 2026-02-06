@@ -258,6 +258,18 @@ page = st.sidebar.radio(
     ["Overview", "Portfolio A", "Portfolio B", "Trade Log"],
 )
 
+# Logout: clear basic auth credentials and redirect to landing page
+st.sidebar.markdown("---")
+if st.sidebar.button("Logout"):
+    st.markdown(
+        """<meta http-equiv="refresh" content="0;url=https://logout:x@app.kukulkan.trade/">
+        <script>
+            fetch('/', {headers: {'Authorization': 'Basic ' + btoa('logout:x')}})
+                .finally(() => window.location.href = 'https://kukulkan.trade');
+        </script>""",
+        unsafe_allow_html=True,
+    )
+
 
 # ── Helper functions ─────────────────────────────────────────────────────────
 
