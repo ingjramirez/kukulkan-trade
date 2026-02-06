@@ -15,6 +15,7 @@ from src.analysis.technical import compute_all_indicators
 from src.data.market_data import MarketDataFetcher
 from src.data.macro_data import MacroDataFetcher
 from src.execution.paper_trader import PaperTrader
+from src.notifications.telegram_bot import TelegramNotifier
 from src.storage.database import Database
 from src.strategies.portfolio_a import MomentumStrategy
 from src.strategies.portfolio_b import SectorRotationStrategy
@@ -26,7 +27,7 @@ log = structlog.get_logger()
 class Orchestrator:
     """Runs the complete daily trading pipeline."""
 
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database, notifier: TelegramNotifier | None = None) -> None:
         self._db = db
         self._market_data = MarketDataFetcher(db)
         self._macro_data = MacroDataFetcher(db)
@@ -34,6 +35,7 @@ class Orchestrator:
         self._strategy_a = MomentumStrategy()
         self._strategy_b = SectorRotationStrategy()
         self._strategy_c = AIAutonomyStrategy()
+        self._notifier = notifier or TelegramNotifier()
 
     async def run_daily(self, today: date | None = None) -> dict:
         """Execute the full daily pipeline.
@@ -150,6 +152,15 @@ class Orchestrator:
                 await self._paper_trader.take_snapshot(portfolio_name, today, latest_prices)
             except Exception as e:
                 log.error("snapshot_failed", portfolio=portfolio_name, error=str(e))
+
+        # Step 9: Send Telegram notifications
+        log.info("step_9_sending_notifications")
+        await self._send_notifications(
+            today=today,
+            regime=regime,
+            all_trades=all_trades,
+            summary=summary,
+        )
 
         log.info(
             "daily_pipeline_complete",
@@ -290,3 +301,57 @@ class Orchestrator:
             tokens=response.get("_tokens_used", 0),
         )
         return trades
+
+    async def _send_notifications(
+        self,
+        today: date,
+        regime,
+        all_trades: list,
+        summary: dict,
+    ) -> None:
+        """Send daily brief and trade confirmation via Telegram."""
+        try:
+            # Build portfolio summaries from snapshots
+            portfolio_summaries = {}
+            for name in ("A", "B", "C"):
+                portfolio = await self._db.get_portfolio(name)
+                snapshots = await self._db.get_snapshots(name)
+                today_snap = next(
+                    (s for s in snapshots if s.date == today), None
+                )
+                portfolio_summaries[name] = {
+                    "total_value": today_snap.total_value if today_snap else (portfolio.total_value if portfolio else 33_333.0),
+                    "cash": portfolio.cash if portfolio else 33_333.0,
+                    "daily_return_pct": today_snap.daily_return_pct if today_snap else None,
+                }
+
+            # Add strategy-specific fields
+            portfolio_summaries["A"]["top_ticker"] = "—"
+            portfolio_summaries["B"]["selected"] = []
+            portfolio_summaries["C"]["reasoning"] = ""
+
+            # Get AI commentary (if Portfolio C ran)
+            commentary = ""
+
+            from src.storage.models import TradeSchema, PortfolioName, OrderSide
+            trade_schemas = []
+            for t in all_trades:
+                if isinstance(t, TradeSchema):
+                    trade_schemas.append(t)
+
+            await self._notifier.send_daily_brief(
+                brief_date=today,
+                regime=regime.value if regime else None,
+                portfolio_a=portfolio_summaries["A"],
+                portfolio_b=portfolio_summaries["B"],
+                portfolio_c=portfolio_summaries["C"],
+                proposed_trades=trade_schemas,
+                commentary=commentary,
+            )
+
+            if trade_schemas:
+                await self._notifier.send_trade_confirmation(trade_schemas)
+
+            log.info("notifications_sent")
+        except Exception as e:
+            log.error("notification_failed", error=str(e))

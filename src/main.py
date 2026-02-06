@@ -15,6 +15,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from config.settings import settings
+from src.notifications.telegram_bot import TelegramNotifier
 from src.orchestrator import Orchestrator
 from src.storage.database import Database
 
@@ -40,8 +41,9 @@ async def run_once() -> None:
     """Run the daily pipeline once and exit."""
     db = Database(url=settings.database_url)
     await db.init_db()
+    notifier = TelegramNotifier()
 
-    orchestrator = Orchestrator(db)
+    orchestrator = Orchestrator(db, notifier=notifier)
     summary = await orchestrator.run_daily()
 
     log.info("run_complete", summary=summary)
@@ -52,8 +54,9 @@ async def run_scheduled() -> None:
     """Start the scheduler and run the pipeline daily at 4:30 PM ET."""
     db = Database(url=settings.database_url)
     await db.init_db()
+    notifier = TelegramNotifier()
 
-    orchestrator = Orchestrator(db)
+    orchestrator = Orchestrator(db, notifier=notifier)
     scheduler = AsyncIOScheduler()
 
     async def scheduled_job():
@@ -62,6 +65,7 @@ async def run_scheduled() -> None:
             log.info("scheduled_run_complete", summary=summary)
         except Exception as e:
             log.error("scheduled_run_failed", error=str(e))
+            await notifier.send_error(f"Pipeline failed: {e}")
 
     # Run daily at 4:30 PM Eastern (after market close)
     scheduler.add_job(
