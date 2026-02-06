@@ -36,6 +36,14 @@ class AlpacaSettings(BaseSettings):
     model_config = {"env_prefix": "ALPACA_", "env_file": ".env", "extra": "ignore"}
 
 
+class FinnhubSettings(BaseSettings):
+    """Finnhub API settings (free tier: 60 calls/min)."""
+
+    api_key: str = ""
+
+    model_config = {"env_prefix": "FINNHUB_", "env_file": ".env", "extra": "ignore"}
+
+
 class ChromaSettings(BaseSettings):
     """ChromaDB connection settings."""
 
@@ -65,6 +73,7 @@ class Settings(BaseSettings):
     alpaca: AlpacaSettings = AlpacaSettings()
     ibkr: IBKRSettings = IBKRSettings()
     telegram: TelegramSettings = TelegramSettings()
+    finnhub: FinnhubSettings = FinnhubSettings()
     chroma: ChromaSettings = ChromaSettings()
 
     # Paths

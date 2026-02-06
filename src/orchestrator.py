@@ -22,6 +22,8 @@ from src.analysis.risk_manager import RiskManager
 from src.analysis.technical import compute_all_indicators
 from src.data.macro_data import MacroDataFetcher
 from src.data.market_data import MarketDataFetcher
+from src.data.news_aggregator import NewsAggregator
+from src.data.news_compactor import NewsCompactor
 from src.data.news_fetcher import NewsFetcher
 from src.execution.paper_trader import PaperTrader
 from src.notifications.telegram_bot import TelegramNotifier
@@ -53,6 +55,8 @@ class Orchestrator:
         self._strategy_b = AIAutonomyStrategy()
         self._notifier = notifier or TelegramNotifier()
         self._news_fetcher = NewsFetcher()
+        self._news_aggregator = NewsAggregator()
+        self._news_compactor = NewsCompactor()
         self._complexity_detector = ComplexityDetector()
         self._ticker_discovery = TickerDiscovery(db)
         self._risk_manager = RiskManager()
@@ -167,51 +171,53 @@ class Orchestrator:
                 log.error("portfolio_a_failed", error=str(e))
                 summary["errors"].append(f"Portfolio A failed: {e}")
 
-        # Step 5: Fetch news for AI context
+        # Step 5: Fetch news from all sources + compact for agent
         news_context = ""
         log.info("step_5_fetching_news")
         try:
-            tickers_for_news = list(closes.columns)[:20]  # Top 20 tickers
-            articles = self._news_fetcher.fetch_news(tickers_for_news, max_per_ticker=3)
-            if articles:
-                rows = self._news_fetcher.store_articles(articles)
-                async with self._db.session() as s:
-                    s.add_all(rows)
-                    await s.commit()
-                summary["news_articles"] = len(articles)
-            news_context = self._news_fetcher.get_news_context(tickers_for_news)
-        except Exception as e:
-            log.warning("news_fetch_failed", error=str(e))
-            summary["errors"].append(f"News fetch failed: {e}")
+            tickers_for_news = list(closes.columns)[:20]
+            raw_articles = self._news_aggregator.fetch_all(tickers_for_news)
+            summary["news_articles"] = len(raw_articles)
 
-        # Step 5.5: Targeted news for held positions + top movers
-        try:
+            # Store in ChromaDB for long-term memory
+            if raw_articles:
+                store_dicts = [
+                    {
+                        "ticker": a.tickers[0] if a.tickers else "",
+                        "title": a.headline,
+                        "link": a.url,
+                        "publisher": a.publisher,
+                        "published": a.published_at,
+                    }
+                    for a in raw_articles
+                ]
+                try:
+                    rows = self._news_fetcher.store_articles(store_dicts)
+                    async with self._db.session() as s:
+                        s.add_all(rows)
+                        await s.commit()
+                except Exception as e:
+                    log.warning("news_store_failed", error=str(e))
+
+            # Compact for agent prompt
             positions_b = await self._db.get_positions("B")
             held_tickers = [p.ticker for p in positions_b]
-            # Add top 5 movers by absolute 1-day change
             if len(closes) >= 2:
                 pct = (
                     (closes.iloc[-1] - closes.iloc[-2]) / closes.iloc[-2]
                 ).abs().dropna()
-                top_movers = pct.sort_values(ascending=False).head(5)
-                movers = top_movers.index.tolist()
+                movers = pct.sort_values(ascending=False).head(5).index.tolist()
             else:
                 movers = []
-            target_tickers = list(
-                dict.fromkeys(held_tickers + movers)
-            )[:15]
-            if target_tickers:
-                targeted = self._news_fetcher.get_targeted_context(
-                    target_tickers, n_per_ticker=3,
-                )
-                if targeted:
-                    news_context = (
-                        news_context + "\n" + targeted
-                        if news_context
-                        else targeted
-                    )
+
+            news_context = self._news_compactor.compact(
+                articles=raw_articles,
+                held_tickers=held_tickers,
+                top_movers=movers,
+            )
         except Exception as e:
-            log.warning("targeted_news_failed", error=str(e))
+            log.warning("news_fetch_failed", error=str(e))
+            summary["errors"].append(f"News fetch failed: {e}")
 
         # Step 6: Portfolio B — AI Agent
         log.info("step_6_portfolio_b")

@@ -16,6 +16,8 @@ dependencies = [
     "anthropic>=0.39.0",
     # Vector store client (server runs in Docker)
     "chromadb-client>=0.5.0",
+    # News data
+    "finnhub-python>=2.4.0",
     # Data & analysis
     "pandas>=2.2.0",
     "numpy>=1.26.0",

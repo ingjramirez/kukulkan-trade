@@ -94,8 +94,13 @@ Current Positions:
 ## Recent Portfolio Trades
 {recent_trades}
 
-## Recent News Headlines
+## News Intelligence (filtered & ranked by relevance)
+Format: TICKER|SIGNAL|EVENT|#SOURCES
+Signal types: POS=bullish, NEG=bearish, MACRO=regime-relevant, EVENT=corporate action, INFO=neutral
 {news_context}
+
+Interpret: More sources (#SRC) = higher confidence. POS/NEG on held tickers = review position.
+MACRO signals should inform your regime assessment.
 
 ---
 
