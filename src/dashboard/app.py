@@ -8,19 +8,17 @@ Usage:
 """
 
 import json
-from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.storage.models import (
     AgentDecisionRow,
-    Base,
     DailySnapshotRow,
     MomentumRankingRow,
     PortfolioRow,
@@ -115,7 +113,10 @@ def load_positions() -> pd.DataFrame:
             "ticker": r.ticker,
             "shares": r.shares,
             "avg_price": r.avg_price,
-            "market_value": r.market_value if r.market_value is not None else r.shares * r.avg_price,
+            "market_value": (
+                r.market_value if r.market_value is not None
+                else r.shares * r.avg_price
+            ),
         }
         for r in rows
     ]
@@ -358,10 +359,17 @@ def page_portfolio(name: str) -> None:
     c1, c2, c3 = st.columns(3)
     c1.metric("Total Value", f"${p['total_value']:,.0f}", f"{ret:+.2f}%")
     c2.metric("Cash", f"${p['cash']:,.0f}")
-    c3.metric("Last Updated", p["updated_at"].strftime("%Y-%m-%d %H:%M") if p["updated_at"] else "—")
+    updated_str = (
+        p["updated_at"].strftime("%Y-%m-%d %H:%M")
+        if p["updated_at"] else "—"
+    )
+    c3.metric("Last Updated", updated_str)
 
     # ── Equity curve ─────────────────────────────────────────────────
-    port_snaps = snapshots[snapshots["portfolio"] == name] if not snapshots.empty else pd.DataFrame()
+    port_snaps = (
+        snapshots[snapshots["portfolio"] == name]
+        if not snapshots.empty else pd.DataFrame()
+    )
     if not port_snaps.empty:
         st.subheader("Equity Curve")
         fig = px.area(
@@ -378,7 +386,11 @@ def page_portfolio(name: str) -> None:
         st.subheader("Cash vs Invested")
         fig2 = go.Figure()
         fig2.add_trace(go.Bar(x=port_snaps["date"], y=port_snaps["cash"], name="Cash"))
-        fig2.add_trace(go.Bar(x=port_snaps["date"], y=port_snaps["positions_value"], name="Invested"))
+        fig2.add_trace(go.Bar(
+            x=port_snaps["date"],
+            y=port_snaps["positions_value"],
+            name="Invested",
+        ))
         fig2.update_layout(barmode="stack", height=350, yaxis_tickprefix="$")
         st.plotly_chart(fig2, use_container_width=True)
 

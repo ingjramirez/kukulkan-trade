@@ -191,7 +191,11 @@ class AlpacaExecutor:
         )
         total_value = portfolio.cash + positions_value
 
-        initial_value = PORTFOLIO_A.allocation_usd if portfolio_name == "A" else PORTFOLIO_B.allocation_usd
+        initial_value = (
+            PORTFOLIO_A.allocation_usd
+            if portfolio_name == "A"
+            else PORTFOLIO_B.allocation_usd
+        )
 
         snapshots = await self._db.get_snapshots(portfolio_name)
         daily_return_pct = None

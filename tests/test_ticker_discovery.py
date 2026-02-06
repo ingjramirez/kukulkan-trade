@@ -3,18 +3,15 @@
 Tests validation, DB persistence, dynamic universe, expiry, and Telegram approval.
 """
 
-from datetime import date, timedelta
-from unittest.mock import MagicMock, AsyncMock, patch
+from datetime import date
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from config.universe import FULL_UNIVERSE, get_dynamic_universe
 from src.agent.ticker_discovery import (
     MAX_DYNAMIC_TICKERS,
-    MIN_AVG_VOLUME,
-    MIN_MARKET_CAP,
     TickerDiscovery,
-    TickerValidationResult,
 )
 from src.notifications.telegram_bot import (
     TelegramNotifier,
@@ -22,7 +19,6 @@ from src.notifications.telegram_bot import (
 )
 from src.storage.database import Database
 from src.storage.models import DiscoveredTickerRow
-
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -438,6 +434,7 @@ class TestPortfolioBExtraTickers:
     def test_extra_tickers_accepted_in_trades(self) -> None:
         """Agent can trade dynamically approved tickers."""
         import pandas as pd
+
         from src.agent.claude_agent import ClaudeAgent
         from src.strategies.portfolio_b import AIAutonomyStrategy
 

@@ -158,7 +158,8 @@ class Database:
         async with self.session() as s:
             stmt = select(TradeRow).where(TradeRow.portfolio == portfolio)
             if since:
-                stmt = stmt.where(TradeRow.executed_at >= datetime.combine(since, datetime.min.time()))
+                since_dt = datetime.combine(since, datetime.min.time())
+                stmt = stmt.where(TradeRow.executed_at >= since_dt)
             stmt = stmt.order_by(TradeRow.executed_at.desc())
             result = await s.execute(stmt)
             return list(result.scalars().all())

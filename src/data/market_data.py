@@ -3,7 +3,7 @@
 Provides OHLCV data for the full ticker universe with caching to SQLite.
 """
 
-from datetime import date, timedelta
+from datetime import date
 
 import pandas as pd
 import structlog

@@ -177,7 +177,11 @@ class PaperTrader:
         total_value = portfolio.cash + positions_value
 
         # Portfolio-specific initial value
-        initial_value = PORTFOLIO_A.allocation_usd if portfolio_name == "A" else PORTFOLIO_B.allocation_usd
+        initial_value = (
+            PORTFOLIO_A.allocation_usd
+            if portfolio_name == "A"
+            else PORTFOLIO_B.allocation_usd
+        )
 
         # Calculate daily return
         snapshots = await self._db.get_snapshots(portfolio_name)

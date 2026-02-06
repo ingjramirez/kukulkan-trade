@@ -19,7 +19,6 @@ from src.notifications.telegram_bot import (
 )
 from src.storage.models import OrderSide, PortfolioName, TradeSchema
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
 
@@ -94,8 +93,15 @@ class TestFormatDailyBrief:
         msg = format_daily_brief(
             brief_date=date(2026, 2, 5),
             regime="BULL",
-            portfolio_a={"total_value": 34000, "cash": 0, "top_ticker": "QQQ", "daily_return_pct": 1.5},
-            portfolio_b={"total_value": 67000, "cash": 1000, "reasoning": "Bullish on tech", "daily_return_pct": -0.2},
+            portfolio_a={
+                "total_value": 34000, "cash": 0,
+                "top_ticker": "QQQ", "daily_return_pct": 1.5,
+            },
+            portfolio_b={
+                "total_value": 67000, "cash": 1000,
+                "reasoning": "Bullish on tech",
+                "daily_return_pct": -0.2,
+            },
             proposed_trades=[],
         )
         assert "2026-02-05" in msg

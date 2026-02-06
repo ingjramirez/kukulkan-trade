@@ -9,7 +9,6 @@ import pytest
 
 from src.agent.complexity_detector import ComplexityDetector, ComplexityResult
 
-
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 

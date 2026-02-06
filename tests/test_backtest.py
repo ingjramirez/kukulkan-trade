@@ -1,6 +1,6 @@
 """Tests for the backtest runner — MockPortfolioB, BacktestRunner with synthetic data."""
 
-from datetime import date, timedelta
+from datetime import date
 
 import numpy as np
 import pandas as pd
@@ -10,7 +10,6 @@ from src.backtest.runner import BacktestRunner, MockPortfolioB
 from src.execution.paper_trader import PaperTrader
 from src.storage.database import Database
 from src.storage.models import OrderSide, PortfolioName
-
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -81,7 +80,10 @@ class TestMockPortfolioB:
         # Fake holding a position that might not be in top 2
         trades = mock.generate_trades(
             closes=closes,
-            current_positions={"XLK": 100, "XLF": 100, "GLD": 100, "QQQ": 100, "AAPL": 100, "MSFT": 100},
+            current_positions={
+                "XLK": 100, "XLF": 100, "GLD": 100,
+                "QQQ": 100, "AAPL": 100, "MSFT": 100,
+            },
             cash=0,
             total_value=50_000.0,
         )

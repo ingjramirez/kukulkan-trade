@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from src.storage.models import DiscoveredTickerRow
 
 import structlog
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 
 from config.settings import settings

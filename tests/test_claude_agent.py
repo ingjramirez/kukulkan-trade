@@ -5,11 +5,10 @@ All tests use mocked API calls (no real Anthropic requests).
 
 import json
 from datetime import date
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from src.agent.claude_agent import (
     ClaudeAgent,
@@ -22,7 +21,6 @@ from src.agent.claude_agent import (
     build_recent_trades_text,
 )
 from src.strategies.portfolio_b import AIAutonomyStrategy, filter_interesting_tickers
-
 
 # ── Prompt building tests ────────────────────────────────────────────────────
 
@@ -121,7 +119,11 @@ class TestParseResponse:
         assert len(result["trades"]) == 1
 
     def test_json_with_markdown_fences(self) -> None:
-        response = '```json\n{"regime_assessment": "test", "reasoning": "", "trades": [], "risk_notes": ""}\n```'
+        response = (
+            '```json\n{"regime_assessment": "test",'
+            ' "reasoning": "", "trades": [],'
+            ' "risk_notes": ""}\n```'
+        )
         result = self.agent._parse_response(response)
         assert result["regime_assessment"] == "test"
 
@@ -377,7 +379,11 @@ class TestModelOverride:
         agent = ClaudeAgent(api_key="fake-key", model="claude-sonnet-4-5-20250929")
         mock_client = MagicMock()
         mock_response = MagicMock()
-        mock_response.content = [MagicMock(text='{"regime_assessment":"test","reasoning":"","trades":[],"risk_notes":""}')]
+        resp_json = (
+            '{"regime_assessment":"test","reasoning":"",'
+            '"trades":[],"risk_notes":""}'
+        )
+        mock_response.content = [MagicMock(text=resp_json)]
         mock_response.usage.input_tokens = 100
         mock_response.usage.output_tokens = 50
         mock_response.model = "claude-opus-4-6"
@@ -404,7 +410,11 @@ class TestModelOverride:
         agent = ClaudeAgent(api_key="fake-key", model="claude-sonnet-4-5-20250929")
         mock_client = MagicMock()
         mock_response = MagicMock()
-        mock_response.content = [MagicMock(text='{"regime_assessment":"test","reasoning":"","trades":[],"risk_notes":""}')]
+        resp_json = (
+            '{"regime_assessment":"test","reasoning":"",'
+            '"trades":[],"risk_notes":""}'
+        )
+        mock_response.content = [MagicMock(text=resp_json)]
         mock_response.usage.input_tokens = 100
         mock_response.usage.output_tokens = 50
         mock_response.model = "claude-sonnet-4-5-20250929"
@@ -445,6 +455,7 @@ class TestSaveDecision:
 
         # Verify it was saved
         from sqlalchemy import select
+
         from src.storage.models import AgentDecisionRow
         async with db.session() as s:
             result = await s.execute(select(AgentDecisionRow))

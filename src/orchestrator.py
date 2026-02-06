@@ -11,13 +11,14 @@ import pandas as pd
 import structlog
 
 from config.strategies import PORTFOLIO_B
-from config.universe import FULL_UNIVERSE, PORTFOLIO_A_UNIVERSE, PORTFOLIO_B_UNIVERSE, get_dynamic_universe
-from src.agent.claude_agent import ClaudeAgent
+from config.universe import (
+    get_dynamic_universe,
+)
 from src.agent.complexity_detector import ComplexityDetector
 from src.agent.ticker_discovery import TickerDiscovery
 from src.analysis.technical import compute_all_indicators
-from src.data.market_data import MarketDataFetcher
 from src.data.macro_data import MacroDataFetcher
+from src.data.market_data import MarketDataFetcher
 from src.data.news_fetcher import NewsFetcher
 from src.execution.paper_trader import PaperTrader
 from src.notifications.telegram_bot import TelegramNotifier
@@ -172,7 +173,11 @@ class Orchestrator:
 
         # Step 8: Take snapshots
         log.info("step_8_taking_snapshots")
-        latest_prices = {t: float(closes[t].iloc[-1]) for t in closes.columns if not pd.isna(closes[t].iloc[-1])}
+        latest_prices = {
+            t: float(closes[t].iloc[-1])
+            for t in closes.columns
+            if not pd.isna(closes[t].iloc[-1])
+        }
         for portfolio_name in ("A", "B"):
             try:
                 await self._executor.take_snapshot(portfolio_name, today, latest_prices)
@@ -212,10 +217,14 @@ class Orchestrator:
         if ranking_rows:
             await self._db.save_momentum_rankings(ranking_rows)
 
-        log.info("portfolio_a_complete", trades=len(trades), target=self._strategy_a.get_target_ticker(closes))
+        target = self._strategy_a.get_target_ticker(closes)
+        log.info("portfolio_a_complete", trades=len(trades), target=target)
         return trades
 
-    async def _run_portfolio_b(self, closes, volumes, yield_curve, vix, today, news_context: str = ""):
+    async def _run_portfolio_b(
+        self, closes, volumes, yield_curve, vix, today,
+        news_context: str = "",
+    ):
         """Run Portfolio B AI strategy with complexity-based model routing."""
         portfolio = await self._db.get_portfolio("B")
         positions = await self._db.get_positions("B")
@@ -421,7 +430,13 @@ class Orchestrator:
                 )
                 default_value = 33_000.0 if name == "A" else 66_000.0
                 portfolio_summaries[name] = {
-                    "total_value": today_snap.total_value if today_snap else (portfolio.total_value if portfolio else default_value),
+                    "total_value": (
+                        today_snap.total_value if today_snap
+                        else (
+                            portfolio.total_value
+                            if portfolio else default_value
+                        )
+                    ),
                     "cash": portfolio.cash if portfolio else default_value,
                     "daily_return_pct": today_snap.daily_return_pct if today_snap else None,
                 }

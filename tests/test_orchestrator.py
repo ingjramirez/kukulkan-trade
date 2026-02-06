@@ -171,6 +171,7 @@ class TestOrchestrator:
 
         # Check agent_decisions table
         from sqlalchemy import select
+
         from src.storage.models import AgentDecisionRow
         async with orchestrator._db.session() as s:
             result = await s.execute(select(AgentDecisionRow))
@@ -218,7 +219,7 @@ class TestComplexityRouting:
         # Set low VIX, no drawdown, same regime — low complexity
         orchestrator._macro_data.get_latest_vix = MagicMock(return_value=12.0)
 
-        summary = await orchestrator.run_daily(today=date(2026, 2, 5))
+        await orchestrator.run_daily(today=date(2026, 2, 5))
 
         # Agent was called without model_override
         call_kwargs = orchestrator._strategy_b._agent.analyze.call_args
@@ -234,14 +235,18 @@ class TestComplexityRouting:
         self._setup_orchestrator(orchestrator, tickers)
 
         # Force high complexity via detector mock
+        escalation = ComplexityResult(
+            score=70, should_escalate=True,
+            signals=["VIX elevated at 35.0"],
+        )
         orchestrator._complexity_detector.evaluate = MagicMock(
-            return_value=ComplexityResult(score=70, should_escalate=True, signals=["VIX elevated at 35.0"])
+            return_value=escalation
         )
         # Ensure notifier is not configured
         orchestrator._notifier._token = ""
         orchestrator._notifier._chat_id = ""
 
-        summary = await orchestrator.run_daily(today=date(2026, 2, 5))
+        await orchestrator.run_daily(today=date(2026, 2, 5))
 
         # Agent was called without model_override (no Telegram approval)
         call_kwargs = orchestrator._strategy_b._agent.analyze.call_args
@@ -258,8 +263,12 @@ class TestComplexityRouting:
         mock_response["_model"] = "claude-opus-4-6"
 
         # Force high complexity via detector mock
+        escalation = ComplexityResult(
+            score=70, should_escalate=True,
+            signals=["VIX elevated at 35.0"],
+        )
         orchestrator._complexity_detector.evaluate = MagicMock(
-            return_value=ComplexityResult(score=70, should_escalate=True, signals=["VIX elevated at 35.0"])
+            return_value=escalation
         )
         # Configure Telegram
         orchestrator._notifier._token = "test-token"
@@ -269,7 +278,7 @@ class TestComplexityRouting:
         orchestrator._notifier.send_approval_request = AsyncMock(return_value=42)
         orchestrator._notifier.wait_for_approval = AsyncMock(return_value="opus")
 
-        summary = await orchestrator.run_daily(today=date(2026, 2, 5))
+        await orchestrator.run_daily(today=date(2026, 2, 5))
 
         call_kwargs = orchestrator._strategy_b._agent.analyze.call_args
         assert call_kwargs[1].get("model_override") == "claude-opus-4-6"
@@ -284,8 +293,12 @@ class TestComplexityRouting:
         self._setup_orchestrator(orchestrator, tickers)
 
         # Force high complexity via detector mock
+        escalation = ComplexityResult(
+            score=70, should_escalate=True,
+            signals=["VIX elevated at 35.0"],
+        )
         orchestrator._complexity_detector.evaluate = MagicMock(
-            return_value=ComplexityResult(score=70, should_escalate=True, signals=["VIX elevated at 35.0"])
+            return_value=escalation
         )
         orchestrator._notifier._token = "test-token"
         orchestrator._notifier._chat_id = "12345"
@@ -309,8 +322,12 @@ class TestComplexityRouting:
         mock_response = self._setup_orchestrator(orchestrator, tickers)
         mock_response["_model"] = "claude-opus-4-6"
 
+        escalation = ComplexityResult(
+            score=70, should_escalate=True,
+            signals=["VIX elevated at 35.0"],
+        )
         orchestrator._complexity_detector.evaluate = MagicMock(
-            return_value=ComplexityResult(score=70, should_escalate=True, signals=["VIX elevated at 35.0"])
+            return_value=escalation
         )
         orchestrator._notifier._token = "test-token"
         orchestrator._notifier._chat_id = "12345"
@@ -320,6 +337,7 @@ class TestComplexityRouting:
         await orchestrator.run_daily(today=date(2026, 2, 5))
 
         from sqlalchemy import select
+
         from src.storage.models import AgentDecisionRow
         async with orchestrator._db.session() as s:
             result = await s.execute(select(AgentDecisionRow))

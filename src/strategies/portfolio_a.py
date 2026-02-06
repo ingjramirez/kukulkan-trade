@@ -12,7 +12,7 @@ import structlog
 from config.strategies import PORTFOLIO_A
 from config.universe import PORTFOLIO_A_UNIVERSE
 from src.analysis.momentum import calculate_momentum, get_top_n, momentum_to_db_rows
-from src.storage.models import TradeSchema, OrderSide, PortfolioName
+from src.storage.models import OrderSide, PortfolioName, TradeSchema
 
 log = structlog.get_logger()
 
@@ -123,7 +123,7 @@ class MomentumStrategy:
                     side=OrderSide.BUY,
                     shares=float(shares_to_buy),
                     price=float(target_price),
-                    reason=f"momentum rank #1",
+                    reason="momentum rank #1",
                 ))
 
         log.info(

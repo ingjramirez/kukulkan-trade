@@ -6,10 +6,7 @@ Uses mocked yfinance and mocked ChromaDB — no external API calls.
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from src.data.news_fetcher import NewsFetcher, _article_id
-
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -101,8 +98,18 @@ class TestFetchNews:
     @patch("src.data.news_fetcher.yf")
     def test_deduplicates_by_title(self, mock_yf) -> None:
         dup_news = [
-            {"title": "Same headline", "link": "https://a.com", "publisher": "A", "providerPublishTime": 1738700000},
-            {"title": "Same headline", "link": "https://b.com", "publisher": "B", "providerPublishTime": 1738700000},
+            {
+                "title": "Same headline",
+                "link": "https://a.com",
+                "publisher": "A",
+                "providerPublishTime": 1738700000,
+            },
+            {
+                "title": "Same headline",
+                "link": "https://b.com",
+                "publisher": "B",
+                "providerPublishTime": 1738700000,
+            },
         ]
         mock_ticker = MagicMock()
         mock_ticker.news = dup_news
@@ -150,7 +157,12 @@ class TestFetchNews:
     def test_multiple_tickers(self, mock_yf) -> None:
         mock_ticker = MagicMock()
         mock_ticker.news = [
-            {"title": "Unique headline for ticker", "link": "", "publisher": "Test", "providerPublishTime": None},
+            {
+                "title": "Unique headline for ticker",
+                "link": "",
+                "publisher": "Test",
+                "providerPublishTime": None,
+            },
         ]
         mock_yf.Ticker.return_value = mock_ticker
 
@@ -192,7 +204,12 @@ class TestStoreArticles:
         fetcher = NewsFetcher(vector_store=vs)
 
         articles = [
-            {"ticker": "AAPL", "title": "Test headline", "link": "https://a.com", "publisher": "Reuters"},
+            {
+                "ticker": "AAPL",
+                "title": "Test headline",
+                "link": "https://a.com",
+                "publisher": "Reuters",
+            },
         ]
         rows = fetcher.store_articles(articles)
 
@@ -207,8 +224,19 @@ class TestStoreArticles:
         fetcher = NewsFetcher(vector_store=vs)
 
         articles = [
-            {"ticker": "MSFT", "title": "MSFT earnings", "link": "https://b.com", "publisher": "Bloomberg", "published": datetime(2026, 2, 5)},
-            {"ticker": "NVDA", "title": "NVDA GPU launch", "link": "https://c.com", "publisher": "CNBC"},
+            {
+                "ticker": "MSFT",
+                "title": "MSFT earnings",
+                "link": "https://b.com",
+                "publisher": "Bloomberg",
+                "published": datetime(2026, 2, 5),
+            },
+            {
+                "ticker": "NVDA",
+                "title": "NVDA GPU launch",
+                "link": "https://c.com",
+                "publisher": "CNBC",
+            },
         ]
         rows = fetcher.store_articles(articles)
 

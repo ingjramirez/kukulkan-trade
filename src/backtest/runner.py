@@ -5,20 +5,16 @@ Runs Portfolio A (momentum) and a deterministic MockPortfolioB
 through the existing PaperTrader.
 """
 
-import asyncio
-from datetime import date, timedelta
+from datetime import date
 
-import numpy as np
 import pandas as pd
 import structlog
 import yfinance as yf
 
 from config.universe import (
     FULL_UNIVERSE,
-    PORTFOLIO_A_UNIVERSE,
     PORTFOLIO_B_UNIVERSE,
 )
-from src.analysis.momentum import calculate_momentum
 from src.analysis.technical import compute_rsi
 from src.execution.paper_trader import PaperTrader
 from src.storage.database import Database
@@ -26,7 +22,6 @@ from src.storage.models import (
     Base,
     OrderSide,
     PortfolioName,
-    Regime,
     TradeSchema,
 )
 from src.strategies.portfolio_a import MomentumStrategy
@@ -182,7 +177,12 @@ class BacktestRunner:
             sim_start_idx = min(start_idx + 68, len(trading_days) - 1)
 
         sim_dates = trading_days[sim_start_idx:]
-        log.info("backtest_window", sim_days=len(sim_dates), start=str(sim_dates[0]), end=str(sim_dates[-1]))
+        log.info(
+            "backtest_window",
+            sim_days=len(sim_dates),
+            start=str(sim_dates[0]),
+            end=str(sim_dates[-1]),
+        )
 
         # Step 3: Initialize
         trader = PaperTrader(self._db)
@@ -345,6 +345,11 @@ class BacktestRunner:
                 }
             else:
                 initial = 33_000.0 if pname == "A" else 66_000.0
-                summary[f"portfolio_{pname}"] = {"total_return_pct": 0, "max_drawdown_pct": 0, "final_value": initial, "snapshots": 0}
+                summary[f"portfolio_{pname}"] = {
+                    "total_return_pct": 0,
+                    "max_drawdown_pct": 0,
+                    "final_value": initial,
+                    "snapshots": 0,
+                }
 
         return summary

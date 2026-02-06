@@ -16,7 +16,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase
 
-
 # ── SQLAlchemy Base ──────────────────────────────────────────────────────────
 
 
@@ -210,7 +209,8 @@ class DiscoveredTickerRow(Base):
     ticker = Column(String(10), nullable=False, unique=True)
     source = Column(String(20), nullable=False)  # "agent", "news", "screener"
     rationale = Column(Text)
-    status = Column(String(10), nullable=False, default="proposed")  # proposed/approved/rejected/expired
+    # proposed/approved/rejected/expired
+    status = Column(String(10), nullable=False, default="proposed")
     proposed_at = Column(Date, nullable=False)
     expires_at = Column(Date, nullable=False)
     sector = Column(String(50))

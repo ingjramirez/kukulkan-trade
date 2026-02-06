@@ -89,7 +89,10 @@ class TickerDiscovery:
                 return TickerValidationResult(
                     ticker=ticker,
                     valid=False,
-                    reason=f"Market cap ${market_cap / 1e9:.1f}B < ${MIN_MARKET_CAP / 1e9:.0f}B minimum",
+                    reason=(
+                        f"Market cap ${market_cap / 1e9:.1f}B"
+                        f" < ${MIN_MARKET_CAP / 1e9:.0f}B minimum"
+                    ),
                     market_cap=market_cap,
                 )
 

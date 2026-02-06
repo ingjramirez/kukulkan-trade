@@ -1,7 +1,7 @@
 """Tests for Alpaca executor — mocked TradingClient, real in-memory DB."""
 
 from datetime import date
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -179,7 +179,10 @@ class TestAlpacaExecutorTrades:
         executor = AlpacaExecutor(db, mock_client)
         await executor.initialize_portfolios()
 
-        trade = _make_trade(ticker="XLK", side=OrderSide.BUY, shares=10, price=200.0, reason="momentum")
+        trade = _make_trade(
+            ticker="XLK", side=OrderSide.BUY,
+            shares=10, price=200.0, reason="momentum",
+        )
         await executor.execute_trades([trade])
 
         trades = await db.get_trades("A")

@@ -4,6 +4,13 @@ Portfolio A (Aggressive Momentum): SECTOR_ETFS + THEMATIC_ETFS only
 Portfolio B (AI Full Autonomy): Full ETF universe + individual stocks
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.storage.database import Database
+
 # --- Core Sector ETFs (SPDR Select Sector) ---
 SECTOR_ETFS: list[str] = [
     "XLK",  # Technology
@@ -97,7 +104,6 @@ async def get_dynamic_universe(db: "Database") -> list[str]:
     Returns:
         Sorted, deduplicated list of all active tickers.
     """
-    from src.storage.database import Database
 
     approved = await db.get_approved_tickers()
     dynamic = [r.ticker for r in approved]

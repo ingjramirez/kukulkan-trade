@@ -1,9 +1,6 @@
 """Tests for IBKR client — all tests mock ib_insync.IB."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pandas as pd
-import pytest
+from unittest.mock import AsyncMock, MagicMock
 
 from src.execution.ibkr_client import IBKRClient
 

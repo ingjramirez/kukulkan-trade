@@ -11,7 +11,6 @@ import argparse
 import asyncio
 import logging
 import signal
-import sys
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -51,6 +50,7 @@ async def _create_executor(db: Database):
     if executor_type == "alpaca":
         try:
             from alpaca.trading.client import TradingClient
+
             from src.execution.alpaca_executor import AlpacaExecutor
 
             client = TradingClient(
@@ -174,7 +174,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    log.info("atlas_starting", mode="run-now" if args.run_now else "scheduled", executor=settings.executor)
+    mode = "run-now" if args.run_now else "scheduled"
+    log.info("atlas_starting", mode=mode, executor=settings.executor)
 
     if args.run_now:
         asyncio.run(run_once())

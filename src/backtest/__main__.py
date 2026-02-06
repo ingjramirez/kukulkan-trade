@@ -2,7 +2,6 @@
 
 import argparse
 import asyncio
-import sys
 
 import structlog
 
@@ -18,9 +17,18 @@ structlog.configure(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Atlas Trading Bot — Backtest Runner")
-    parser.add_argument("--months", type=int, default=6, help="Months of history to simulate (default: 6)")
-    parser.add_argument("--db", type=str, default="data/backtest.db", help="Output database path (default: data/backtest.db)")
-    parser.add_argument("--clean", action="store_true", help="Drop and recreate all tables before running")
+    parser.add_argument(
+        "--months", type=int, default=6,
+        help="Months of history to simulate (default: 6)",
+    )
+    parser.add_argument(
+        "--db", type=str, default="data/backtest.db",
+        help="Output database path (default: data/backtest.db)",
+    )
+    parser.add_argument(
+        "--clean", action="store_true",
+        help="Drop and recreate all tables before running",
+    )
     args = parser.parse_args()
 
     print(f"Starting backtest: {args.months} months → {args.db}{' (clean)' if args.clean else ''}")

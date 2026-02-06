@@ -120,8 +120,6 @@ class AIAutonomyStrategy:
         Returns:
             Dict of kwargs ready to pass to agent.analyze().
         """
-        tickers = [t for t in PORTFOLIO_B_UNIVERSE if t in closes.columns]
-
         # Filter to interesting tickers for compact format
         held_tickers = [p["ticker"] for p in positions if p.get("ticker")]
         interesting = filter_interesting_tickers(closes, held_tickers)
@@ -266,7 +264,11 @@ class AIAutonomyStrategy:
 
         # Enforce max positions: if buys would exceed 10, drop the smallest
         current_count = len([s for s in current_positions.values() if s > 0])
-        new_buys = [t for t in trades if t.side == OrderSide.BUY and t.ticker not in current_positions]
+        new_buys = [
+            t for t in trades
+            if t.side == OrderSide.BUY
+            and t.ticker not in current_positions
+        ]
         sells = [t for t in trades if t.side == OrderSide.SELL]
         exits = [s for s in sells if current_positions.get(s.ticker, 0) == s.shares]
 

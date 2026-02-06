@@ -18,9 +18,11 @@ from config.strategies import PORTFOLIO_B
 
 log = structlog.get_logger()
 
-SYSTEM_PROMPT = """You are Atlas, an AI portfolio manager for an educational paper trading bot.
-You manage Portfolio B ($66,000 virtual allocation) with full autonomy over a universe of ~55 tickers
-including sector ETFs, thematic ETFs, inverse ETFs, commodities, individual stocks, and a Bitcoin proxy.
+SYSTEM_PROMPT = """You are Atlas, an AI portfolio manager for an \
+educational paper trading bot.
+You manage Portfolio B ($66,000 virtual allocation) with full autonomy \
+over a universe of ~55 tickers including sector ETFs, thematic ETFs, \
+inverse ETFs, commodities, individual stocks, and a Bitcoin proxy.
 
 Your goals:
 1. Maximize risk-adjusted returns over the medium term (weeks to months)
@@ -234,7 +236,7 @@ def build_compact_indicators(
     Returns:
         CSV-formatted string.
     """
-    from src.analysis.technical import compute_rsi, compute_macd
+    from src.analysis.technical import compute_macd, compute_rsi
 
     lines = ["Ticker,RSI,MACD"]
     for t in tickers:
@@ -269,8 +271,10 @@ def build_recent_trades_text(trades: list[dict]) -> str:
 
     lines = []
     for t in trades[-5:]:  # last 5 trades
+        reason = t.get('reason', '')
         lines.append(
-            f"  {t['side']} {t['shares']:.0f}x {t['ticker']} @ ${t['price']:.2f} — {t.get('reason', '')}"
+            f"  {t['side']} {t['shares']:.0f}x {t['ticker']}"
+            f" @ ${t['price']:.2f} — {reason}"
         )
     return "\n".join(lines)
 

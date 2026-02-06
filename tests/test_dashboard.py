@@ -4,7 +4,7 @@ Uses a sync in-memory SQLite database to verify data queries work correctly.
 Streamlit UI rendering is not tested here (requires browser/Selenium).
 """
 
-from datetime import date, datetime
+from datetime import date
 
 import pandas as pd
 import pytest
@@ -62,13 +62,25 @@ def seeded_session(sync_session: Session):
             ))
 
     # Trades
-    s.add(TradeRow(portfolio="A", ticker="QQQ", side="BUY", shares=10, price=500, total=5000, reason="momentum"))
-    s.add(TradeRow(portfolio="B", ticker="XLK", side="BUY", shares=20, price=200, total=4000))
-    s.add(TradeRow(portfolio="B", ticker="XLF", side="SELL", shares=5, price=42, total=210, reason="rotation"))
+    s.add(TradeRow(
+        portfolio="A", ticker="QQQ", side="BUY",
+        shares=10, price=500, total=5000, reason="momentum",
+    ))
+    s.add(TradeRow(
+        portfolio="B", ticker="XLK", side="BUY",
+        shares=20, price=200, total=4000,
+    ))
+    s.add(TradeRow(
+        portfolio="B", ticker="XLF", side="SELL",
+        shares=5, price=42, total=210, reason="rotation",
+    ))
 
     # Momentum rankings
     for i, ticker in enumerate(["QQQ", "SMH", "XLK", "IWM", "EFA"]):
-        s.add(MomentumRankingRow(date=date(2026, 2, 5), ticker=ticker, return_63d=15.0 - i * 2, rank=i + 1))
+        s.add(MomentumRankingRow(
+            date=date(2026, 2, 5), ticker=ticker,
+            return_63d=15.0 - i * 2, rank=i + 1,
+        ))
 
     # Agent decisions
     s.add(AgentDecisionRow(
@@ -140,7 +152,10 @@ def _load_momentum(session: Session) -> pd.DataFrame:
         select(MomentumRankingRow).where(MomentumRankingRow.date == latest)
         .order_by(MomentumRankingRow.rank)
     ).scalars().all()
-    return pd.DataFrame([{"ticker": r.ticker, "return_63d": r.return_63d, "rank": r.rank} for r in rows])
+    return pd.DataFrame([
+        {"ticker": r.ticker, "return_63d": r.return_63d, "rank": r.rank}
+        for r in rows
+    ])
 
 
 def _load_decisions(session: Session) -> pd.DataFrame:
