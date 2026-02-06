@@ -244,6 +244,31 @@
         .corner-bl { bottom: 2rem; left: 2rem; border-bottom: 1px solid var(--gold); border-left: 1px solid var(--gold); }
         .corner-br { bottom: 2rem; right: 2rem; border-bottom: 1px solid var(--gold); border-right: 1px solid var(--gold); }
 
+        /* === LOGIN BUTTON === */
+        .login-btn {
+            position: fixed;
+            top: 2rem;
+            right: 2rem;
+            z-index: 10;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.65rem;
+            font-weight: 500;
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            text-decoration: none;
+            color: var(--gold);
+            border: 1px solid var(--gold-dim);
+            padding: 0.5em 1.5em;
+            transition: all 0.3s ease;
+            animation: fadeUp 1.5s ease-out 1s both;
+        }
+
+        .login-btn:hover {
+            color: var(--obsidian);
+            background: var(--gold);
+            border-color: var(--gold);
+        }
+
         /* === RESPONSIVE === */
         @media (max-width: 600px) {
             .status { gap: 2rem; }
@@ -257,6 +282,8 @@
     <div class="bg-pattern"></div>
     <div class="bg-grain"></div>
     <div class="serpent-line"></div>
+
+    <a href="https://app.kukulkan.trade" class="login-btn">Dashboard</a>
 
     <div class="corner corner-tl"></div>
     <div class="corner corner-tr"></div>

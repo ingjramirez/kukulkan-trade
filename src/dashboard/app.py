@@ -250,6 +250,40 @@ def load_live_account() -> dict | None:
         return None
 
 
+# ── Authentication ───────────────────────────────────────────────────────────
+
+
+def _login_page() -> bool:
+    """Show login form. Returns True if authenticated."""
+    if st.session_state.get("authenticated"):
+        return True
+
+    st.title("Kukulkan Dashboard")
+    st.caption("Enter credentials to continue.")
+
+    with st.form("login_form"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Login")
+
+    if submitted:
+        expected_user = settings.dashboard.user
+        expected_pass = settings.dashboard.password
+        if username == expected_user and password == expected_pass:
+            st.session_state["authenticated"] = True
+            st.rerun()
+        else:
+            st.error("Invalid credentials.")
+
+    return False
+
+
+# ── Gate: require login before anything else ─────────────────────────────────
+
+if not _login_page():
+    st.stop()
+
+
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 
 st.sidebar.title("Atlas Trading Bot")
@@ -258,17 +292,15 @@ page = st.sidebar.radio(
     ["Overview", "Portfolio A", "Portfolio B", "Trade Log"],
 )
 
-# Logout: clear basic auth credentials and redirect to landing page
+# Logout
 st.sidebar.markdown("---")
 if st.sidebar.button("Logout"):
+    st.session_state.clear()
     st.markdown(
-        """<meta http-equiv="refresh" content="0;url=https://logout:x@app.kukulkan.trade/">
-        <script>
-            fetch('/', {headers: {'Authorization': 'Basic ' + btoa('logout:x')}})
-                .finally(() => window.location.href = 'https://kukulkan.trade');
-        </script>""",
+        '<meta http-equiv="refresh" content="0;url=https://kukulkan.trade">',
         unsafe_allow_html=True,
     )
+    st.stop()
 
 
 # ── Helper functions ─────────────────────────────────────────────────────────

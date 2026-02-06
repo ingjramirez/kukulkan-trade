@@ -44,6 +44,15 @@ class FinnhubSettings(BaseSettings):
     model_config = {"env_prefix": "FINNHUB_", "env_file": ".env", "extra": "ignore"}
 
 
+class DashboardSettings(BaseSettings):
+    """Dashboard authentication settings."""
+
+    user: str = "admin"
+    password: str = ""
+
+    model_config = {"env_prefix": "DASHBOARD_", "env_file": ".env", "extra": "ignore"}
+
+
 class ChromaSettings(BaseSettings):
     """ChromaDB connection settings."""
 
@@ -75,6 +84,7 @@ class Settings(BaseSettings):
     telegram: TelegramSettings = TelegramSettings()
     finnhub: FinnhubSettings = FinnhubSettings()
     chroma: ChromaSettings = ChromaSettings()
+    dashboard: DashboardSettings = DashboardSettings()
 
     # Paths
     project_root: Path = Path(__file__).resolve().parent.parent
