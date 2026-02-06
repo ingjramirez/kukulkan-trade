@@ -222,8 +222,15 @@ def load_live_account() -> dict | None:
         )
         account = client.get_account()
         positions = client.get_all_positions()
+        equity = float(account.equity)
+        last_equity = float(account.last_equity)
+        daily_pl = equity - last_equity
+        daily_pl_pct = (daily_pl / last_equity) * 100 if last_equity else 0.0
         return {
-            "equity": float(account.equity),
+            "equity": equity,
+            "last_equity": last_equity,
+            "daily_pl": daily_pl,
+            "daily_pl_pct": daily_pl_pct,
             "cash": float(account.cash),
             "buying_power": float(account.buying_power),
             "positions": [
@@ -293,23 +300,19 @@ def page_overview() -> None:
         no_data_warning()
         return
 
-    # ── Live account banner ───────────────────────────────────────────
+    # ── KPI metrics ────────────────────────────────────────────────────
     if live:
-        initial = 99_000.0
-        equity = live["equity"]
-        total_return = ((equity - initial) / initial) * 100
-
         cols = st.columns(4)
-        cols[0].metric("Account Equity", f"${equity:,.2f}", f"{total_return:+.2f}%")
+        cols[0].metric(
+            "Account Equity",
+            f"${live['equity']:,.2f}",
+            f"{live['daily_pl']:+,.2f} ({live['daily_pl_pct']:+.2f}%)",
+        )
         cols[1].metric("Cash", f"${live['cash']:,.2f}")
         cols[2].metric("Positions", str(len(live["positions"])))
         cols[3].metric("Buying Power", f"${live['buying_power']:,.2f}")
-
         st.caption("Live from Alpaca (updates every 30s)")
-        st.divider()
-
-    # ── DB portfolio metrics ──────────────────────────────────────────
-    if portfolios:
+    elif portfolios:
         cols = st.columns(3)
 
         total_value = sum(p["total_value"] for p in portfolios.values())
