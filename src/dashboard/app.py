@@ -17,6 +17,7 @@ import streamlit as st
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from config.settings import settings
 from src.storage.models import (
     AgentDecisionRow,
     DailySnapshotRow,
@@ -203,6 +204,45 @@ def load_agent_decisions() -> pd.DataFrame:
     return pd.DataFrame(data)
 
 
+# ── Live Alpaca data ─────────────────────────────────────────────────────────
+
+
+@st.cache_data(ttl=30)
+def load_live_account() -> dict | None:
+    """Fetch live account equity and positions from Alpaca."""
+    if not settings.alpaca.api_key:
+        return None
+    try:
+        from alpaca.trading.client import TradingClient
+
+        client = TradingClient(
+            api_key=settings.alpaca.api_key,
+            secret_key=settings.alpaca.secret_key,
+            paper=settings.alpaca.paper,
+        )
+        account = client.get_account()
+        positions = client.get_all_positions()
+        return {
+            "equity": float(account.equity),
+            "cash": float(account.cash),
+            "buying_power": float(account.buying_power),
+            "positions": [
+                {
+                    "symbol": p.symbol,
+                    "qty": float(p.qty),
+                    "market_value": float(p.market_value),
+                    "unrealized_pl": float(p.unrealized_pl),
+                    "unrealized_plpc": float(p.unrealized_plpc) * 100,
+                    "current_price": float(p.current_price),
+                    "avg_entry_price": float(p.avg_entry_price),
+                }
+                for p in positions
+            ],
+        }
+    except Exception:
+        return None
+
+
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 
 st.sidebar.title("Atlas Trading Bot")
@@ -247,30 +287,47 @@ def page_overview() -> None:
 
     portfolios = load_portfolios()
     snapshots = load_snapshots()
+    live = load_live_account()
 
-    if not portfolios:
+    if not portfolios and not live:
         no_data_warning()
         return
 
-    # ── KPI metrics row ──────────────────────────────────────────────
-    cols = st.columns(3)
+    # ── Live account banner ───────────────────────────────────────────
+    if live:
+        initial = 99_000.0
+        equity = live["equity"]
+        total_return = ((equity - initial) / initial) * 100
 
-    total_value = sum(p["total_value"] for p in portfolios.values())
-    initial = 99_000.0
-    total_return = ((total_value - initial) / initial) * 100
+        cols = st.columns(4)
+        cols[0].metric("Account Equity", f"${equity:,.2f}", f"{total_return:+.2f}%")
+        cols[1].metric("Cash", f"${live['cash']:,.2f}")
+        cols[2].metric("Positions", str(len(live["positions"])))
+        cols[3].metric("Buying Power", f"${live['buying_power']:,.2f}")
 
-    cols[0].metric("Combined Value", f"${total_value:,.0f}", f"{total_return:+.2f}%")
+        st.caption("Live from Alpaca (updates every 30s)")
+        st.divider()
 
-    for i, name in enumerate(("A", "B")):
-        if name in portfolios:
-            p = portfolios[name]
-            init_val = INITIAL_VALUES[name]
-            ret = ((p["total_value"] - init_val) / init_val) * 100
-            cols[i + 1].metric(
-                f"Portfolio {name} ({STRATEGY_LABELS[name]})",
-                f"${p['total_value']:,.0f}",
-                f"{ret:+.2f}%",
-            )
+    # ── DB portfolio metrics ──────────────────────────────────────────
+    if portfolios:
+        cols = st.columns(3)
+
+        total_value = sum(p["total_value"] for p in portfolios.values())
+        initial = 99_000.0
+        total_return = ((total_value - initial) / initial) * 100
+
+        cols[0].metric("Combined Value", f"${total_value:,.0f}", f"{total_return:+.2f}%")
+
+        for i, name in enumerate(("A", "B")):
+            if name in portfolios:
+                p = portfolios[name]
+                init_val = INITIAL_VALUES[name]
+                ret = ((p["total_value"] - init_val) / init_val) * 100
+                cols[i + 1].metric(
+                    f"Portfolio {name} ({STRATEGY_LABELS[name]})",
+                    f"${p['total_value']:,.0f}",
+                    f"{ret:+.2f}%",
+                )
 
     # ── Equity curve ─────────────────────────────────────────────────
     if not snapshots.empty:
@@ -322,18 +379,34 @@ def page_overview() -> None:
             st.plotly_chart(fig2, use_container_width=True)
 
     # ── Current positions ────────────────────────────────────────────
-    positions = load_positions()
-    if not positions.empty:
-        st.subheader("Current Positions")
+    if live and live["positions"]:
+        st.subheader("Live Positions")
+        live_df = pd.DataFrame(live["positions"])
         st.dataframe(
-            positions.style.format({
-                "shares": "{:.0f}",
-                "avg_price": "${:.2f}",
-                "market_value": "${:,.0f}",
+            live_df.style.format({
+                "qty": "{:.0f}",
+                "avg_entry_price": "${:.2f}",
+                "current_price": "${:.2f}",
+                "market_value": "${:,.2f}",
+                "unrealized_pl": "${:+,.2f}",
+                "unrealized_plpc": "{:+.2f}%",
             }),
             use_container_width=True,
             hide_index=True,
         )
+    else:
+        positions = load_positions()
+        if not positions.empty:
+            st.subheader("Current Positions")
+            st.dataframe(
+                positions.style.format({
+                    "shares": "{:.0f}",
+                    "avg_price": "${:.2f}",
+                    "market_value": "${:,.0f}",
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
 
 
 # ── Portfolio detail pages ───────────────────────────────────────────────────
