@@ -210,5 +210,6 @@ __marimo__/
 data/*.db
 data/*.db-journal
 chroma/
+chroma_data/
 logs/
 .idea
