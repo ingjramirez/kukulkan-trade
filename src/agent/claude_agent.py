@@ -55,6 +55,9 @@ Current Positions:
 ## Recent Portfolio Trades
 {recent_trades}
 
+## Recent News Headlines
+{news_context}
+
 ---
 
 Analyze the current market environment and your portfolio. Then decide on trades.
@@ -226,6 +229,7 @@ class ClaudeAgent:
         regime: str | None = None,
         yield_curve: float | None = None,
         vix: float | None = None,
+        news_context: str = "",
     ) -> dict:
         """Send market context to Claude and get trade proposals.
 
@@ -241,6 +245,7 @@ class ClaudeAgent:
             regime: Current regime string.
             yield_curve: 10Y-2Y spread.
             vix: Current VIX.
+            news_context: Formatted news headlines for context.
 
         Returns:
             Parsed JSON response dict with regime_assessment, reasoning, trades, risk_notes.
@@ -254,6 +259,7 @@ class ClaudeAgent:
             indicators_table=build_indicators_table(indicators),
             macro_context=build_macro_context(regime, yield_curve, vix),
             recent_trades=build_recent_trades_text(recent_trades),
+            news_context=news_context or "  (no recent news available)",
         )
 
         log.info("agent_calling_claude", model=self._model, date=str(analysis_date))

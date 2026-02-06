@@ -14,6 +14,7 @@ from src.agent.claude_agent import ClaudeAgent
 from src.analysis.technical import compute_all_indicators
 from src.data.market_data import MarketDataFetcher
 from src.data.macro_data import MacroDataFetcher
+from src.data.news_fetcher import NewsFetcher
 from src.execution.paper_trader import PaperTrader
 from src.notifications.telegram_bot import TelegramNotifier
 from src.storage.database import Database
@@ -36,6 +37,7 @@ class Orchestrator:
         self._strategy_b = SectorRotationStrategy()
         self._strategy_c = AIAutonomyStrategy()
         self._notifier = notifier or TelegramNotifier()
+        self._news_fetcher = NewsFetcher()
 
     async def run_daily(self, today: date | None = None) -> dict:
         """Execute the full daily pipeline.
@@ -123,11 +125,29 @@ class Orchestrator:
             summary["errors"].append(f"Portfolio B failed: {e}")
             trades_b = []
 
+        # Step 5.5: Fetch news for AI context
+        news_context = ""
+        log.info("step_5_5_fetching_news")
+        try:
+            tickers_for_news = list(closes.columns)[:20]  # Top 20 tickers
+            articles = self._news_fetcher.fetch_news(tickers_for_news, max_per_ticker=3)
+            if articles:
+                rows = self._news_fetcher.store_articles(articles)
+                async with self._db.session() as s:
+                    s.add_all(rows)
+                    await s.commit()
+                summary["news_articles"] = len(articles)
+            news_context = self._news_fetcher.get_news_context(tickers_for_news)
+        except Exception as e:
+            log.warning("news_fetch_failed", error=str(e))
+            summary["errors"].append(f"News fetch failed: {e}")
+
         # Step 6: Portfolio C — AI Agent
         log.info("step_6_portfolio_c")
         try:
             trades_c = await self._run_portfolio_c(
-                closes, volumes, regime, yield_curve, vix, today
+                closes, volumes, regime, yield_curve, vix, today,
+                news_context=news_context,
             )
             summary["trades"]["C"] = len(trades_c)
         except Exception as e:
@@ -235,7 +255,7 @@ class Orchestrator:
         log.info("portfolio_b_complete", trades=len(trades), regime=regime.value, selected=selected)
         return trades, regime
 
-    async def _run_portfolio_c(self, closes, volumes, regime, yield_curve, vix, today):
+    async def _run_portfolio_c(self, closes, volumes, regime, yield_curve, vix, today, news_context: str = ""):
         """Run Portfolio C AI strategy and return trades."""
         portfolio = await self._db.get_portfolio("C")
         positions = await self._db.get_positions("C")
@@ -279,6 +299,7 @@ class Orchestrator:
             regime=regime.value if regime else None,
             yield_curve=yield_curve,
             vix=vix,
+            news_context=news_context,
         )
 
         response = self._strategy_c._agent.analyze(**context)

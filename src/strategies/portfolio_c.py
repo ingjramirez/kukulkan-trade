@@ -42,6 +42,7 @@ class AIAutonomyStrategy:
         regime: str | None = None,
         yield_curve: float | None = None,
         vix: float | None = None,
+        news_context: str = "",
     ) -> dict:
         """Prepare all data needed for the Claude agent call.
 
@@ -97,6 +98,7 @@ class AIAutonomyStrategy:
             "regime": regime,
             "yield_curve": yield_curve,
             "vix": vix,
+            "news_context": news_context,
         }
 
     def agent_response_to_trades(
