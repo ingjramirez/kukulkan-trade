@@ -37,6 +37,18 @@ def main() -> None:
         "--dry-run", action="store_true",
         help="Estimate token cost without running the backtest",
     )
+    parser.add_argument(
+        "--ai-budget", type=float, default=1.50,
+        help="Maximum USD to spend on AI API calls (default: 1.50)",
+    )
+    parser.add_argument(
+        "--ai-prompt-override", type=str, default=None,
+        help="Path to a text file with custom system prompt for AI",
+    )
+    parser.add_argument(
+        "--run-label", type=str, default=None,
+        help="Label for this run (default: auto-detected from prompt)",
+    )
     args = parser.parse_args()
 
     mode = "mock"
@@ -45,9 +57,29 @@ def main() -> None:
     if args.dry_run:
         mode = "dry-run"
 
+    # Load prompt override from file if provided
+    prompt_override = None
+    if args.ai_prompt_override:
+        with open(args.ai_prompt_override) as f:
+            prompt_override = f.read().strip()
+        print(f"Loaded prompt override from {args.ai_prompt_override}")
+
+    # Auto-detect run label from prompt if not provided
+    run_label = args.run_label
+    if run_label is None and args.use_ai:
+        if prompt_override and "conservative" in prompt_override.lower():
+            run_label = "conservative"
+        elif prompt_override and "aggressive" in prompt_override.lower():
+            run_label = "aggressive"
+        else:
+            run_label = "standard"
+
+    budget_str = f", budget=${args.ai_budget:.2f}" if args.use_ai else ""
+    label_str = f", label={run_label}" if run_label else ""
     print(
         f"Starting backtest: {args.months} months → {args.db}"
-        f" (mode={mode}{', clean' if args.clean else ''})"
+        f" (mode={mode}{budget_str}{label_str}"
+        f"{', clean' if args.clean else ''})"
     )
 
     runner = BacktestRunner(db_path=args.db)
@@ -56,6 +88,9 @@ def main() -> None:
         clean=args.clean,
         use_ai=args.use_ai,
         dry_run=args.dry_run,
+        ai_budget=args.ai_budget,
+        prompt_override=prompt_override,
+        run_label=run_label or "default",
     ))
 
     if summary.get("dry_run"):
@@ -64,6 +99,7 @@ def main() -> None:
         print(f"  API calls: {summary.get('estimated_api_calls', 0)}")
         print(f"  Est. tokens: {summary.get('estimated_tokens', 0):,}")
         print(f"  Est. cost: ${summary.get('estimated_cost_usd', 0):.2f}")
+        print(f"  Budget: ${args.ai_budget:.2f}")
         print(f"  Note: {summary.get('note', '')}")
         return
 
@@ -79,6 +115,15 @@ def main() -> None:
 
     counts = summary.get("trade_counts", {})
     print(f"\nTotal Trades: A={counts.get('A', 0)}, B={counts.get('B', 0)}")
+
+    # Print AI cost report if available
+    ai_report = summary.get("ai_cost_report")
+    if ai_report:
+        print(f"\n{ai_report}")
+
+    decisions_path = summary.get("ai_decisions_path")
+    if decisions_path:
+        print(f"\nDecisions saved to: {decisions_path}")
 
 
 if __name__ == "__main__":

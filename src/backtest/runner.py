@@ -142,6 +142,9 @@ class BacktestRunner:
         clean: bool = False,
         use_ai: bool = False,
         dry_run: bool = False,
+        ai_budget: float = 1.50,
+        prompt_override: str | None = None,
+        run_label: str = "default",
     ) -> dict:
         """Execute the full backtest.
 
@@ -150,6 +153,9 @@ class BacktestRunner:
             clean: If True, drop and recreate all tables before running.
             use_ai: If True, use real Claude AI for Portfolio B.
             dry_run: If True, estimate token cost without running.
+            ai_budget: Maximum USD to spend on AI API calls.
+            prompt_override: Custom system prompt text for AI.
+            run_label: Label for this run (e.g. "standard").
 
         Returns:
             Summary dict with performance metrics.
@@ -202,12 +208,20 @@ class BacktestRunner:
         strategy_a = MomentumStrategy()
 
         # Portfolio B: real AI or mock
-        ai_strategy = None
+        ai_bt_strategy = None
         mock_b = None
         if use_ai:
-            from src.strategies.portfolio_b import AIAutonomyStrategy
-            ai_strategy = AIAutonomyStrategy()
-            log.info("backtest_using_real_ai")
+            from src.backtest.ai_strategy import AIBacktestStrategy
+            ai_bt_strategy = AIBacktestStrategy(
+                budget_usd=ai_budget,
+                run_label=run_label,
+                prompt_override=prompt_override,
+            )
+            log.info(
+                "backtest_using_real_ai",
+                budget=f"${ai_budget:.2f}",
+                label=run_label,
+            )
         else:
             mock_b = MockPortfolioB()
 
@@ -233,9 +247,9 @@ class BacktestRunner:
 
             # Portfolio B
             try:
-                if use_ai and ai_strategy is not None:
+                if use_ai and ai_bt_strategy is not None:
                     trades_b = await self._run_portfolio_b_ai(
-                        ai_strategy, closes_slice, volumes,
+                        ai_bt_strategy, closes_slice, volumes,
                         trader, sim_date,
                     )
                 elif mock_b is not None:
@@ -267,6 +281,14 @@ class BacktestRunner:
 
         # Step 5: Compute summary
         summary = await self._compute_summary(trade_counts)
+
+        # Save AI decisions and cost report
+        if ai_bt_strategy is not None:
+            decisions_path = ai_bt_strategy.save_decisions()
+            if decisions_path:
+                summary["ai_decisions_path"] = decisions_path
+            summary["ai_cost_report"] = ai_bt_strategy.get_cost_report()
+
         await self._db.close()
 
         log.info("backtest_complete", **summary)
@@ -345,16 +367,16 @@ class BacktestRunner:
 
     async def _run_portfolio_b_ai(
         self,
-        strategy,
+        ai_bt_strategy,
         closes: pd.DataFrame,
         volumes: pd.DataFrame,
         trader: PaperTrader,
         sim_date: date,
     ) -> list[TradeSchema]:
-        """Run Portfolio B using the real AI strategy.
+        """Run Portfolio B using the AI backtest strategy.
 
         Args:
-            strategy: AIAutonomyStrategy instance.
+            ai_bt_strategy: AIBacktestStrategy instance with budget tracking.
             closes: Historical closes up to sim_date.
             volumes: Historical volumes up to sim_date.
             trader: PaperTrader instance.
@@ -394,33 +416,16 @@ class BacktestRunner:
             for t in recent_trades_raw[:5]
         ]
 
-        context = strategy.prepare_context(
+        return ai_bt_strategy.generate_trades(
             closes=closes,
             volumes=volumes,
             positions=positions_for_agent,
             cash=cash,
             total_value=total_value,
-            recent_trades=recent_trades,
-        )
-
-        response = strategy._agent.analyze(**context)
-
-        trades = strategy.agent_response_to_trades(
-            response=response,
-            total_value=total_value,
             current_positions=position_map,
-            latest_prices=closes.iloc[-1],
+            recent_trades=recent_trades,
+            sim_date=sim_date,
         )
-
-        await strategy.save_decision(self._db, sim_date, response, trades)
-
-        log.info(
-            "backtest_ai_decision",
-            date=str(sim_date),
-            trades=len(trades),
-            tokens=response.get("_tokens_used", 0),
-        )
-        return trades
 
     def _estimate_cost(self, sim_days: int, use_ai: bool) -> dict:
         """Estimate API cost for a backtest run.

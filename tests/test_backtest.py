@@ -270,10 +270,9 @@ class TestBacktestRunnerUnit:
 
     @pytest.mark.asyncio
     async def test_run_portfolio_b_ai(self, runner_and_db) -> None:
-        """Portfolio B AI uses the real strategy with mocked agent."""
+        """Portfolio B AI uses AIBacktestStrategy with mocked agent."""
         runner, db = runner_and_db
-        from src.agent.claude_agent import ClaudeAgent
-        from src.strategies.portfolio_b import AIAutonomyStrategy
+        from src.backtest.ai_strategy import AIBacktestStrategy
 
         tickers = ["XLK", "XLF", "QQQ", "GLD", "AAPL", "MSFT"]
         closes = _make_closes(tickers, days=60)
@@ -282,10 +281,7 @@ class TestBacktestRunnerUnit:
         trader = PaperTrader(db)
         await trader.initialize_portfolios()
 
-        # Create strategy with mocked agent
-        strategy = AIAutonomyStrategy(
-            agent=ClaudeAgent(api_key="fake-key"),
-        )
+        ai_bt = AIBacktestStrategy(budget_usd=10.0, run_label="test")
         mock_response = {
             "regime_assessment": "Test regime",
             "reasoning": "Backtest AI test",
@@ -297,12 +293,12 @@ class TestBacktestRunnerUnit:
             "_tokens_used": 100,
             "_model": "test-model",
         }
-        strategy._agent.analyze = MagicMock(return_value=mock_response)
-        strategy._agent._client = MagicMock()
+        ai_bt._strategy._agent.analyze = MagicMock(return_value=mock_response)
+        ai_bt._strategy._agent._client = MagicMock()
 
         trades = await runner._run_portfolio_b_ai(
-            strategy, closes, volumes, trader, date.today(),
+            ai_bt, closes, volumes, trader, date.today(),
         )
 
         assert isinstance(trades, list)
-        strategy._agent.analyze.assert_called_once()
+        ai_bt._strategy._agent.analyze.assert_called_once()
