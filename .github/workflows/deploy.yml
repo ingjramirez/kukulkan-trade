@@ -63,12 +63,21 @@ jobs:
             cp /opt/kukulkan-trade/deploy/nginx/app.kukulkan.trade /etc/nginx/sites-available/ && \
             nginx -t && systemctl reload nginx"
 
-      - name: Restart services
+      - name: Deploy systemd services
+        run: |
+          ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "\
+            cp /opt/kukulkan-trade/deploy/kukulkan-bot.service /etc/systemd/system/ && \
+            cp /opt/kukulkan-trade/deploy/kukulkan-dashboard.service /etc/systemd/system/ && \
+            cp /opt/kukulkan-trade/deploy/kukulkan-api.service /etc/systemd/system/ && \
+            systemctl daemon-reload"
+
+      - name: Install and restart services
         run: |
           ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "\
             cd /opt/kukulkan-trade && \
             source .venv/bin/activate && \
             pip install -e . && \
-            sudo systemctl restart kukulkan-bot && \
-            sudo systemctl restart kukulkan-dashboard && \
-            sudo systemctl restart kukulkan-api"
+            systemctl enable kukulkan-api && \
+            systemctl restart kukulkan-bot && \
+            systemctl restart kukulkan-dashboard && \
+            systemctl restart kukulkan-api"
