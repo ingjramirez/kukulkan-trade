@@ -31,6 +31,7 @@ from src.notifications.telegram_bot import TelegramNotifier
 from src.storage.database import Database
 from src.strategies.portfolio_a import MomentumStrategy
 from src.strategies.portfolio_b import AIAutonomyStrategy
+from src.utils.market_calendar import is_market_open, trading_days_between
 
 log = structlog.get_logger()
 
@@ -89,6 +90,20 @@ class Orchestrator:
         """
         today = today or date.today()
         summary: dict = {"date": today.isoformat(), "trades": {}, "errors": []}
+
+        # Guard: skip if market is closed (holidays, weekends)
+        if not is_market_open(today):
+            log.info("pipeline_skipped_market_closed", date=str(today))
+            if self._notifier_available():
+                try:
+                    await self._notifier.send_message(
+                        f"Market closed today ({today.strftime('%A, %b %d')}). "
+                        "Pipeline skipped."
+                    )
+                except Exception:
+                    pass
+            summary["skipped"] = "market_closed"
+            return summary
 
         log.info("daily_pipeline_start", date=str(today))
 
@@ -592,14 +607,12 @@ class Orchestrator:
             last_snap_date = max(snapshot_dates)
 
             # Build expected trading days between last snapshot and today
-            expected = pd.bdate_range(
-                start=last_snap_date, end=today, inclusive="neither",
-            )
+            expected = trading_days_between(last_snap_date, today)
 
             missed = [
-                d.date() for d in expected
-                if d.date() not in snapshot_dates
-                and d.date() in closes.index.date
+                d for d in expected
+                if d not in snapshot_dates
+                and d in closes.index.date
             ]
 
             if not missed:

@@ -20,8 +20,10 @@ from config.settings import settings
 from src.agent.claude_agent import ClaudeAgent
 from src.agent.memory import AgentMemoryManager
 from src.notifications.telegram_bot import TelegramNotifier
+from src.notifications.weekly_report import WeeklyReporter
 from src.orchestrator import Orchestrator
 from src.storage.database import Database
+from src.utils.market_calendar import is_market_open
 
 log = structlog.get_logger()
 
@@ -158,10 +160,39 @@ async def run_scheduled() -> None:
         name="Kukulkan Weekly Memory Compaction",
     )
 
+    # Weekly performance report (Friday 5 PM ET)
+    reporter = WeeklyReporter(db, notifier)
+
+    async def weekly_report():
+        from datetime import date as _date
+
+        today = _date.today()
+        if not is_market_open(today):
+            log.info("weekly_report_skipped_holiday")
+            return
+        try:
+            await reporter.generate_and_send(today)
+            log.info("weekly_report_job_complete")
+        except Exception as e:
+            log.error("weekly_report_job_failed", error=str(e))
+
+    scheduler.add_job(
+        weekly_report,
+        CronTrigger(
+            day_of_week="fri",
+            hour=17,
+            minute=0,
+            timezone="US/Eastern",
+        ),
+        id="weekly_report",
+        name="Kukulkan Weekly Report",
+    )
+
     scheduler.start()
     log.info(
         "scheduler_started",
-        schedule="Mon-Fri at 10:00, 12:30, 15:45 ET; Sun 18:00 ET compaction",
+        schedule="Mon-Fri at 10:00, 12:30, 15:45 ET; "
+        "Fri 17:00 ET report; Sun 18:00 ET compaction",
     )
 
     # Keep running until interrupted
