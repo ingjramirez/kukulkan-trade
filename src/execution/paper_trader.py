@@ -1,7 +1,7 @@
 """Paper trading executor.
 
 Simulates trade execution locally. Updates positions, cash, and logs trades.
-No IBKR dependency — pure in-memory simulation backed by SQLite.
+Pure in-memory simulation backed by SQLite.
 """
 
 from datetime import date

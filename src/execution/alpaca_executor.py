@@ -1,7 +1,7 @@
 """Alpaca trade executor using alpaca-py.
 
 REST-based executor for Alpaca paper/live trading.
-Same 3-method interface as PaperTrader and IBKRExecutor.
+Same 3-method interface as PaperTrader.
 """
 
 import asyncio

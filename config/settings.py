@@ -5,18 +5,6 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 
 
-class IBKRSettings(BaseSettings):
-    """Interactive Brokers connection settings."""
-
-    host: str = "127.0.0.1"
-    port: int = 4002  # IB Gateway paper trading
-    client_id: int = 1
-    timeout: int = 30  # order fill timeout seconds
-    readonly: bool = False  # if True, data only (no orders)
-
-    model_config = {"env_prefix": "IBKR_", "env_file": ".env", "extra": "ignore"}
-
-
 class TelegramSettings(BaseSettings):
     """Telegram bot settings."""
 
@@ -69,7 +57,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     fred_api_key: str = ""
 
-    # Executor: "alpaca", "ibkr", or "paper"
+    # Executor: "alpaca" or "paper"
     executor: str = "paper"
 
     # Database
@@ -83,7 +71,6 @@ class Settings(BaseSettings):
 
     # Sub-settings
     alpaca: AlpacaSettings = AlpacaSettings()
-    ibkr: IBKRSettings = IBKRSettings()
     telegram: TelegramSettings = TelegramSettings()
     finnhub: FinnhubSettings = FinnhubSettings()
     chroma: ChromaSettings = ChromaSettings()
@@ -94,7 +81,7 @@ class Settings(BaseSettings):
     data_dir: Path = project_root / "data"
     logs_dir: Path = project_root / "logs"
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 settings = Settings()

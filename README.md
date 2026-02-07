@@ -25,7 +25,7 @@ Built with Python 3.11, async SQLAlchemy, Claude AI, and a full notification + d
                   │              │
                   ▼              ▼
             ┌─────────────────────────┐
-            │  Executor (Alpaca/IBKR) │
+            │   Executor (Alpaca)     │
             └────────────┬────────────┘
                          ▼
             ┌─────────────────────────┐
@@ -35,7 +35,7 @@ Built with Python 3.11, async SQLAlchemy, Claude AI, and a full notification + d
 
 ## Tech Stack
 
-Python 3.11 | SQLAlchemy + SQLite | ChromaDB | yfinance | `ta` | Anthropic Claude | Alpaca | Telegram | Streamlit | Plotly
+Python 3.11 | SQLAlchemy + SQLite | ChromaDB | yfinance | `ta` | Anthropic Claude | Alpaca | Telegram | Next.js
 
 ## Setup
 
@@ -56,7 +56,7 @@ cp .env.example .env
 #   ANTHROPIC_API_KEY   — Claude API
 #   ALPACA_API_KEY      — Alpaca paper trading
 #   ALPACA_SECRET_KEY   — Alpaca secret
-#   EXECUTOR            — alpaca | ibkr | paper
+#   EXECUTOR            — alpaca | paper
 #   TELEGRAM_BOT_TOKEN  — Telegram notifications
 #   TELEGRAM_CHAT_ID    — your chat ID
 #   FRED_API_KEY        — macro data (optional)
@@ -82,7 +82,6 @@ python -m src.main
 
 # Choose executor
 EXECUTOR=alpaca python -m src.main --run-now   # Alpaca paper trading (default)
-EXECUTOR=ibkr   python -m src.main --run-now   # Interactive Brokers
 EXECUTOR=paper  python -m src.main --run-now   # Local simulation
 ```
 
@@ -125,15 +124,12 @@ kukulkan-trade/
 │   │   └── technical.py         # RSI, MACD, SMA, Bollinger Bands
 │   ├── backtest/
 │   │   └── runner.py            # Historical strategy backtesting
-│   ├── dashboard/
-│   │   └── app.py               # Streamlit UI (5 pages + Plotly)
 │   ├── data/
 │   │   ├── market_data.py       # yfinance price fetcher
 │   │   ├── macro_data.py        # FRED yield curve & VIX
 │   │   └── news_fetcher.py      # News + ChromaDB vector search
 │   ├── execution/
 │   │   ├── alpaca_executor.py   # Alpaca API executor
-│   │   ├── ibkr_executor.py     # IBKR TWS executor
 │   │   └── paper_trader.py      # Local paper trading simulation
 │   ├── notifications/
 │   │   └── telegram_bot.py      # Daily briefs & trade alerts

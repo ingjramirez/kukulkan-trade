@@ -5,13 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "kukulkan-trade"
 version = "0.1.0"
-description = "Educational trading bot running 3 parallel strategies on IBKR paper trading"
+description = "Educational trading bot running 2 portfolio strategies on Alpaca paper trading"
 requires-python = ">=3.11"
 dependencies = [
     # Alpaca API
     "alpaca-py>=0.30.0",
-    # IBKR API
-    "ib_insync>=0.9.86",
     # AI
     "anthropic>=0.39.0",
     # Vector store client (server runs in Docker)

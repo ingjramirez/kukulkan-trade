@@ -4,7 +4,7 @@ Usage:
     python -m src.main              # Start scheduler (3x daily during market hours)
     python -m src.main --run-now    # Run pipeline immediately, then exit
 
-Executor is controlled by EXECUTOR env var: "alpaca", "ibkr", or "paper" (default).
+Executor is controlled by EXECUTOR env var: "alpaca" or "paper" (default).
 """
 
 import argparse
@@ -71,25 +71,6 @@ async def _create_executor(db: Database):
             return AlpacaExecutor(db, client), None
         except Exception as e:
             log.warning("alpaca_not_available_using_paper_trader", error=str(e))
-
-    elif executor_type == "ibkr":
-        try:
-            from src.execution.ibkr_client import IBKRClient
-            from src.execution.ibkr_executor import IBKRExecutor
-
-            client = IBKRClient(
-                host=settings.ibkr.host,
-                port=settings.ibkr.port,
-                client_id=settings.ibkr.client_id,
-            )
-            connected = await client.connect()
-            if connected:
-                log.info("ibkr_connected", host=settings.ibkr.host, port=settings.ibkr.port)
-                return IBKRExecutor(db, client), client.disconnect
-            else:
-                log.warning("ibkr_connection_failed_using_paper_trader")
-        except Exception as e:
-            log.warning("ibkr_not_available_using_paper_trader", error=str(e))
 
     # Default: PaperTrader
     from src.execution.paper_trader import PaperTrader
