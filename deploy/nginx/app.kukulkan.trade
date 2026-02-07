@@ -1,3 +1,0 @@
-# app.kukulkan.trade — Next.js dashboard + FastAPI backend
-# NOTE: This is now included in the kukulkan.trade config as a combined server block.
-# This file is kept for reference but the active config is deploy/nginx/kukulkan.trade.
