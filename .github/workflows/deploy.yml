@@ -60,7 +60,8 @@ jobs:
         run: |
           ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "\
             cp /opt/kukulkan-trade/deploy/nginx/kukulkan.trade /etc/nginx/sites-available/ && \
-            cp /opt/kukulkan-trade/deploy/nginx/app.kukulkan.trade /etc/nginx/sites-available/ && \
+            rm -f /etc/nginx/sites-available/app.kukulkan.trade && \
+            rm -f /etc/nginx/sites-enabled/app.kukulkan.trade && \
             nginx -t && systemctl reload nginx"
 
       - name: Deploy systemd services
