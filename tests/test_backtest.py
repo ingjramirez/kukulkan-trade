@@ -19,10 +19,11 @@ def _make_closes(tickers: list[str], days: int = 100, seed: int = 42) -> pd.Data
     """Generate synthetic close prices with realistic random walk."""
     rng = np.random.default_rng(seed)
     dates = pd.bdate_range(end=date.today(), periods=days)
+    n = len(dates)
     data = {}
     for t in tickers:
         base = rng.uniform(50, 300)
-        returns = rng.normal(0.0005, 0.015, days)
+        returns = rng.normal(0.0005, 0.015, n)
         prices = base * np.cumprod(1 + returns)
         data[t] = prices
     return pd.DataFrame(data, index=dates)
@@ -32,9 +33,10 @@ def _make_volumes(tickers: list[str], days: int = 100, seed: int = 42) -> pd.Dat
     """Generate synthetic volume data."""
     rng = np.random.default_rng(seed)
     dates = pd.bdate_range(end=date.today(), periods=days)
+    n = len(dates)
     data = {}
     for t in tickers:
-        data[t] = rng.uniform(1_000_000, 50_000_000, days)
+        data[t] = rng.uniform(1_000_000, 50_000_000, n)
     return pd.DataFrame(data, index=dates)
 
 
