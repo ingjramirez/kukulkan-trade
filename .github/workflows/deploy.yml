@@ -70,4 +70,5 @@ jobs:
             source .venv/bin/activate && \
             pip install -e . && \
             sudo systemctl restart kukulkan-bot && \
-            sudo systemctl restart kukulkan-dashboard"
+            sudo systemctl restart kukulkan-dashboard && \
+            sudo systemctl restart kukulkan-api"

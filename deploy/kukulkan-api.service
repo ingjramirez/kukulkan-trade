@@ -1,0 +1,32 @@
+[Unit]
+Description=Kukulkan API — FastAPI REST backend
+After=network.target kukulkan-bot.service
+Wants=kukulkan-bot.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/kukulkan-trade
+ExecStart=/opt/kukulkan-trade/.venv/bin/uvicorn src.api.main:app \
+    --host 127.0.0.1 \
+    --port 8001 \
+    --workers 2
+Restart=on-failure
+RestartSec=10
+
+# Environment
+EnvironmentFile=/opt/kukulkan-trade/.env
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/kukulkan-trade/data /opt/kukulkan-trade/logs
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kukulkan-api
+
+[Install]
+WantedBy=multi-user.target

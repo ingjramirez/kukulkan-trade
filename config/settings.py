@@ -78,6 +78,9 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    # JWT
+    jwt_secret: str = "change-me-in-production"
+
     # Sub-settings
     alpaca: AlpacaSettings = AlpacaSettings()
     ibkr: IBKRSettings = IBKRSettings()

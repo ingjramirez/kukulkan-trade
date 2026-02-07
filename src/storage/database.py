@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.storage.models import (
+    AgentDecisionRow,
     Base,
     DailySnapshotRow,
     DiscoveredTickerRow,
@@ -341,3 +342,54 @@ class Database:
                 row.status = "expired"
             await s.commit()
             return len(expired)
+
+    # ── API Query Methods ──────────────────────────────────────────────
+
+    async def get_all_portfolios(self) -> list[PortfolioRow]:
+        """Get all portfolios."""
+        async with self.session() as s:
+            result = await s.execute(select(PortfolioRow))
+            return list(result.scalars().all())
+
+    async def get_all_trades(
+        self,
+        portfolio: str | None = None,
+        side: str | None = None,
+        limit: int = 100,
+    ) -> list[TradeRow]:
+        """Get trades with optional filters."""
+        async with self.session() as s:
+            stmt = select(TradeRow)
+            if portfolio:
+                stmt = stmt.where(TradeRow.portfolio == portfolio)
+            if side:
+                stmt = stmt.where(TradeRow.side == side)
+            stmt = stmt.order_by(TradeRow.executed_at.desc()).limit(limit)
+            result = await s.execute(stmt)
+            return list(result.scalars().all())
+
+    async def get_all_snapshots(
+        self,
+        portfolio: str | None = None,
+        since: date | None = None,
+    ) -> list[DailySnapshotRow]:
+        """Get snapshots with optional filters."""
+        async with self.session() as s:
+            stmt = select(DailySnapshotRow)
+            if portfolio:
+                stmt = stmt.where(DailySnapshotRow.portfolio == portfolio)
+            if since:
+                stmt = stmt.where(DailySnapshotRow.date >= since)
+            stmt = stmt.order_by(DailySnapshotRow.date)
+            result = await s.execute(stmt)
+            return list(result.scalars().all())
+
+    async def get_agent_decisions(self, limit: int = 10) -> list[AgentDecisionRow]:
+        """Get recent agent decisions."""
+        async with self.session() as s:
+            result = await s.execute(
+                select(AgentDecisionRow)
+                .order_by(AgentDecisionRow.date.desc())
+                .limit(limit)
+            )
+            return list(result.scalars().all())
