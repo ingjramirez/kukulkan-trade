@@ -17,6 +17,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from config.settings import settings
+from src.agent.claude_agent import ClaudeAgent
+from src.agent.memory import AgentMemoryManager
 from src.notifications.telegram_bot import TelegramNotifier
 from src.orchestrator import Orchestrator
 from src.storage.database import Database
@@ -151,10 +153,34 @@ async def run_scheduled() -> None:
             name=f"Kukulkan {session_name}",
         )
 
+    # Weekly memory compaction (Sunday 6 PM ET)
+    memory_manager = AgentMemoryManager()
+    agent = ClaudeAgent()
+
+    async def weekly_compaction():
+        try:
+            await memory_manager.run_weekly_compaction(db, agent)
+            await db.delete_expired_memories()
+            log.info("weekly_compaction_job_complete")
+        except Exception as e:
+            log.error("weekly_compaction_job_failed", error=str(e))
+
+    scheduler.add_job(
+        weekly_compaction,
+        CronTrigger(
+            day_of_week="sun",
+            hour=18,
+            minute=0,
+            timezone="US/Eastern",
+        ),
+        id="weekly_memory_compaction",
+        name="Kukulkan Weekly Memory Compaction",
+    )
+
     scheduler.start()
     log.info(
         "scheduler_started",
-        schedule="Mon-Fri at 10:00, 12:30, 15:45 ET",
+        schedule="Mon-Fri at 10:00, 12:30, 15:45 ET; Sun 18:00 ET compaction",
     )
 
     # Keep running until interrupted

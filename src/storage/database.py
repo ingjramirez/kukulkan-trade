@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from src.storage.models import (
     AgentDecisionRow,
+    AgentMemoryRow,
     Base,
     DailySnapshotRow,
     DiscoveredTickerRow,
@@ -393,3 +394,74 @@ class Database:
                 .limit(limit)
             )
             return list(result.scalars().all())
+
+    # ── Agent Memory ──────────────────────────────────────────────────
+
+    async def get_agent_memories(self, category: str) -> list[AgentMemoryRow]:
+        """Get all memories for a given category, ordered by created_at."""
+        async with self.session() as s:
+            result = await s.execute(
+                select(AgentMemoryRow)
+                .where(AgentMemoryRow.category == category)
+                .order_by(AgentMemoryRow.created_at)
+            )
+            return list(result.scalars().all())
+
+    async def upsert_agent_memory(
+        self,
+        category: str,
+        key: str,
+        content: str,
+        expires_at: datetime | None = None,
+    ) -> None:
+        """Create or update an agent memory entry."""
+        async with self.session() as s:
+            existing = (
+                await s.execute(
+                    select(AgentMemoryRow).where(
+                        AgentMemoryRow.category == category,
+                        AgentMemoryRow.key == key,
+                    )
+                )
+            ).scalar_one_or_none()
+
+            if existing:
+                existing.content = content
+                existing.expires_at = expires_at
+                existing.created_at = datetime.utcnow()
+            else:
+                s.add(AgentMemoryRow(
+                    category=category,
+                    key=key,
+                    content=content,
+                    expires_at=expires_at,
+                ))
+            await s.commit()
+
+    async def delete_expired_memories(self) -> int:
+        """Delete memories past their expires_at. Returns count deleted."""
+        async with self.session() as s:
+            result = await s.execute(
+                select(AgentMemoryRow).where(
+                    AgentMemoryRow.expires_at.isnot(None),
+                    AgentMemoryRow.expires_at <= datetime.utcnow(),
+                )
+            )
+            expired = list(result.scalars().all())
+            for row in expired:
+                await s.delete(row)
+            await s.commit()
+            return len(expired)
+
+    async def get_all_agent_memory_context(self) -> dict:
+        """Return all 3 memory tiers as a dict.
+
+        Returns:
+            Dict with keys: short_term, weekly_summary, agent_note.
+            Each value is a list of AgentMemoryRow.
+        """
+        return {
+            "short_term": await self.get_agent_memories("short_term"),
+            "weekly_summary": await self.get_agent_memories("weekly_summary"),
+            "agent_note": await self.get_agent_memories("agent_note"),
+        }

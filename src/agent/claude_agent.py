@@ -42,11 +42,15 @@ Think in terms of risk/reward asymmetry, not just direction."""
 SYSTEM_PROMPT = _DEFAULT_SYSTEM_PROMPT
 
 
-def build_system_prompt(performance_stats: str | None = None) -> str:
-    """Build an enhanced system prompt with performance context.
+def build_system_prompt(
+    performance_stats: str | None = None,
+    memory_context: str | None = None,
+) -> str:
+    """Build an enhanced system prompt with performance context and memory.
 
     Args:
         performance_stats: Pre-formatted performance text from PerformanceTracker.
+        memory_context: Pre-formatted memory text from AgentMemoryManager.
 
     Returns:
         Full system prompt string.
@@ -71,6 +75,9 @@ Hard Rules:
 
     if performance_stats:
         prompt += f"\n\n## Your Track Record\n{performance_stats}"
+
+    if memory_context:
+        prompt += f"\n\n{memory_context}"
 
     return prompt
 
@@ -124,6 +131,12 @@ Respond ONLY with valid JSON in this exact format:
       "ticker": "PLTR",
       "rationale": "brief reason this ticker should be added to the universe"
     }}
+  ],
+  "memory_notes": [
+    {{
+      "key": "thesis-tech",
+      "content": "XLK showing relative strength vs SPY, tech rotation thesis intact"
+    }}
   ]
 }}
 
@@ -138,7 +151,14 @@ Rules for suggested_tickers:
 - Only suggest tickers NOT already in your universe.
 - Include only if you have strong conviction based on the news or market conditions.
 - If no suggestions, return an empty array or omit the field.
-- Suggestions will be validated and require human approval before being tradeable."""
+- Suggestions will be validated and require human approval before being tradeable.
+
+Rules for memory_notes:
+- Use memory_notes to persist observations you want to remember across sessions.
+- Each note has a "key" (e.g. "thesis-tech") and "content" (max ~50 words).
+- You can overwrite a previous note by reusing the same key.
+- Max 10 notes stored. Use for: theses, lessons, correlations, timing insights.
+- If nothing worth remembering, return an empty array or omit the field."""
 
 
 def build_positions_text(positions: list[dict]) -> str:

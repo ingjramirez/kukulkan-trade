@@ -217,6 +217,20 @@ class DiscoveredTickerRow(Base):
     market_cap = Column(Float)
 
 
+class AgentMemoryRow(Base):
+    """Persistent memory for Portfolio B AI agent."""
+
+    __tablename__ = "agent_memory"
+    __table_args__ = (UniqueConstraint("category", "key"),)
+
+    id = Column(Integer, primary_key=True)
+    category = Column(String(20), nullable=False)  # short_term, weekly_summary, agent_note
+    key = Column(String(100), nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+
+
 class WeeklyReportRow(Base):
     """Weekly performance reports."""
 

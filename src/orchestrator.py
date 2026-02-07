@@ -16,6 +16,7 @@ from config.universe import (
 )
 from src.agent.claude_agent import build_system_prompt
 from src.agent.complexity_detector import ComplexityDetector
+from src.agent.memory import AgentMemoryManager
 from src.agent.ticker_discovery import TickerDiscovery
 from src.analysis.performance import PerformanceTracker
 from src.analysis.risk_manager import RiskManager
@@ -61,6 +62,7 @@ class Orchestrator:
         self._ticker_discovery = TickerDiscovery(db)
         self._risk_manager = RiskManager()
         self._performance_tracker = PerformanceTracker()
+        self._memory_manager = AgentMemoryManager()
 
     async def run_daily(
         self, today: date | None = None, session: str = "",
@@ -409,6 +411,14 @@ class Orchestrator:
                 return []
             # "sonnet" or timeout → model_override stays None
 
+        # ── Build memory context for system prompt ─────────────────────
+        memory_text: str | None = None
+        try:
+            memories = await self._db.get_all_agent_memory_context()
+            memory_text = self._memory_manager.build_memory_prompt(memories) or None
+        except Exception as e:
+            log.warning("memory_context_failed", error=str(e))
+
         # ── Compute performance stats for dynamic system prompt ────────
         perf_text: str | None = None
         try:
@@ -420,7 +430,10 @@ class Orchestrator:
         except Exception as e:
             log.warning("performance_stats_failed", error=str(e))
 
-        dynamic_prompt = build_system_prompt(performance_stats=perf_text)
+        dynamic_prompt = build_system_prompt(
+            performance_stats=perf_text,
+            memory_context=memory_text,
+        )
 
         # ── Prepare context and call agent ───────────────────────────────
         context = self._strategy_b.prepare_context(
@@ -452,6 +465,17 @@ class Orchestrator:
 
         # Save decision
         await self._strategy_b.save_decision(self._db, today, response, trades)
+
+        # Save agent memory (short-term + notes)
+        try:
+            await self._memory_manager.save_short_term(
+                self._db, today.isoformat(), response,
+            )
+            await self._memory_manager.save_agent_notes(
+                self._db, response.get("memory_notes", []),
+            )
+        except Exception as e:
+            log.warning("memory_save_failed", error=str(e))
 
         # Process suggested tickers from agent response
         await self._process_suggested_tickers(response, today)
