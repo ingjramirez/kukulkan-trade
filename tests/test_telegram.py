@@ -105,7 +105,6 @@ class TestFormatDailyBrief:
             proposed_trades=[],
         )
         assert "2026-02-05" in msg
-        assert "BULL" in msg
         assert "Portfolio A" in msg
         assert "QQQ" in msg
         assert "$34,000" in msg
@@ -134,17 +133,17 @@ class TestFormatDailyBrief:
         )
         assert "Market Commentary" in msg
         assert "Markets are volatile today." in msg
-        assert "BEAR" in msg
 
-    def test_unknown_regime(self) -> None:
+    def test_session_label(self) -> None:
         msg = format_daily_brief(
             brief_date=date(2026, 2, 5),
             regime=None,
             portfolio_a={"total_value": 33000, "daily_return_pct": None},
             portfolio_b={"total_value": 66000, "daily_return_pct": None, "reasoning": "N/A"},
             proposed_trades=[],
+            session="Morning",
         )
-        assert "Unknown" in msg
+        assert "(Morning)" in msg
 
     def test_combined_total(self) -> None:
         msg = format_daily_brief(
@@ -155,7 +154,6 @@ class TestFormatDailyBrief:
             proposed_trades=[],
         )
         assert "$103,000" in msg
-        assert "ROTATION" in msg
 
 
 # ── Trade Confirmation Formatting ────────────────────────────────────────────
@@ -245,7 +243,7 @@ class TestTelegramNotifier:
         )
         assert result is True
         sent_text = mock_bot.send_message.call_args[1]["text"]
-        assert "Atlas Daily Brief" in sent_text
+        assert "Kukulkan Daily Brief" in sent_text
 
     async def test_send_trade_confirmation_empty(self, notifier: TelegramNotifier) -> None:
         mock_bot = AsyncMock()
@@ -273,7 +271,7 @@ class TestTelegramNotifier:
         result = await notifier.send_error("Something went wrong")
         assert result is True
         sent_text = mock_bot.send_message.call_args[1]["text"]
-        assert "Atlas Error" in sent_text
+        assert "Kukulkan Error" in sent_text
         assert "Something went wrong" in sent_text
 
     def test_bot_lazy_init(self) -> None:

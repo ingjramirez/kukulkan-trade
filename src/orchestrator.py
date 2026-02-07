@@ -62,7 +62,9 @@ class Orchestrator:
         self._risk_manager = RiskManager()
         self._performance_tracker = PerformanceTracker()
 
-    async def run_daily(self, today: date | None = None) -> dict:
+    async def run_daily(
+        self, today: date | None = None, session: str = "",
+    ) -> dict:
         """Execute the full daily pipeline.
 
         Steps:
@@ -78,6 +80,7 @@ class Orchestrator:
 
         Args:
             today: Override date for testing. Defaults to date.today().
+            session: Label for this run (e.g. "Morning", "Midday", "Closing").
 
         Returns:
             Summary dict with results from each step.
@@ -269,6 +272,7 @@ class Orchestrator:
                     ticker=blocked_trade.ticker,
                     reason=reason,
                 )
+        executed: list = []
         if all_trades:
             executed = await self._executor.execute_trades(all_trades)
             summary["trades_executed"] = len(executed)
@@ -292,8 +296,10 @@ class Orchestrator:
         log.info("step_9_sending_notifications")
         await self._send_notifications(
             today=today,
-            all_trades=all_trades,
+            proposed_trades=all_trades,
+            executed_trades=executed,
             summary=summary,
+            session=session,
         )
 
         log.info(
@@ -649,8 +655,10 @@ class Orchestrator:
     async def _send_notifications(
         self,
         today: date,
-        all_trades: list,
+        proposed_trades: list,
+        executed_trades: list,
         summary: dict,
+        session: str = "",
     ) -> None:
         """Send daily brief and trade confirmation via Telegram."""
         try:
@@ -680,23 +688,23 @@ class Orchestrator:
             portfolio_summaries["B"]["reasoning"] = ""
 
             from src.storage.models import TradeSchema
-            trade_schemas = []
-            for t in all_trades:
-                if isinstance(t, TradeSchema):
-                    trade_schemas.append(t)
+            proposed = [t for t in proposed_trades if isinstance(t, TradeSchema)]
 
             await self._notifier.send_daily_brief(
                 brief_date=today,
                 regime=None,
                 portfolio_a=portfolio_summaries["A"],
                 portfolio_b=portfolio_summaries["B"],
-                proposed_trades=trade_schemas,
+                proposed_trades=proposed,
                 commentary="",
+                session=session,
             )
 
-            if trade_schemas:
-                await self._notifier.send_trade_confirmation(trade_schemas)
+            # Only send trade confirmation for actually filled trades
+            filled = [t for t in executed_trades if isinstance(t, TradeSchema)]
+            if filled:
+                await self._notifier.send_trade_confirmation(filled)
 
-            log.info("notifications_sent")
+            log.info("notifications_sent", proposed=len(proposed), filled=len(filled))
         except Exception as e:
             log.error("notification_failed", error=str(e))

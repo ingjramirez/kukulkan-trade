@@ -85,6 +85,7 @@ class TelegramNotifier:
         portfolio_b: dict,
         proposed_trades: list[TradeSchema],
         commentary: str = "",
+        session: str = "",
     ) -> bool:
         """Send the formatted daily brief.
 
@@ -95,6 +96,7 @@ class TelegramNotifier:
             portfolio_b: Dict with keys: total_value, cash, reasoning, daily_return_pct.
             proposed_trades: Trades proposed for today.
             commentary: AI-generated market commentary.
+            session: Run label (e.g. "Morning", "Midday", "Closing").
 
         Returns:
             True if sent successfully.
@@ -106,6 +108,7 @@ class TelegramNotifier:
             portfolio_b=portfolio_b,
             proposed_trades=proposed_trades,
             commentary=commentary,
+            session=session,
         )
         return await self.send_message(msg)
 
@@ -133,7 +136,7 @@ class TelegramNotifier:
         Returns:
             True if sent successfully.
         """
-        text = f"⚠️ <b>Atlas Error</b>\n\n{_escape_html(error_msg)}"
+        text = f"⚠️ <b>Kukulkan Error</b>\n\n{_escape_html(error_msg)}"
         return await self.send_message(text)
 
     async def send_approval_request(
@@ -320,6 +323,7 @@ def format_daily_brief(
     portfolio_b: dict,
     proposed_trades: list[TradeSchema],
     commentary: str = "",
+    session: str = "",
 ) -> str:
     """Format the full daily brief as HTML.
 
@@ -330,18 +334,15 @@ def format_daily_brief(
         portfolio_b: Portfolio B summary dict.
         proposed_trades: Today's proposed trades.
         commentary: AI commentary text.
+        session: Run label (e.g. "Morning", "Midday", "Closing").
 
     Returns:
         HTML-formatted message string.
     """
-    regime_emoji = {
-        "BULL": "🟢", "ROTATION": "🔄", "NEUTRAL": "⚪", "BEAR": "🔴",
-    }.get(regime or "", "❓")
-
     # Header
+    session_label = f" ({session})" if session else ""
     lines = [
-        f"<b>Atlas Daily Brief — {brief_date.isoformat()}</b>",
-        f"Regime: {regime_emoji} <b>{regime or 'Unknown'}</b>",
+        f"<b>Kukulkan Daily Brief — {brief_date.isoformat()}{session_label}</b>",
         "",
     ]
 
@@ -370,7 +371,7 @@ def format_daily_brief(
         portfolio_a.get("total_value", 0)
         + portfolio_b.get("total_value", 0)
     )
-    initial = 99_000.0
+    initial = 100_000.0  # Alpaca paper account starting balance
     total_ret = ((total - initial) / initial) * 100 if initial > 0 else 0
     lines.extend([
         f"<b>Combined:</b> ${total:,.0f} ({total_ret:+.2f}%)",

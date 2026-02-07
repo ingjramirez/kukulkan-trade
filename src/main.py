@@ -1,7 +1,7 @@
-"""Atlas Trading Bot — main entry point.
+"""Kukulkan Trading Bot — main entry point.
 
 Usage:
-    python -m src.main              # Start scheduler (runs daily at 4:30 PM ET)
+    python -m src.main              # Start scheduler (3x daily during market hours)
     python -m src.main --run-now    # Run pipeline immediately, then exit
 
 Executor is controlled by EXECUTOR env var: "alpaca", "ibkr", or "paper" (default).
@@ -124,24 +124,38 @@ async def run_scheduled() -> None:
     orchestrator = Orchestrator(db, notifier=notifier, executor=executor)
     scheduler = AsyncIOScheduler()
 
-    async def scheduled_job():
-        try:
-            summary = await orchestrator.run_daily()
-            log.info("scheduled_run_complete", summary=summary)
-        except Exception as e:
-            log.error("scheduled_run_failed", error=str(e))
-            await notifier.send_error(f"Pipeline failed: {e}")
+    # Run 3x daily during market hours (US/Eastern)
+    schedules = [
+        ("morning",      10,  0, "Morning"),       # 10:00 AM — 30 min after open
+        ("midday",       12, 30, "Midday"),         # 12:30 PM — midday rebalance
+        ("before_close", 15, 45, "Closing"),        # 3:45 PM  — 15 min before close
+    ]
 
-    # Run daily at 4:30 PM Eastern (after market close)
-    scheduler.add_job(
-        scheduled_job,
-        CronTrigger(hour=16, minute=30, timezone="US/Eastern"),
-        id="daily_pipeline",
-        name="Atlas Daily Pipeline",
-    )
+    for label, hour, minute, session_name in schedules:
+        async def scheduled_job(session=session_name):
+            try:
+                summary = await orchestrator.run_daily(session=session)
+                log.info("scheduled_run_complete", session=session, summary=summary)
+            except Exception as e:
+                log.error("scheduled_run_failed", session=session, error=str(e))
+                await notifier.send_error(f"Pipeline failed ({session}): {e}")
+
+        scheduler.add_job(
+            scheduled_job,
+            CronTrigger(
+                hour=hour, minute=minute,
+                day_of_week="mon-fri",
+                timezone="US/Eastern",
+            ),
+            id=f"pipeline_{label}",
+            name=f"Kukulkan {session_name}",
+        )
 
     scheduler.start()
-    log.info("scheduler_started", schedule="daily at 4:30 PM ET")
+    log.info(
+        "scheduler_started",
+        schedule="Mon-Fri at 10:00, 12:30, 15:45 ET",
+    )
 
     # Keep running until interrupted
     stop_event = asyncio.Event()
@@ -159,14 +173,14 @@ async def run_scheduled() -> None:
     if cleanup:
         await cleanup()
     await db.close()
-    log.info("atlas_shutdown_complete")
+    log.info("kukulkan_shutdown_complete")
 
 
 def main() -> None:
     """Parse args and run the appropriate mode."""
     setup_logging()
 
-    parser = argparse.ArgumentParser(description="Atlas Trading Bot")
+    parser = argparse.ArgumentParser(description="Kukulkan Trading Bot")
     parser.add_argument(
         "--run-now",
         action="store_true",
@@ -175,7 +189,7 @@ def main() -> None:
     args = parser.parse_args()
 
     mode = "run-now" if args.run_now else "scheduled"
-    log.info("atlas_starting", mode=mode, executor=settings.executor)
+    log.info("kukulkan_starting", mode=mode, executor=settings.executor)
 
     if args.run_now:
         asyncio.run(run_once())
