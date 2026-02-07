@@ -115,7 +115,7 @@ class TestIBKRClientOrders:
         mock_trade.orderStatus.filled = 10
         client._ib.placeOrder.return_value = mock_trade
 
-        trade = await client.place_market_order("XLK", "BUY", 10, "atlas-A-XLK")
+        trade = await client.place_market_order("XLK", "BUY", 10, "kk-A-XLK")
         assert trade is not None
         assert trade.orderStatus.status == "Filled"
 

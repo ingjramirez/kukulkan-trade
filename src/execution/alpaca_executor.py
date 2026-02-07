@@ -135,7 +135,7 @@ class AlpacaExecutor:
                 qty=int(trade.shares),
                 side=side,
                 time_in_force=TimeInForce.DAY,
-                client_order_id=f"atlas-{portfolio_name}-{trade.ticker}",
+                client_order_id=f"kk-{portfolio_name}-{trade.ticker}",
             )
             order = self._client.submit_order(order_request)
 

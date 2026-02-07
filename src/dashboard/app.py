@@ -30,14 +30,14 @@ from src.storage.models import (
 # ── Page config ──────────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="Atlas Trading Bot",
+    page_title="Kukulkan",
     page_icon="📊",
     layout="wide",
 )
 
 # ── Database connection ──────────────────────────────────────────────────────
 
-DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "atlas.db"
+DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "kukulkan.db"
 
 
 @st.cache_resource
@@ -286,7 +286,7 @@ if not _login_page():
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 
-st.sidebar.title("Atlas Trading Bot")
+st.sidebar.title("Kukulkan")
 page = st.sidebar.radio(
     "Navigate",
     ["Overview", "Portfolio A", "Portfolio B", "Trade Log"],

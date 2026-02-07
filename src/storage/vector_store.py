@@ -10,7 +10,7 @@ import structlog
 
 log = structlog.get_logger()
 
-_COLLECTION_NAME = "atlas_news"
+_COLLECTION_NAME = "kukulkan_news"
 
 
 class VectorStore:

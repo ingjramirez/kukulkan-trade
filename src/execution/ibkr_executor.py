@@ -78,7 +78,7 @@ class IBKRExecutor:
             True if executed successfully.
         """
         portfolio_name = trade.portfolio.value
-        reference = f"atlas-{portfolio_name}-{trade.ticker}"
+        reference = f"kk-{portfolio_name}-{trade.ticker}"
 
         ibkr_trade = await self._client.place_market_order(
             ticker=trade.ticker,

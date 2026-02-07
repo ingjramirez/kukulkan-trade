@@ -221,7 +221,7 @@ class TestAlpacaExecutorTrades:
         await executor.execute_trades([trade])
 
         order_request = mock_client.submit_order.call_args[0][0]
-        assert order_request.client_order_id == "atlas-B-AAPL"
+        assert order_request.client_order_id == "kk-B-AAPL"
 
 
 class TestAlpacaFillPolling:

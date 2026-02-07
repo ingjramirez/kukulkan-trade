@@ -16,7 +16,7 @@ structlog.configure(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Atlas Trading Bot — Backtest Runner")
+    parser = argparse.ArgumentParser(description="Kukulkan — Backtest Runner")
     parser.add_argument(
         "--months", type=int, default=6,
         help="Months of history to simulate (default: 6)",

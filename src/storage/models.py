@@ -1,4 +1,4 @@
-"""Pydantic schemas and SQLAlchemy ORM models for Atlas."""
+"""Pydantic schemas and SQLAlchemy ORM models for Kukulkan."""
 
 from datetime import date, datetime
 from enum import Enum

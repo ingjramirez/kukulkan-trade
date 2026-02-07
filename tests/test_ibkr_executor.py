@@ -106,7 +106,7 @@ class TestIBKRExecutorTrades:
         await executor.execute_trades([trade])
 
         call_kwargs = mock_client.place_market_order.call_args[1]
-        assert call_kwargs["reference"] == "atlas-B-AAPL"
+        assert call_kwargs["reference"] == "kk-B-AAPL"
 
 
 class TestIBKRExecutorSnapshot:

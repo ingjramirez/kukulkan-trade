@@ -1,4 +1,4 @@
-# Atlas Trading Bot
+# Kukulkan Trade
 
 Educational trading bot running 2 portfolio strategies on Alpaca paper trading.
 Built with Python 3.11, async SQLAlchemy, Claude AI, and a full notification + dashboard stack.
@@ -41,7 +41,7 @@ Python 3.11 | SQLAlchemy + SQLite | ChromaDB | yfinance | `ta` | Anthropic Claud
 
 ```bash
 # Clone and enter the project
-cd atlas-trading-bot
+cd kukulkan-trade
 
 # Create virtualenv (Python 3.11)
 python -m venv .venv
@@ -95,9 +95,9 @@ The bot runs on a Hetzner VPS as a systemd service. Pushing to `main` triggers G
 sudo bash deploy/setup.sh
 
 # Service management
-sudo systemctl start atlas-bot
-sudo systemctl status atlas-bot
-sudo journalctl -u atlas-bot -f
+sudo systemctl start kukulkan-bot
+sudo systemctl status kukulkan-bot
+sudo journalctl -u kukulkan-bot -f
 ```
 
 **GitHub Actions** (`.github/workflows/deploy.yml`):
@@ -109,7 +109,7 @@ Required secrets: `DEPLOY_SSH_KEY`, `DEPLOY_HOST`, `DEPLOY_USER`
 ## Project Structure
 
 ```
-atlas-trading-bot/
+kukulkan-trade/
 ├── config/
 │   ├── settings.py          # Pydantic Settings (env-based config)
 │   ├── strategies.py        # Strategy parameter dataclasses
@@ -148,7 +148,7 @@ atlas-trading-bot/
 │   └── main.py                  # Entry point + APScheduler
 ├── tests/                       # 287 tests
 ├── deploy/
-│   ├── atlas-bot.service        # systemd unit file
+│   ├── kukulkan-bot.service      # systemd unit file
 │   └── setup.sh                 # Server provisioning script
 ├── docker-compose.yml           # ChromaDB service
 ├── pyproject.toml

@@ -18,7 +18,7 @@ from config.strategies import PORTFOLIO_B
 
 log = structlog.get_logger()
 
-_DEFAULT_SYSTEM_PROMPT = """You are Atlas, an AI portfolio manager for an \
+_DEFAULT_SYSTEM_PROMPT = """You are Kukulkan, an AI portfolio manager for an \
 educational paper trading bot.
 You manage Portfolio B ($66,000 virtual allocation) with full autonomy \
 over a universe of ~55 tickers including sector ETFs, thematic ETFs, \
@@ -486,7 +486,7 @@ Regime: {regime or 'Unknown'}
 Portfolio A (Momentum): {portfolio_a_summary}
 Portfolio B (AI Autonomy): {portfolio_b_summary}
 
-Write a concise 2-3 paragraph daily market brief for the Atlas Trading Bot.
+Write a concise 2-3 paragraph daily market brief for the Kukulkan Trading Bot.
 Cover: today's key market theme, how each portfolio is positioned, and one thing to watch tomorrow.
 Keep it under 200 words. No headers or bullet points — just flowing text."""
 

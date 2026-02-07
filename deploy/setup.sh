@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Atlas Trading Bot — Oracle Cloud (Ubuntu 22.04 ARM) setup script
+# Kukulkan Trading Bot — Ubuntu 22.04 setup script
 # Run as root or with sudo:  sudo bash deploy/setup.sh
 
 set -euo pipefail
 
-APP_USER="atlas"
-APP_DIR="/opt/atlas-trading-bot"
+APP_USER="kukulkan"
+APP_DIR="/opt/kukulkan-trade"
 PYTHON_VERSION="3.11"
 
 echo "=== 1/7 System packages ==="
@@ -35,7 +35,7 @@ echo "=== 3/7 Clone repo ==="
 if [ ! -d "$APP_DIR" ]; then
   mkdir -p "$APP_DIR"
   echo "Copy your project files to $APP_DIR"
-  echo "  e.g.: scp -r ./* atlas-server:$APP_DIR/"
+  echo "  e.g.: scp -r ./* kukulkan-server:$APP_DIR/"
 fi
 chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
 
@@ -60,16 +60,16 @@ echo "=== 6/7 Create data directory ==="
 sudo -u "$APP_USER" mkdir -p "$APP_DIR/data"
 
 echo "=== 7/7 Install systemd services ==="
-cp "$APP_DIR/deploy/atlas-bot.service" /etc/systemd/system/
+cp "$APP_DIR/deploy/kukulkan-bot.service" /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable atlas-bot
+systemctl enable kukulkan-bot
 
 echo ""
 echo "=== Setup complete ==="
 echo ""
 echo "Next steps:"
-echo "  1. Copy your .env file:  scp .env atlas-server:$APP_DIR/.env"
-echo "  2. Start the bot:        sudo systemctl start atlas-bot"
-echo "  3. Check logs:           sudo journalctl -u atlas-bot -f"
-echo "  4. Test run:             sudo -u atlas su -c 'cd $APP_DIR && .venv/bin/python -m src.main --run-now'"
+echo "  1. Copy your .env file:  scp .env kukulkan-server:$APP_DIR/.env"
+echo "  2. Start the bot:        sudo systemctl start kukulkan-bot"
+echo "  3. Check logs:           sudo journalctl -u kukulkan-bot -f"
+echo "  4. Test run:             sudo -u kukulkan su -c 'cd $APP_DIR && .venv/bin/python -m src.main --run-now'"
 echo ""

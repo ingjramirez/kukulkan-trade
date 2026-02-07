@@ -441,7 +441,7 @@ class TestBuildSystemPrompt:
     def test_default_prompt(self) -> None:
         """Without perf stats, returns base prompt with decision framework."""
         prompt = build_system_prompt()
-        assert "Atlas" in prompt
+        assert "Kukulkan" in prompt
         assert "Decision Framework" in prompt
         assert "Hard Rules" in prompt
         assert "Track Record" not in prompt

@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     executor: str = "paper"
 
     # Database
-    database_url: str = "sqlite+aiosqlite:///data/atlas.db"
+    database_url: str = "sqlite+aiosqlite:///data/kukulkan.db"
 
     # Logging
     log_level: str = "INFO"

@@ -25,7 +25,7 @@ log = structlog.get_logger()
 class Database:
     """Async SQLite database manager."""
 
-    def __init__(self, url: str = "sqlite+aiosqlite:///data/atlas.db") -> None:
+    def __init__(self, url: str = "sqlite+aiosqlite:///data/kukulkan.db") -> None:
         self._url = url
         self._engine = create_async_engine(url, echo=False)
         self._session_factory = sessionmaker(

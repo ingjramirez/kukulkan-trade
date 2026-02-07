@@ -32,11 +32,11 @@ apt-get update && apt-get install -y nginx apache2-utils
 
 # 2. Deploy landing page
 mkdir -p /var/www/kukulkan.trade
-cp /opt/atlas-trading-bot/deploy/landing/index.html /var/www/kukulkan.trade/
+cp /opt/kukulkan-trade/deploy/landing/index.html /var/www/kukulkan.trade/
 
 # 3. Install nginx configs
-cp /opt/atlas-trading-bot/deploy/nginx/kukulkan.trade /etc/nginx/sites-available/
-cp /opt/atlas-trading-bot/deploy/nginx/app.kukulkan.trade /etc/nginx/sites-available/
+cp /opt/kukulkan-trade/deploy/nginx/kukulkan.trade /etc/nginx/sites-available/
+cp /opt/kukulkan-trade/deploy/nginx/app.kukulkan.trade /etc/nginx/sites-available/
 ln -sf /etc/nginx/sites-available/kukulkan.trade /etc/nginx/sites-enabled/
 ln -sf /etc/nginx/sites-available/app.kukulkan.trade /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
@@ -50,7 +50,7 @@ echo "Dashboard password: $PASS"   # Save this!
 nginx -t && systemctl enable nginx && systemctl restart nginx
 
 # 6. Install and start dashboard service
-cp /opt/atlas-trading-bot/deploy/kukulkan-dashboard.service /etc/systemd/system/
+cp /opt/kukulkan-trade/deploy/kukulkan-dashboard.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable kukulkan-dashboard
 systemctl start kukulkan-dashboard
