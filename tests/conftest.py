@@ -4,7 +4,12 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
+from config.settings import settings
 from src.storage.models import Base
+
+# Disable Telegram during tests so no real messages are sent
+settings.telegram.bot_token = ""
+settings.telegram.chat_id = ""
 
 
 @pytest.fixture
