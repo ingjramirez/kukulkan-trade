@@ -67,7 +67,6 @@ jobs:
         run: |
           ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "\
             cp /opt/kukulkan-trade/deploy/kukulkan-bot.service /etc/systemd/system/ && \
-            cp /opt/kukulkan-trade/deploy/kukulkan-dashboard.service /etc/systemd/system/ && \
             cp /opt/kukulkan-trade/deploy/kukulkan-api.service /etc/systemd/system/ && \
             systemctl daemon-reload"
 
@@ -79,5 +78,4 @@ jobs:
             pip install -e . && \
             systemctl enable kukulkan-api && \
             systemctl restart kukulkan-bot && \
-            systemctl restart kukulkan-dashboard && \
             systemctl restart kukulkan-api"

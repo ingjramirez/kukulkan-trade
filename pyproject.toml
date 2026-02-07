@@ -29,9 +29,6 @@ dependencies = [
     "APScheduler>=3.10.4",
     # Telegram
     "python-telegram-bot>=21.0",
-    # Dashboard
-    "streamlit>=1.39.0",
-    "plotly>=5.22.0",
     # Config & logging
     "pydantic-settings>=2.4.0",
     "structlog>=24.4.0",
