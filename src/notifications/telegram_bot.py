@@ -19,6 +19,7 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 
 from config.settings import settings
+from src.agent.strategy_directives import STRATEGY_LABELS
 from src.storage.models import TradeSchema
 
 log = structlog.get_logger()
@@ -86,6 +87,7 @@ class TelegramNotifier:
         proposed_trades: list[TradeSchema],
         commentary: str = "",
         session: str = "",
+        strategy_mode: str = "conservative",
     ) -> bool:
         """Send the formatted daily brief.
 
@@ -97,6 +99,7 @@ class TelegramNotifier:
             proposed_trades: Trades proposed for today.
             commentary: AI-generated market commentary.
             session: Run label (e.g. "Morning", "Midday", "Closing").
+            strategy_mode: Active strategy persona.
 
         Returns:
             True if sent successfully.
@@ -109,6 +112,7 @@ class TelegramNotifier:
             proposed_trades=proposed_trades,
             commentary=commentary,
             session=session,
+            strategy_mode=strategy_mode,
         )
         return await self.send_message(msg)
 
@@ -324,6 +328,7 @@ def format_daily_brief(
     proposed_trades: list[TradeSchema],
     commentary: str = "",
     session: str = "",
+    strategy_mode: str = "conservative",
 ) -> str:
     """Format the full daily brief as HTML.
 
@@ -335,14 +340,17 @@ def format_daily_brief(
         proposed_trades: Today's proposed trades.
         commentary: AI commentary text.
         session: Run label (e.g. "Morning", "Midday", "Closing").
+        strategy_mode: Active strategy persona.
 
     Returns:
         HTML-formatted message string.
     """
     # Header
     session_label = f" ({session})" if session else ""
+    strategy_label = STRATEGY_LABELS.get(strategy_mode, strategy_mode)
     lines = [
         f"<b>Kukulkan Daily Brief — {brief_date.isoformat()}{session_label}</b>",
+        f"Strategy: {strategy_label}",
         "",
     ]
 

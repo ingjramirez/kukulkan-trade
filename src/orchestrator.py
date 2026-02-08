@@ -10,6 +10,7 @@ from datetime import date
 import pandas as pd
 import structlog
 
+from config.settings import settings
 from config.strategies import PORTFOLIO_B
 from config.universe import (
     get_dynamic_universe,
@@ -105,7 +106,11 @@ class Orchestrator:
             summary["skipped"] = "market_closed"
             return summary
 
-        log.info("daily_pipeline_start", date=str(today))
+        log.info(
+            "daily_pipeline_start",
+            date=str(today),
+            strategy_mode=settings.agent.strategy_mode,
+        )
 
         # Step 1: Initialize portfolios
         await self._executor.initialize_portfolios()
@@ -448,6 +453,7 @@ class Orchestrator:
         dynamic_prompt = build_system_prompt(
             performance_stats=perf_text,
             memory_context=memory_text,
+            strategy_mode=settings.agent.strategy_mode,
         )
 
         # ── Prepare context and call agent ───────────────────────────────
@@ -735,6 +741,7 @@ class Orchestrator:
                 proposed_trades=proposed,
                 commentary="",
                 session=session,
+                strategy_mode=settings.agent.strategy_mode,
             )
 
             # Only send trade confirmation for actually filled trades

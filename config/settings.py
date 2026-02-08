@@ -41,6 +41,14 @@ class DashboardSettings(BaseSettings):
     model_config = {"env_prefix": "DASHBOARD_", "env_file": ".env", "extra": "ignore"}
 
 
+class AgentSettings(BaseSettings):
+    """AI agent strategy settings."""
+
+    strategy_mode: str = "conservative"  # conservative | standard | aggressive
+
+    model_config = {"env_prefix": "AGENT_", "env_file": ".env", "extra": "ignore"}
+
+
 class ChromaSettings(BaseSettings):
     """ChromaDB connection settings."""
 
@@ -75,6 +83,7 @@ class Settings(BaseSettings):
     finnhub: FinnhubSettings = FinnhubSettings()
     chroma: ChromaSettings = ChromaSettings()
     dashboard: DashboardSettings = DashboardSettings()
+    agent: AgentSettings = AgentSettings()
 
     # Paths
     project_root: Path = Path(__file__).resolve().parent.parent

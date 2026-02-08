@@ -42,12 +42,17 @@ def main() -> None:
         help="Maximum USD to spend on AI API calls (default: 1.50)",
     )
     parser.add_argument(
+        "--ai-strategy", type=str, default=None,
+        choices=["conservative", "standard", "aggressive"],
+        help="AI strategy persona — uses same directives as production (default: conservative)",
+    )
+    parser.add_argument(
         "--ai-prompt-override", type=str, default=None,
-        help="Path to a text file with custom system prompt for AI",
+        help="Path to a text file with custom system prompt (overrides --ai-strategy)",
     )
     parser.add_argument(
         "--run-label", type=str, default=None,
-        help="Label for this run (default: auto-detected from prompt)",
+        help="Label for this run (default: auto-detected from strategy/prompt)",
     )
     args = parser.parse_args()
 
@@ -64,10 +69,17 @@ def main() -> None:
             prompt_override = f.read().strip()
         print(f"Loaded prompt override from {args.ai_prompt_override}")
 
-    # Auto-detect run label from prompt if not provided
+    # Resolve strategy mode (--ai-prompt-override overrides --ai-strategy)
+    strategy_mode = args.ai_strategy
+    if not strategy_mode and not prompt_override:
+        strategy_mode = "conservative"  # default matches production
+
+    # Auto-detect run label
     run_label = args.run_label
     if run_label is None and args.use_ai:
-        if prompt_override and "conservative" in prompt_override.lower():
+        if strategy_mode:
+            run_label = strategy_mode
+        elif prompt_override and "conservative" in prompt_override.lower():
             run_label = "conservative"
         elif prompt_override and "aggressive" in prompt_override.lower():
             run_label = "aggressive"
@@ -76,9 +88,10 @@ def main() -> None:
 
     budget_str = f", budget=${args.ai_budget:.2f}" if args.use_ai else ""
     label_str = f", label={run_label}" if run_label else ""
+    strategy_str = f", strategy={strategy_mode}" if strategy_mode else ""
     print(
         f"Starting backtest: {args.months} months → {args.db}"
-        f" (mode={mode}{budget_str}{label_str}"
+        f" (mode={mode}{budget_str}{strategy_str}{label_str}"
         f"{', clean' if args.clean else ''})"
     )
 
@@ -90,6 +103,7 @@ def main() -> None:
         dry_run=args.dry_run,
         ai_budget=args.ai_budget,
         prompt_override=prompt_override,
+        strategy_mode=strategy_mode,
         run_label=run_label or "default",
     ))
 

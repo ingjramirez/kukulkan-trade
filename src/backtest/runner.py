@@ -144,6 +144,7 @@ class BacktestRunner:
         dry_run: bool = False,
         ai_budget: float = 1.50,
         prompt_override: str | None = None,
+        strategy_mode: str | None = None,
         run_label: str = "default",
     ) -> dict:
         """Execute the full backtest.
@@ -155,6 +156,7 @@ class BacktestRunner:
             dry_run: If True, estimate token cost without running.
             ai_budget: Maximum USD to spend on AI API calls.
             prompt_override: Custom system prompt text for AI.
+            strategy_mode: Strategy persona (conservative/standard/aggressive).
             run_label: Label for this run (e.g. "standard").
 
         Returns:
@@ -216,6 +218,7 @@ class BacktestRunner:
                 budget_usd=ai_budget,
                 run_label=run_label,
                 prompt_override=prompt_override,
+                strategy_mode=strategy_mode,
             )
             log.info(
                 "backtest_using_real_ai",

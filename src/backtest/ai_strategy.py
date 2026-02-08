@@ -11,7 +11,8 @@ from datetime import date, datetime
 import pandas as pd
 import structlog
 
-from src.agent.claude_agent import ClaudeAgent
+from src.agent.claude_agent import ClaudeAgent, build_system_prompt
+from src.agent.strategy_directives import STRATEGY_MAP
 from src.storage.models import TradeSchema
 from src.strategies.portfolio_b import AIAutonomyStrategy
 
@@ -36,6 +37,7 @@ class AIBacktestStrategy:
         budget_usd: Maximum spend before halting API calls.
         run_label: Label for this run (e.g. "standard", "conservative").
         prompt_override: Custom system prompt text (overrides default).
+        strategy_mode: Strategy persona — uses same directives as production.
         decisions_dir: Directory for JSON decision logs.
         agent: Optional pre-configured ClaudeAgent.
     """
@@ -45,16 +47,27 @@ class AIBacktestStrategy:
         budget_usd: float = 1.50,
         run_label: str = "default",
         prompt_override: str | None = None,
+        strategy_mode: str | None = None,
         decisions_dir: str = "data/backtest_decisions",
         agent: ClaudeAgent | None = None,
     ) -> None:
         self._budget_usd = budget_usd
         self._run_label = run_label
-        self._prompt_override = prompt_override
         self._decisions_dir = decisions_dir
 
         self._agent = agent or ClaudeAgent()
         self._strategy = AIAutonomyStrategy(agent=self._agent)
+
+        # Resolve effective system prompt:
+        # 1. Explicit prompt_override text takes priority (legacy / custom)
+        # 2. strategy_mode uses the same directives as production
+        # 3. Default: conservative (matches production default)
+        if prompt_override:
+            self._prompt_override = prompt_override
+        elif strategy_mode and strategy_mode in STRATEGY_MAP:
+            self._prompt_override = build_system_prompt(strategy_mode=strategy_mode)
+        else:
+            self._prompt_override = None
 
         # Cost tracking
         self._total_input_tokens = 0

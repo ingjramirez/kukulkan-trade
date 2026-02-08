@@ -15,6 +15,7 @@ import structlog
 
 from config.settings import settings
 from config.strategies import PORTFOLIO_B
+from src.agent.strategy_directives import STRATEGY_MAP
 
 log = structlog.get_logger()
 
@@ -45,12 +46,14 @@ SYSTEM_PROMPT = _DEFAULT_SYSTEM_PROMPT
 def build_system_prompt(
     performance_stats: str | None = None,
     memory_context: str | None = None,
+    strategy_mode: str = "conservative",
 ) -> str:
     """Build an enhanced system prompt with performance context and memory.
 
     Args:
         performance_stats: Pre-formatted performance text from PerformanceTracker.
         memory_context: Pre-formatted memory text from AgentMemoryManager.
+        strategy_mode: One of "conservative", "standard", "aggressive".
 
     Returns:
         Full system prompt string.
@@ -72,6 +75,11 @@ Hard Rules:
 - IBIT (Bitcoin proxy): treat as a momentum/sentiment signal, not a core holding.
   Size max 10% unless strong trend confirmation.
 - Avoid round-tripping: don't sell and rebuy the same ticker within 3 days."""
+
+    # Inject strategy directive
+    directive = STRATEGY_MAP.get(strategy_mode)
+    if directive:
+        prompt += f"\n{directive}"
 
     if performance_stats:
         prompt += f"\n\n## Your Track Record\n{performance_stats}"
