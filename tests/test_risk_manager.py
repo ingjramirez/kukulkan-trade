@@ -3,6 +3,7 @@
 from datetime import date, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
+import pandas as pd
 import pytest
 
 from config.universe import FULL_UNIVERSE, SECTOR_MAP
@@ -226,3 +227,65 @@ class TestSectorMap:
         assert len(sectors) >= 10  # At least 10 distinct sectors
         for sector in sectors:
             assert sector, "Empty sector name found"
+
+
+# ── TestCorrelation ─────────────────────────────────────────────────────────
+
+
+class TestCorrelation:
+    """Tests for compute_portfolio_correlation."""
+
+    def _make_closes(self, tickers: list[str], days: int = 100) -> pd.DataFrame:
+        import numpy as np
+
+        np.random.seed(42)
+        dates = pd.bdate_range(end="2026-02-06", periods=days)
+        data = {}
+        for t in tickers:
+            data[t] = 100 * np.cumprod(1 + np.random.randn(days) * 0.01)
+        return pd.DataFrame(data, index=dates)
+
+    def test_correlation_basic(self):
+        rm = RiskManager()
+        closes = self._make_closes(["AAPL", "MSFT", "GLD"])
+        result = rm.compute_portfolio_correlation(closes, ["AAPL", "MSFT", "GLD"])
+        assert "avg_correlation" in result
+        assert "high_pairs" in result
+        assert result["matrix_size"] == 3
+
+    def test_correlation_high_pairs(self):
+        """Perfectly correlated tickers show up as high pairs."""
+        import numpy as np
+        import pandas as pd
+
+        dates = pd.bdate_range(end="2026-02-06", periods=100)
+        prices = 100 * np.cumprod(1 + np.random.randn(100) * 0.01)
+        # Two tickers with identical returns → corr = 1.0
+        closes = pd.DataFrame({"A": prices, "B": prices * 1.1}, index=dates)
+
+        rm = RiskManager()
+        result = rm.compute_portfolio_correlation(closes, ["A", "B"], threshold=0.9)
+        assert len(result["high_pairs"]) >= 1
+        assert result["high_pairs"][0][2] >= 0.9
+
+    def test_correlation_single_position(self):
+        rm = RiskManager()
+        closes = self._make_closes(["AAPL"])
+        result = rm.compute_portfolio_correlation(closes, ["AAPL"])
+        assert result["avg_correlation"] == 0.0
+        assert result["high_pairs"] == []
+        assert result["matrix_size"] == 1
+
+    def test_correlation_missing_tickers(self):
+        rm = RiskManager()
+        closes = self._make_closes(["AAPL"])
+        result = rm.compute_portfolio_correlation(closes, ["AAPL", "MISSING"])
+        # Only AAPL is valid → single ticker → default
+        assert result["matrix_size"] == 1
+
+    def test_correlation_short_history(self):
+        rm = RiskManager()
+        closes = self._make_closes(["AAPL", "MSFT"], days=3)
+        result = rm.compute_portfolio_correlation(closes, ["AAPL", "MSFT"])
+        # After pct_change().dropna() on 3 days → only 2 rows, barely enough
+        assert result["matrix_size"] == 2

@@ -218,8 +218,11 @@ class TestActiveTickers:
         assert "XLK" in universe
 
     async def test_dynamic_universe_no_extras(self, db: Database) -> None:
+        from config.universe import BENCHMARK_TICKERS
+
         universe = await get_dynamic_universe(db)
-        assert universe == FULL_UNIVERSE
+        expected = sorted(set(FULL_UNIVERSE + BENCHMARK_TICKERS))
+        assert universe == expected
 
 
 # ── Expiry Tests ────────────────────────────────────────────────────────────

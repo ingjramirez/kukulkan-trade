@@ -9,6 +9,7 @@ from src.agent.claude_agent import build_system_prompt
 from src.agent.strategy_directives import (
     AGGRESSIVE_DIRECTIVE,
     CONSERVATIVE_DIRECTIVE,
+    SESSION_DIRECTIVES,
     STANDARD_DIRECTIVE,
     STRATEGY_LABELS,
     STRATEGY_MAP,
@@ -93,6 +94,66 @@ class TestDirectiveContent:
 
     def test_aggressive_directive_in_map(self) -> None:
         assert STRATEGY_MAP["aggressive"] is AGGRESSIVE_DIRECTIVE
+
+    def test_regime_rules_in_conservative(self) -> None:
+        """Conservative directive includes regime-adaptive rules."""
+        assert "Regime-Adaptive Rules" in CONSERVATIVE_DIRECTIVE
+        assert "BULL" in CONSERVATIVE_DIRECTIVE
+        assert "BEAR" in CONSERVATIVE_DIRECTIVE
+        assert "CRISIS" in CONSERVATIVE_DIRECTIVE
+        assert "OVERRIDE" in CONSERVATIVE_DIRECTIVE
+
+
+# ── Session Directives ──────────────────────────────────────────────────────
+
+
+class TestSessionDirectives:
+    def test_session_morning_exists(self) -> None:
+        assert "Morning" in SESSION_DIRECTIVES
+        assert "MORNING" in SESSION_DIRECTIVES["Morning"]
+
+    def test_session_midday_exists(self) -> None:
+        assert "Midday" in SESSION_DIRECTIVES
+        assert "MIDDAY" in SESSION_DIRECTIVES["Midday"]
+
+    def test_session_closing_exists(self) -> None:
+        assert "Closing" in SESSION_DIRECTIVES
+        assert "CLOSING" in SESSION_DIRECTIVES["Closing"]
+
+    def test_empty_session_no_directive(self) -> None:
+        """Empty string session should not match any directive."""
+        assert SESSION_DIRECTIVES.get("") is None
+        assert SESSION_DIRECTIVES.get("unknown") is None
+
+    def test_session_injected_morning(self) -> None:
+        """build_system_prompt with session='Morning' includes session directive."""
+        prompt = build_system_prompt(session="Morning")
+        assert "MORNING" in prompt
+
+    def test_session_skipped_empty(self) -> None:
+        """build_system_prompt with session='' skips session directive."""
+        prompt = build_system_prompt(session="")
+        assert "SESSION:" not in prompt
+
+    def test_regime_before_session_before_strategy(self) -> None:
+        """Regime appears before session, session before strategy."""
+        prompt = build_system_prompt(
+            session="Morning",
+            regime_summary="BULL: SPY above SMA200",
+            strategy_mode="conservative",
+        )
+        regime_pos = prompt.index("Current Market Regime")
+        session_pos = prompt.index("SESSION: MORNING")
+        strategy_pos = prompt.index("CONSERVATIVE CAPITAL PRESERVATION")
+        assert regime_pos < session_pos < strategy_pos
+
+    def test_build_system_prompt_backward_compat(self) -> None:
+        """Calling build_system_prompt() without new params still works."""
+        prompt = build_system_prompt()
+        assert "Kukulkan" in prompt
+        assert "CONSERVATIVE" in prompt
+        assert "SESSION:" not in prompt
+        assert "Current Market Regime" not in prompt
 
 
 # ── Backtest Uses Same Directives ────────────────────────────────────────────

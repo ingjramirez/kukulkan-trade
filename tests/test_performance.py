@@ -2,6 +2,7 @@
 
 from datetime import date
 
+import pandas as pd
 import pytest
 
 from src.analysis.performance import PerformanceTracker
@@ -116,3 +117,93 @@ class TestPerformanceTracker:
         assert stats.best_day_pct is None
         assert stats.worst_day_pct is None
         assert stats.win_rate_pct is None
+
+
+# ── SPY Benchmark Tests ──────────────────────────────────────────────────────
+
+
+class TestSPYBenchmark:
+    async def test_spy_return_computed(self, db: Database, tracker) -> None:
+        """SPY return computed when spy_closes is provided."""
+        await db.upsert_portfolio("B", cash=66_000.0, total_value=66_000.0)
+        await db.save_snapshot("B", date(2026, 1, 6), 66_000.0, 66_000.0, 0.0, None, 0.0)
+        await db.save_snapshot("B", date(2026, 1, 10), 69_300.0, 69_300.0, 0.0, 5.0, 5.0)
+
+        spy_closes = pd.Series(
+            [450.0, 451.0, 452.0, 455.0, 459.0],
+            index=pd.to_datetime(["2026-01-06", "2026-01-07", "2026-01-08",
+                                  "2026-01-09", "2026-01-10"]),
+        )
+        stats = await tracker.get_portfolio_stats(
+            db, "B", 66_000.0, spy_closes=spy_closes,
+        )
+
+        assert stats.spy_return_pct is not None
+        # SPY: (459 - 450) / 450 * 100 = 2.0%
+        assert stats.spy_return_pct == pytest.approx(2.0, abs=0.01)
+
+    async def test_alpha_calculation(self, db: Database, tracker) -> None:
+        """Alpha = portfolio return - SPY return."""
+        await db.upsert_portfolio("B", cash=66_000.0, total_value=66_000.0)
+        await db.save_snapshot("B", date(2026, 1, 6), 66_000.0, 66_000.0, 0.0, None, 0.0)
+        await db.save_snapshot("B", date(2026, 1, 10), 69_300.0, 69_300.0, 0.0, 5.0, 5.0)
+
+        spy_closes = pd.Series(
+            [450.0, 459.0],
+            index=pd.to_datetime(["2026-01-06", "2026-01-10"]),
+        )
+        stats = await tracker.get_portfolio_stats(
+            db, "B", 66_000.0, spy_closes=spy_closes,
+        )
+
+        # Portfolio: +5%, SPY: +2% → Alpha: +3%
+        assert stats.alpha_pct == pytest.approx(3.0, abs=0.01)
+
+    async def test_spy_none_when_no_data(self, db: Database, tracker) -> None:
+        """SPY fields are None when spy_closes is None."""
+        await db.upsert_portfolio("B", cash=66_000.0, total_value=66_000.0)
+        await db.save_snapshot("B", date(2026, 1, 6), 66_000.0, 66_000.0, 0.0, None, 0.0)
+        await db.save_snapshot("B", date(2026, 1, 10), 69_300.0, 69_300.0, 0.0, 5.0, 5.0)
+
+        stats = await tracker.get_portfolio_stats(db, "B", 66_000.0)
+
+        assert stats.spy_return_pct is None
+        assert stats.alpha_pct is None
+
+    async def test_format_includes_spy(self, db: Database, tracker) -> None:
+        """Format includes SPY line when data is available."""
+        await db.upsert_portfolio("B", cash=66_000.0, total_value=66_000.0)
+        await db.save_snapshot("B", date(2026, 1, 6), 66_000.0, 66_000.0, 0.0, None, 0.0)
+        await db.save_snapshot("B", date(2026, 1, 10), 69_300.0, 69_300.0, 0.0, 5.0, 5.0)
+
+        spy_closes = pd.Series(
+            [450.0, 459.0],
+            index=pd.to_datetime(["2026-01-06", "2026-01-10"]),
+        )
+        stats = await tracker.get_portfolio_stats(
+            db, "B", 66_000.0, spy_closes=spy_closes,
+        )
+        text = tracker.format_for_prompt(stats)
+
+        assert "vs SPY" in text
+        assert "Alpha" in text
+
+    async def test_format_omits_spy_when_none(self, db: Database, tracker) -> None:
+        """Format omits SPY line when data is not available."""
+        await db.upsert_portfolio("B", cash=66_000.0, total_value=66_000.0)
+        await db.save_snapshot("B", date(2026, 1, 6), 66_000.0, 66_000.0, 0.0, None, 0.0)
+        await db.save_snapshot("B", date(2026, 1, 10), 69_300.0, 69_300.0, 0.0, 5.0, 5.0)
+
+        stats = await tracker.get_portfolio_stats(db, "B", 66_000.0)
+        text = tracker.format_for_prompt(stats)
+
+        assert "vs SPY" not in text
+
+    async def test_backward_compat_no_spy(self, db: Database, tracker) -> None:
+        """Existing code calling without spy_closes still works."""
+        await db.upsert_portfolio("A", cash=33_000.0, total_value=33_000.0)
+        await db.save_snapshot("A", date(2026, 1, 1), 33_000.0, 33_000.0, 0.0, None, 0.0)
+
+        stats = await tracker.get_portfolio_stats(db, "A", 33_000.0)
+        assert stats.spy_return_pct is None
+        assert stats.alpha_pct is None

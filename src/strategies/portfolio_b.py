@@ -217,8 +217,12 @@ class AIAutonomyStrategy:
                 log.warning("agent_invalid_side", side=side)
                 continue
 
-            # Enforce max weight
+            # Enforce max weight, then apply conviction scaling
             weight = min(weight, PORTFOLIO_B.max_single_position_pct)
+
+            conviction_multipliers = {"high": 1.0, "medium": 0.7, "low": 0.4}
+            conviction = t.get("conviction", "high").lower()
+            weight *= conviction_multipliers.get(conviction, 1.0)
 
             price = latest_prices.get(ticker)
             if price is None or pd.isna(price) or price <= 0:

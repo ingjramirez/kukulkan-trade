@@ -6,6 +6,7 @@ and other metrics from daily snapshots and trades.
 
 from dataclasses import dataclass
 
+import pandas as pd
 import structlog
 
 from src.storage.database import Database
@@ -30,6 +31,8 @@ class PerformanceStats:
     best_day_pct: float | None
     worst_day_pct: float | None
     days_tracked: int
+    spy_return_pct: float | None = None
+    alpha_pct: float | None = None
 
 
 class PerformanceTracker:
@@ -40,6 +43,7 @@ class PerformanceTracker:
         db: Database,
         portfolio_name: str,
         initial_value: float,
+        spy_closes: pd.Series | None = None,
     ) -> PerformanceStats:
         """Compute performance statistics for a portfolio.
 
@@ -47,6 +51,7 @@ class PerformanceTracker:
             db: Database instance.
             portfolio_name: A or B.
             initial_value: Starting allocation.
+            spy_closes: SPY close prices Series (index=dates). Optional.
 
         Returns:
             PerformanceStats with computed metrics.
@@ -101,6 +106,28 @@ class PerformanceTracker:
         if winning + losing > 0:
             win_rate = (winning / (winning + losing)) * 100
 
+        # SPY benchmark
+        spy_return_pct: float | None = None
+        alpha_pct: float | None = None
+        if spy_closes is not None and len(snapshots) >= 2:
+            first_date = snapshots[0].date
+            last_date = snapshots[-1].date
+            try:
+                spy_idx = spy_closes.index
+                # Find nearest dates in SPY data
+                spy_at_start = spy_closes.loc[spy_idx >= pd.Timestamp(first_date)]
+                spy_at_end = spy_closes.loc[spy_idx <= pd.Timestamp(last_date)]
+                if len(spy_at_start) > 0 and len(spy_at_end) > 0:
+                    start_price = float(spy_at_start.iloc[0])
+                    end_price = float(spy_at_end.iloc[-1])
+                    if start_price > 0:
+                        spy_return_pct = round(
+                            ((end_price - start_price) / start_price) * 100, 2,
+                        )
+                        alpha_pct = round(inception_return - spy_return_pct, 2)
+            except Exception:
+                pass  # SPY data issue — leave as None
+
         return PerformanceStats(
             portfolio=portfolio_name,
             initial_value=initial_value,
@@ -115,6 +142,8 @@ class PerformanceTracker:
             best_day_pct=round(best_day, 2) if best_day is not None else None,
             worst_day_pct=round(worst_day, 2) if worst_day is not None else None,
             days_tracked=len(snapshots),
+            spy_return_pct=spy_return_pct,
+            alpha_pct=alpha_pct,
         )
 
     def format_for_prompt(self, stats: PerformanceStats) -> str:
@@ -139,4 +168,9 @@ class PerformanceTracker:
             best = stats.best_day_pct
             worst = stats.worst_day_pct
             lines.append(f"  Best day: {best:+.2f}% | Worst day: {worst:+.2f}%")
+        if stats.spy_return_pct is not None:
+            lines.append(
+                f"  vs SPY: {stats.spy_return_pct:+.2f}% | "
+                f"Alpha: {stats.alpha_pct:+.2f}%"
+            )
         return "\n".join(lines)

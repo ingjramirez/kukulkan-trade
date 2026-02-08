@@ -105,6 +105,9 @@ ADDITIONAL_STOCKS: list[str] = ["AVGO", "KO"]
 THEMATIC_NEW: list[str] = ["ICLN", "DBC", "PDBC", "VIXY"]
 # Commodities (DBC, PDBC), Clean Energy (ICLN), Volatility Hedge (VIXY)
 
+# --- Benchmark tickers (for regime classification & SPY benchmarking) ---
+BENCHMARK_TICKERS: list[str] = ["SPY"]
+
 # --- Portfolio universes ---
 PORTFOLIO_A_UNIVERSE: list[str] = SECTOR_ETFS + THEMATIC_ETFS
 PORTFOLIO_B_UNIVERSE: list[str] = (
@@ -185,4 +188,4 @@ async def get_dynamic_universe(db: "Database") -> list[str]:
 
     approved = await db.get_approved_tickers()
     dynamic = [r.ticker for r in approved]
-    return sorted(set(FULL_UNIVERSE + dynamic))
+    return sorted(set(FULL_UNIVERSE + dynamic + BENCHMARK_TICKERS))

@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
+import numpy as np
+import pandas as pd
 import structlog
 
 from config.risk_rules import RISK_RULES, RiskRules
@@ -209,3 +211,55 @@ class RiskManager:
             )
 
         return verdict
+
+    def compute_portfolio_correlation(
+        self,
+        closes: pd.DataFrame,
+        held_tickers: list[str],
+        lookback_days: int = 60,
+        threshold: float = 0.7,
+    ) -> dict:
+        """Compute pairwise correlation for held positions.
+
+        Args:
+            closes: Full closes DataFrame.
+            held_tickers: Tickers currently held in the portfolio.
+            lookback_days: Number of trading days for correlation window.
+            threshold: Correlation level to flag as high.
+
+        Returns:
+            Dict with avg_correlation, high_pairs list, matrix_size.
+        """
+        valid = [t for t in held_tickers if t in closes.columns]
+        if len(valid) < 2:
+            return {"avg_correlation": 0.0, "high_pairs": [], "matrix_size": len(valid)}
+
+        returns = closes[valid].tail(lookback_days).pct_change().dropna()
+        if len(returns) < 5:
+            return {"avg_correlation": 0.0, "high_pairs": [], "matrix_size": len(valid)}
+
+        corr_matrix = returns.corr()
+
+        # Extract upper triangle (exclude diagonal)
+        n = len(valid)
+        correlations: list[float] = []
+        high_pairs: list[tuple[str, str, float]] = []
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                val = float(corr_matrix.iloc[i, j])
+                if np.isnan(val):
+                    continue
+                correlations.append(val)
+                if val >= threshold:
+                    high_pairs.append((valid[i], valid[j], round(val, 3)))
+
+        avg_corr = float(np.mean(correlations)) if correlations else 0.0
+        # Sort by correlation descending, keep top 5
+        high_pairs.sort(key=lambda x: x[2], reverse=True)
+
+        return {
+            "avg_correlation": round(avg_corr, 3),
+            "high_pairs": high_pairs[:5],
+            "matrix_size": n,
+        }

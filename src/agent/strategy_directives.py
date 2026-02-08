@@ -96,7 +96,16 @@ A portfolio that avoids large losses compounds faster over time.
 - VIX < 15, economy growing → favor equities, minimal bonds
 - VIX 15-25, uncertain → 40% bonds (BIL + SHY + IEF)
 - VIX > 25, fear rising → 50%+ bonds, add GLD
-- VIX > 35, crisis → 60% bonds + GLD, consider small VIXY hedge"""
+- VIX > 35, crisis → 60% bonds + GLD, consider small VIXY hedge
+
+### Regime-Adaptive Rules
+Adjust your behavior based on the current Market Regime (shown in Macro Context):
+- BULL: May increase equity to 60%. Favor growth + momentum names.
+- CONSOLIDATION: Default allocation (40%+ defensive). Wait for clarity.
+- CORRECTION: Opportunistic buying with 50%+ cash. Only quality names at a discount.
+- BEAR: 60%+ in bonds/cash/gold. Only defensive equities (XLP, XLV, XLU, JNJ, PG, KO).
+- CRISIS: 70%+ in BIL/SHY/GLD. Exit all cyclicals. Consider small VIXY hedge (1-3 days max).
+These rules OVERRIDE the general allocation guidelines above when a regime is active."""
 
 STANDARD_DIRECTIVE = """
 ## INVESTMENT PHILOSOPHY — BALANCED
@@ -123,4 +132,28 @@ STRATEGY_LABELS: dict[str, str] = {
     "conservative": "Conservative \U0001f6e1\ufe0f",
     "standard": "Standard \u2696\ufe0f",
     "aggressive": "Aggressive \U0001f525",
+}
+
+SESSION_DIRECTIVES: dict[str, str] = {
+    "Morning": (
+        "\n## SESSION: MORNING (Post-Open Assessment)\n"
+        "Focus on overnight developments and opening price action. "
+        "Evaluate gaps, pre-market movers, and any news since yesterday's close. "
+        "This is the best session for new position entries — liquidity is highest. "
+        "Avoid chasing gaps >2%. Set stop levels for any new positions."
+    ),
+    "Midday": (
+        "\n## SESSION: MIDDAY (Review & Profit-Taking)\n"
+        "Review positions opened this morning. Take partial profits on any "
+        "position up >3% intraday. Tighten mental stops on winners. "
+        "Avoid opening large new positions — save dry powder for closing session. "
+        "Focus on risk management, not new ideas."
+    ),
+    "Closing": (
+        "\n## SESSION: CLOSING (Overnight Risk Management)\n"
+        "Reduce or hedge positions that carry overnight risk (earnings, "
+        "macro events). Trim any position you wouldn't want to hold over the "
+        "weekend (if Friday). Evaluate if current exposure is appropriate for "
+        "overnight. This is the best session for defensive moves."
+    ),
 }

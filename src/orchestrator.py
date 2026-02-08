@@ -20,6 +20,7 @@ from src.agent.complexity_detector import ComplexityDetector
 from src.agent.memory import AgentMemoryManager
 from src.agent.ticker_discovery import TickerDiscovery
 from src.analysis.performance import PerformanceTracker
+from src.analysis.regime import RegimeClassifier, RegimeResult
 from src.analysis.risk_manager import RiskManager
 from src.analysis.technical import compute_all_indicators
 from src.data.macro_data import MacroDataFetcher
@@ -65,6 +66,7 @@ class Orchestrator:
         self._risk_manager = RiskManager()
         self._performance_tracker = PerformanceTracker()
         self._memory_manager = AgentMemoryManager()
+        self._regime_classifier = RegimeClassifier()
 
     async def run_daily(
         self, today: date | None = None, session: str = "",
@@ -171,6 +173,19 @@ class Orchestrator:
             log.warning("macro_data_fetch_failed", error=str(e))
             summary["errors"].append(f"Macro data fetch failed: {e}")
 
+        # Step 3.1: Classify market regime
+        regime_result: RegimeResult | None = None
+        try:
+            regime_result = self._regime_classifier.classify(closes, vix=vix)
+            summary["regime"] = regime_result.regime.value
+            log.info(
+                "regime_classified",
+                regime=regime_result.regime.value,
+                summary=regime_result.summary,
+            )
+        except Exception as e:
+            log.warning("regime_classification_failed", error=str(e))
+
         # Step 3.5: Circuit breaker check
         halted_portfolios: set[str] = set()
         for pname in ("A", "B"):
@@ -255,6 +270,8 @@ class Orchestrator:
                 trades_b = await self._run_portfolio_b(
                     closes, volumes, yield_curve, vix, today,
                     news_context=news_context,
+                    session=session,
+                    regime_result=regime_result,
                 )
                 summary["trades"]["B"] = len(trades_b)
             except Exception as e:
@@ -322,6 +339,7 @@ class Orchestrator:
             executed_trades=executed,
             summary=summary,
             session=session,
+            regime_result=regime_result,
         )
 
         log.info(
@@ -356,6 +374,8 @@ class Orchestrator:
     async def _run_portfolio_b(
         self, closes, volumes, yield_curve, vix, today,
         news_context: str = "",
+        session: str = "",
+        regime_result: RegimeResult | None = None,
     ):
         """Run Portfolio B AI strategy with complexity-based model routing."""
         portfolio = await self._db.get_portfolio("B")
@@ -410,12 +430,13 @@ class Orchestrator:
                 except Exception:
                     pass
 
+        regime_str = regime_result.regime.value if regime_result else None
         complexity = self._complexity_detector.evaluate(
             closes=closes,
             positions=positions_for_agent,
             total_value=total_value,
             peak_value=peak_value,
-            regime_today=None,
+            regime_today=regime_str,
             regime_yesterday=None,
             vix=vix,
             indicators=held_indicators,
@@ -442,18 +463,36 @@ class Orchestrator:
         # ── Compute performance stats for dynamic system prompt ────────
         perf_text: str | None = None
         try:
+            spy_closes = closes["SPY"] if "SPY" in closes.columns else None
             stats = await self._performance_tracker.get_portfolio_stats(
                 self._db, "B", PORTFOLIO_B.allocation_usd,
+                spy_closes=spy_closes,
             )
             if stats.days_tracked > 0:
                 perf_text = self._performance_tracker.format_for_prompt(stats)
         except Exception as e:
             log.warning("performance_stats_failed", error=str(e))
 
+        # ── Correlation monitor (Morning session only) ────────────────
+        if session == "Morning" and positions_for_agent:
+            try:
+                held = [p["ticker"] for p in positions_for_agent]
+                corr = self._risk_manager.compute_portfolio_correlation(closes, held)
+                if corr["matrix_size"] >= 2:
+                    corr_text = self._format_correlation(corr)
+                    if perf_text:
+                        perf_text += f"\n{corr_text}"
+                    else:
+                        perf_text = corr_text
+            except Exception as e:
+                log.warning("correlation_failed", error=str(e))
+
         dynamic_prompt = build_system_prompt(
             performance_stats=perf_text,
             memory_context=memory_text,
             strategy_mode=settings.agent.strategy_mode,
+            session=session,
+            regime_summary=regime_result.summary if regime_result else None,
         )
 
         # ── Prepare context and call agent ───────────────────────────────
@@ -464,7 +503,7 @@ class Orchestrator:
             cash=cash,
             total_value=total_value,
             recent_trades=recent_trades,
-            regime=None,
+            regime=regime_str,
             yield_curve=yield_curve,
             vix=vix,
             news_context=news_context,
@@ -510,6 +549,15 @@ class Orchestrator:
             complexity_score=complexity.score,
         )
         return trades
+
+    @staticmethod
+    def _format_correlation(corr_data: dict) -> str:
+        """Format correlation data for the system prompt."""
+        lines = [f"Correlation (avg: {corr_data['avg_correlation']:.2f}, "
+                 f"{corr_data['matrix_size']} positions):"]
+        for t1, t2, val in corr_data["high_pairs"]:
+            lines.append(f"  {t1}-{t2}: {val:.2f} (HIGH)")
+        return "\n".join(lines)
 
     def _notifier_available(self) -> bool:
         """Check if Telegram notifier is configured."""
@@ -702,6 +750,7 @@ class Orchestrator:
         executed_trades: list,
         summary: dict,
         session: str = "",
+        regime_result: RegimeResult | None = None,
     ) -> None:
         """Send daily brief and trade confirmation via Telegram."""
         try:
@@ -735,7 +784,7 @@ class Orchestrator:
 
             await self._notifier.send_daily_brief(
                 brief_date=today,
-                regime=None,
+                regime=regime_result.regime.value if regime_result else None,
                 portfolio_a=portfolio_summaries["A"],
                 portfolio_b=portfolio_summaries["B"],
                 proposed_trades=proposed,

@@ -15,7 +15,7 @@ import structlog
 
 from config.settings import settings
 from config.strategies import PORTFOLIO_B
-from src.agent.strategy_directives import STRATEGY_MAP
+from src.agent.strategy_directives import SESSION_DIRECTIVES, STRATEGY_MAP
 
 log = structlog.get_logger()
 
@@ -47,13 +47,19 @@ def build_system_prompt(
     performance_stats: str | None = None,
     memory_context: str | None = None,
     strategy_mode: str = "conservative",
+    session: str = "",
+    regime_summary: str | None = None,
 ) -> str:
     """Build an enhanced system prompt with performance context and memory.
+
+    Prompt assembly priority: Regime > Session > Strategy > Performance > Memory.
 
     Args:
         performance_stats: Pre-formatted performance text from PerformanceTracker.
         memory_context: Pre-formatted memory text from AgentMemoryManager.
         strategy_mode: One of "conservative", "standard", "aggressive".
+        session: Current session name ("Morning", "Midday", "Closing", or "").
+        regime_summary: One-line regime description from RegimeClassifier.
 
     Returns:
         Full system prompt string.
@@ -76,14 +82,25 @@ Hard Rules:
   Size max 10% unless strong trend confirmation.
 - Avoid round-tripping: don't sell and rebuy the same ticker within 3 days."""
 
-    # Inject strategy directive
+    # 1. Regime summary (highest priority)
+    if regime_summary:
+        prompt += f"\n\n## Current Market Regime\n{regime_summary}"
+
+    # 2. Session directive (skipped when session="" i.e. backtest)
+    session_text = SESSION_DIRECTIVES.get(session)
+    if session_text:
+        prompt += session_text
+
+    # 3. Strategy directive (base philosophy)
     directive = STRATEGY_MAP.get(strategy_mode)
     if directive:
         prompt += f"\n{directive}"
 
+    # 4. Performance stats
     if performance_stats:
         prompt += f"\n\n## Your Track Record\n{performance_stats}"
 
+    # 5. Memory context
     if memory_context:
         prompt += f"\n\n{memory_context}"
 
@@ -130,6 +147,7 @@ Respond ONLY with valid JSON in this exact format:
       "ticker": "XLK",
       "side": "BUY",
       "weight": 0.15,
+      "conviction": "high",
       "reason": "brief reason for this specific trade"
     }}
   ],
@@ -151,6 +169,8 @@ Respond ONLY with valid JSON in this exact format:
 Rules for the trades array:
 - "side" must be "BUY" or "SELL"
 - "weight" is target portfolio weight (0.0 to 0.30). Use 0.0 to fully exit a position.
+- "conviction": "high", "medium", or "low" (default: "high" if omitted)
+  Conviction adjusts effective weight: high=100%, medium=70%, low=40%
 - Only include tickers you want to change. Omit tickers you want to hold unchanged.
 - If no trades needed, return an empty trades array.
 - Ticker must be from the universe provided in the price table.
@@ -249,7 +269,7 @@ def build_macro_context(
     """
     lines = []
     if regime:
-        lines.append(f"- Regime: {regime}")
+        lines.append(f"- Market Regime: **{regime}**")
     if yield_curve is not None:
         curve_status = "INVERTED" if yield_curve < 0 else "normal"
         lines.append(f"- Yield Curve (10Y-2Y): {yield_curve:+.2f}% ({curve_status})")

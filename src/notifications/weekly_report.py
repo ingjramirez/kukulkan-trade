@@ -90,6 +90,34 @@ class WeeklyReporter:
         end_val = week_snapshots[-1].total_value
         week_return = ((end_val - start_val) / start_val) * 100
 
+        # SPY benchmark for the same week
+        spy_text = ""
+        try:
+            import yfinance as yf
+
+            spy_data = yf.download(
+                "SPY",
+                start=str(week_start),
+                end=str(week_end + timedelta(days=1)),
+                progress=False,
+            )
+            if len(spy_data) >= 2:
+                close = spy_data["Close"]
+                if hasattr(close, "columns"):
+                    close = close.iloc[:, 0]  # flatten multi-level column
+                spy_start_price = float(close.iloc[0])
+                spy_end_price = float(close.iloc[-1])
+                spy_week_return = (
+                    (spy_end_price - spy_start_price) / spy_start_price
+                ) * 100
+                alpha = week_return - spy_week_return
+                spy_text = (
+                    f"\n  vs SPY: {spy_week_return:+.2f}% | "
+                    f"Alpha: {alpha:+.2f}%"
+                )
+        except Exception:
+            pass
+
         # Count trades this week
         trades = await self._db.get_trades(portfolio_name)
         week_trades = [
@@ -99,7 +127,8 @@ class WeeklyReporter:
 
         return (
             f"Portfolio {portfolio_name}\n"
-            f"  Value: ${end_val:,.0f} ({week_return:+.2f}% this week)\n"
+            f"  Value: ${end_val:,.0f} ({week_return:+.2f}% this week)"
+            f"{spy_text}\n"
             f"  Trades: {len(week_trades)} this week\n"
             f"  Snapshots: {len(week_snapshots)} days"
         )

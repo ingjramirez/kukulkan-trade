@@ -229,6 +229,61 @@ class TestAgentResponseToTrades:
         tickers = {t.ticker for t in trades}
         assert tickers == {"XLK", "GLD", "XLF"}
 
+    def test_conviction_high_full_weight(self) -> None:
+        """High conviction applies 100% of weight."""
+        response = {
+            "trades": [
+                {"ticker": "XLK", "side": "BUY", "weight": 0.15,
+                 "conviction": "high", "reason": "strong trend"},
+            ],
+        }
+        trades = self.strategy.agent_response_to_trades(
+            response, total_value=66_000.0, current_positions={}, latest_prices=self.prices,
+        )
+        # 15% of $66K = $9,900 / $200 = 49 shares
+        assert trades[0].shares == 49.0
+
+    def test_conviction_medium_70pct(self) -> None:
+        """Medium conviction scales weight to 70%."""
+        response = {
+            "trades": [
+                {"ticker": "XLK", "side": "BUY", "weight": 0.20,
+                 "conviction": "medium", "reason": "decent setup"},
+            ],
+        }
+        trades = self.strategy.agent_response_to_trades(
+            response, total_value=66_000.0, current_positions={}, latest_prices=self.prices,
+        )
+        # 20% * 0.7 = 14% of $66K = $9,240 / $200 = 46 shares
+        assert trades[0].shares == 46.0
+
+    def test_conviction_low_40pct(self) -> None:
+        """Low conviction scales weight to 40%."""
+        response = {
+            "trades": [
+                {"ticker": "XLK", "side": "BUY", "weight": 0.20,
+                 "conviction": "low", "reason": "speculative"},
+            ],
+        }
+        trades = self.strategy.agent_response_to_trades(
+            response, total_value=66_000.0, current_positions={}, latest_prices=self.prices,
+        )
+        # 20% * 0.4 = 8% of $66K = $5,280 / $200 = 26 shares
+        assert trades[0].shares == 26.0
+
+    def test_conviction_missing_defaults_high(self) -> None:
+        """Missing conviction field defaults to high (100%)."""
+        response = {
+            "trades": [
+                {"ticker": "XLK", "side": "BUY", "weight": 0.15, "reason": "no conviction field"},
+            ],
+        }
+        trades = self.strategy.agent_response_to_trades(
+            response, total_value=66_000.0, current_positions={}, latest_prices=self.prices,
+        )
+        # Same as high: 15% of $66K = $9,900 / $200 = 49 shares
+        assert trades[0].shares == 49.0
+
 
 # ── Decision persistence test ────────────────────────────────────────────────
 
