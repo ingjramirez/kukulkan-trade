@@ -11,7 +11,6 @@ from config.universe import (
 )
 from src.agent.strategy_directives import CONSERVATIVE_DIRECTIVE
 
-
 # All 28 tickers from Phase 19 (including 5 that already existed)
 PHASE_19_TICKERS = [
     # Fixed Income

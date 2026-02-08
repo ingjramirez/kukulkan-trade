@@ -65,16 +65,16 @@ A portfolio that avoids large losses compounds faster over time.
 - IXUS: Total international — simplest one-fund global option
 
 **Regional Plays (higher conviction, higher risk):**
-- FXI: China large-caps — undervalued after 3yr selloff, stimulus ongoing. Max 5% allocation. Geopolitical risk.
+- FXI: China large-caps — undervalued after 3yr selloff, stimulus ongoing. Max 5%. Geopolitical.
 - KWEB: China internet — Alibaba, JD, Tencent. Recovery play. Max 5%. Regulatory risk.
 - INDA: India — fastest-growing major economy. Less correlated to US. Max 5%.
 - VGK: Europe — cheaper valuations than US, benefits from weak dollar. Max 10%.
 
 **Regional Decision Framework:**
-- If US enters bear market but China/Asia stimulus continues → increase FXI, KWEB, INDA (decoupling trade)
+- If US bear market but China/Asia stimulus continues → increase FXI, KWEB, INDA (decoupling)
 - If dollar weakens → VEA, VGK benefit from currency translation
 - If global recession → reduce ALL international, increase BIL + GLD
-- NEVER put more than 25% total in international. Regional ETFs (FXI, KWEB, INDA, VGK) are satellite positions, not core.
+- NEVER put more than 25% total in international. Regional ETFs are satellite positions, not core.
 
 **Income Generation:**
 - SCHD: Quality US dividends, 3.4% yield
@@ -89,7 +89,8 @@ A portfolio that avoids large losses compounds faster over time.
 - VTIP: Inflation-protected bonds
 
 **Volatility Hedge:**
-- VIXY: VIX futures. ONLY hold 1-3 days during acute selloffs. Decays ~5%/month in calm markets. NEVER hold as a core position.
+- VIXY: VIX futures. ONLY hold 1-3 days during acute selloffs.
+  Decays ~5%/month in calm markets. NEVER hold as a core position.
 
 **When to use bonds vs equities:**
 - VIX < 15, economy growing → favor equities, minimal bonds
