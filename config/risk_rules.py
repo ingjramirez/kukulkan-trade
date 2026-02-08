@@ -1,6 +1,6 @@
 """Global risk rules applied across all portfolios."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -9,7 +9,20 @@ class RiskRules:
 
     # Position limits
     max_single_position_pct: float = 0.35  # max 35% in any single ticker
-    max_sector_concentration: float = 0.50  # max 50% in one sector
+    max_sector_concentration: float = 0.50  # max 50% in one sector (default fallback)
+
+    # Per-sector concentration overrides (sector name -> max fraction)
+    # Sectors not listed here fall back to max_sector_concentration.
+    sector_concentration_overrides: dict[str, float] = field(default_factory=lambda: {
+        "Fixed Income": 0.50,
+        "International": 0.25,
+        "Dividend/Value": 0.25,
+        "Hedge": 0.05,
+        "Thematic": 0.10,
+        "Commodities": 0.20,
+        "Real Estate": 0.15,
+        "Crypto": 0.05,
+    })
 
     # Drawdown circuit breakers
     daily_loss_limit_pct: float = 0.05  # halt trading if portfolio drops 5% in a day
@@ -20,7 +33,9 @@ class RiskRules:
     max_tech_weight: float = 0.40
 
     # Defensive assets
-    defensive_tickers: tuple[str, ...] = ("XLU", "XLP", "TLT", "GLD", "SH")
+    defensive_tickers: tuple[str, ...] = (
+        "XLU", "XLP", "TLT", "GLD", "SH", "BIL", "SHY", "IEF", "AGG", "VTIP",
+    )
 
     # BTC risk signal thresholds
     btc_proxy: str = "IBIT"

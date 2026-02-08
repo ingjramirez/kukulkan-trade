@@ -82,10 +82,44 @@ CRYPTO: list[str] = [
     "IBIT",  # iShares Bitcoin Trust
 ]
 
+# --- Fixed Income ETFs (bond ladder) ---
+FIXED_INCOME_ETFS: list[str] = ["BIL", "SHY", "IEF", "AGG", "VTIP"]
+# Note: TLT already in THEMATIC_ETFS, HYG already in THEMATIC_ETFS
+
+# --- International ETFs ---
+INTERNATIONAL_ETFS: list[str] = ["VEA", "VWO", "IXUS", "FXI", "KWEB", "INDA", "VGK"]
+# Note: EFA already in THEMATIC_ETFS, EEM already in THEMATIC_ETFS
+
+# --- Real Estate ETFs ---
+REAL_ESTATE_ETFS: list[str] = ["VNQ", "SCHH"]
+# Note: XLRE already in SECTOR_ETFS
+
+# --- Dividend / Value ETFs ---
+DIVIDEND_VALUE_ETFS: list[str] = ["SCHD", "VTV", "DVY"]
+
+# --- Additional Individual Stocks ---
+ADDITIONAL_STOCKS: list[str] = ["AVGO", "KO"]
+# Note: UNH, PG, XOM already in INDIVIDUAL_STOCKS
+
+# --- New Thematic ETFs ---
+THEMATIC_NEW: list[str] = ["ICLN", "DBC", "PDBC", "VIXY"]
+# Commodities (DBC, PDBC), Clean Energy (ICLN), Volatility Hedge (VIXY)
+
 # --- Portfolio universes ---
 PORTFOLIO_A_UNIVERSE: list[str] = SECTOR_ETFS + THEMATIC_ETFS
 PORTFOLIO_B_UNIVERSE: list[str] = (
-    SECTOR_ETFS + THEMATIC_ETFS + INVERSE_ETFS + COMMODITY_ETFS + INDIVIDUAL_STOCKS + CRYPTO
+    SECTOR_ETFS
+    + THEMATIC_ETFS
+    + INVERSE_ETFS
+    + COMMODITY_ETFS
+    + INDIVIDUAL_STOCKS
+    + CRYPTO
+    + FIXED_INCOME_ETFS
+    + INTERNATIONAL_ETFS
+    + REAL_ESTATE_ETFS
+    + DIVIDEND_VALUE_ETFS
+    + ADDITIONAL_STOCKS
+    + THEMATIC_NEW
 )
 
 # Full universe (for data fetching)
@@ -112,6 +146,27 @@ SECTOR_MAP: dict[str, str] = {
     "SH": "Inverse", "PSQ": "Inverse", "TBF": "Inverse",
     "GLD": "Commodities", "SLV": "Commodities", "USO": "Commodities",
     "IBIT": "Crypto",
+    # Fixed Income (new)
+    "BIL": "Fixed Income", "SHY": "Fixed Income", "IEF": "Fixed Income",
+    "AGG": "Fixed Income", "VTIP": "Fixed Income",
+    # International (new)
+    "VEA": "International", "VWO": "International", "IXUS": "International",
+    "FXI": "International", "KWEB": "International",
+    "INDA": "International", "VGK": "International",
+    # Real Estate (new)
+    "VNQ": "Real Estate", "SCHH": "Real Estate",
+    # Dividend/Value (new)
+    "SCHD": "Dividend/Value", "VTV": "Dividend/Value", "DVY": "Dividend/Value",
+    # Technology (new)
+    "AVGO": "Technology",
+    # Consumer Staples (new)
+    "KO": "Consumer Staples",
+    # Commodities (new)
+    "DBC": "Commodities", "PDBC": "Commodities",
+    # Thematic (new)
+    "ICLN": "Thematic",
+    # Hedge (new)
+    "VIXY": "Hedge",
 }
 
 

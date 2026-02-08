@@ -159,10 +159,13 @@ class RiskManager:
                     sector_value += val
             if total_denominator > 0:
                 sector_pct = sector_value / total_denominator
-                if sector_pct > self._rules.max_sector_concentration:
+                sector_limit = self._rules.sector_concentration_overrides.get(
+                    sector, self._rules.max_sector_concentration,
+                )
+                if sector_pct > sector_limit:
                     reason = (
                         f"{sector} sector would be {sector_pct:.0%} "
-                        f"(limit {self._rules.max_sector_concentration:.0%})"
+                        f"(limit {sector_limit:.0%})"
                     )
                     log.warning("risk_blocked_sector", trade=trade.ticker, reason=reason)
                     verdict.blocked.append((trade, reason))
