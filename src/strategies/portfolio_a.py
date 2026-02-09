@@ -9,6 +9,7 @@ from datetime import date
 import pandas as pd
 import structlog
 
+from config.risk_rules import RISK_RULES
 from config.strategies import PORTFOLIO_A
 from config.universe import PORTFOLIO_A_UNIVERSE
 from src.analysis.momentum import calculate_momentum, get_top_n, momentum_to_db_rows
@@ -71,6 +72,7 @@ class MomentumStrategy:
         closes: pd.DataFrame,
         current_positions: dict[str, float],
         cash: float,
+        portfolio_value: float | None = None,
     ) -> list[TradeSchema]:
         """Generate trade signals for a rebalance.
 
@@ -78,6 +80,8 @@ class MomentumStrategy:
             closes: DataFrame of close prices.
             current_positions: Dict of ticker -> shares currently held.
             cash: Available cash in Portfolio A.
+            portfolio_value: Total portfolio value for position sizing.
+                If None, uses cash + positions value.
 
         Returns:
             List of TradeSchema objects (sells first, then buys).
@@ -113,9 +117,22 @@ class MomentumStrategy:
         sell_proceeds = sum(t.total for t in trades)
         available = cash + sell_proceeds
 
+        # Calculate portfolio value for position sizing
+        if portfolio_value is None:
+            positions_value = sum(
+                shares * float(latest_prices.get(t, 0))
+                for t, shares in current_positions.items()
+                if not pd.isna(latest_prices.get(t, 0))
+            )
+            portfolio_value = cash + positions_value
+
+        # Cap position at risk limit to avoid being blocked
+        max_position_value = portfolio_value * RISK_RULES.max_single_position_pct
+        buy_budget = min(available, max_position_value)
+
         # Buy target if not already holding
         if target not in current_positions or current_positions[target] == 0:
-            shares_to_buy = int(available / target_price)
+            shares_to_buy = int(buy_budget / target_price)
             if shares_to_buy > 0:
                 trades.append(TradeSchema(
                     portfolio=PortfolioName.A,
@@ -131,6 +148,7 @@ class MomentumStrategy:
             target=target,
             num_trades=len(trades),
             available_cash=round(available, 2),
+            buy_budget=round(buy_budget, 2),
         )
         return trades
 

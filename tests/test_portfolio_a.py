@@ -76,13 +76,28 @@ class TestGenerateTrades:
         assert "SELL" in sides
         assert "BUY" in sides
 
-    def test_buy_respects_cash(self, closes: pd.DataFrame) -> None:
+    def test_buy_respects_concentration_limit(self, closes: pd.DataFrame) -> None:
         strategy = MomentumStrategy()
         trades = strategy.generate_trades(
             closes=closes,
             current_positions={},
             cash=33_333.0,
+            portfolio_value=33_333.0,
         )
         if trades:
             buy = [t for t in trades if t.side.value == "BUY"][0]
-            assert buy.total <= 33_333.0
+            # Should be capped at 35% of portfolio value
+            assert buy.total <= 33_333.0 * 0.35 + 1  # +1 for rounding
+
+    def test_buy_uses_full_budget_when_small(self, closes: pd.DataFrame) -> None:
+        """When cash is less than the position limit, use all cash."""
+        strategy = MomentumStrategy()
+        trades = strategy.generate_trades(
+            closes=closes,
+            current_positions={},
+            cash=5_000.0,
+            portfolio_value=33_333.0,
+        )
+        if trades:
+            buy = [t for t in trades if t.side.value == "BUY"][0]
+            assert buy.total <= 5_000.0

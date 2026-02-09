@@ -361,7 +361,10 @@ class Orchestrator:
         position_map = {p.ticker: p.shares for p in positions}
         cash = portfolio.cash if portfolio else 33_000.0
 
-        trades = self._strategy_a.generate_trades(closes, position_map, cash)
+        total_value = portfolio.total_value if portfolio else 33_000.0
+        trades = self._strategy_a.generate_trades(
+            closes, position_map, cash, portfolio_value=total_value,
+        )
 
         # Save momentum rankings
         ranking_rows = self._strategy_a.get_ranking_rows(closes, today)

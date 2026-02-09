@@ -452,21 +452,14 @@ class AlpacaExecutor:
                 new_qty=alpaca_qty,
             )
 
-        # Sync cash from Alpaca account
+        # Log Alpaca cash for reference (but do NOT override portfolio cash —
+        # each portfolio tracks its own cash through trade execution)
         try:
             account = self._client.get_account()
             alpaca_cash = float(account.cash)
-            # Distribute cash proportionally to initial allocations (A=33%, B=66%)
-            for pname, ratio in [("A", 1 / 3), ("B", 2 / 3)]:
-                portfolio = await self._db.get_portfolio(pname)
-                if portfolio:
-                    new_cash = round(alpaca_cash * ratio, 2)
-                    await self._db.upsert_portfolio(
-                        pname, cash=new_cash, total_value=portfolio.total_value,
-                    )
-            log.info("cash_synced_from_alpaca", total_cash=alpaca_cash)
+            log.info("alpaca_cash_reference", total_cash=alpaca_cash)
         except Exception as e:
-            log.warning("cash_sync_failed", error=str(e))
+            log.warning("alpaca_cash_read_failed", error=str(e))
 
         if not drift:
             log.info("positions_in_sync", tickers=len(all_tickers))

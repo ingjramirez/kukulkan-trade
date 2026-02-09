@@ -617,8 +617,8 @@ class TestAlpacaSyncPositionsFix:
         # No corrections — short position was skipped
         assert len(result["corrections"]) == 0
 
-    async def test_sync_updates_cash(self, db: Database, mock_client) -> None:
-        """Portfolio cash is synced from Alpaca account."""
+    async def test_sync_does_not_override_cash(self, db: Database, mock_client) -> None:
+        """Portfolio cash is NOT overwritten by position sync."""
         executor = AlpacaExecutor(db, mock_client, fill_timeout=2, fill_poll_interval=0.01)
         await executor.initialize_portfolios()
 
@@ -629,11 +629,11 @@ class TestAlpacaSyncPositionsFix:
 
         await executor.sync_positions()
 
+        # Cash should remain at initial values, NOT be overwritten
         port_a = await db.get_portfolio("A")
         port_b = await db.get_portfolio("B")
-        # 9000 * 1/3 = 3000, 9000 * 2/3 = 6000
-        assert port_a.cash == 3000.0
-        assert port_b.cash == 6000.0
+        assert port_a.cash == 33_000.0
+        assert port_b.cash == 66_000.0
 
 
 class TestAlpacaExecutorInterface:
