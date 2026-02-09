@@ -58,7 +58,7 @@ class TestAlpacaNewsFetcher:
         mock_news_item.url = "https://example.com/nvda"
 
         mock_response = MagicMock()
-        mock_response.data = [mock_news_item]
+        mock_response.data = {"news": [mock_news_item]}
 
         mock_client = MagicMock()
         mock_client.get_news.return_value = mock_response
@@ -72,7 +72,9 @@ class TestAlpacaNewsFetcher:
         assert "NVDA" in articles[0].tickers
 
     def test_returns_empty_without_keys(self) -> None:
-        fetcher = AlpacaNewsFetcher(api_key="", secret_key="")
+        fetcher = AlpacaNewsFetcher(api_key="test", secret_key="test")
+        fetcher._api_key = ""
+        fetcher._secret_key = ""
         articles = fetcher.fetch(["AAPL"])
         assert articles == []
 

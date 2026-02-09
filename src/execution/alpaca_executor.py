@@ -34,8 +34,8 @@ class AlpacaExecutor:
         self,
         db: Database,
         client: TradingClient,
-        fill_timeout: float = 120.0,
-        fill_poll_interval: float = 2.0,
+        fill_timeout: float = 30.0,
+        fill_poll_interval: float = 5.0,
     ) -> None:
         self._db = db
         self._client = client
@@ -99,7 +99,9 @@ class AlpacaExecutor:
         """
         elapsed = 0.0
         while elapsed < self._fill_timeout:
-            order = self._client.get_order_by_id(order_id)
+            order = await asyncio.to_thread(
+                self._client.get_order_by_id, order_id,
+            )
             status = str(order.status).lower()
 
             if status in _TERMINAL_STATES or status == _PARTIAL_FILL_STATE:

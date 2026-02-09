@@ -267,13 +267,14 @@ class Orchestrator:
             summary["trades"]["B"] = 0
         else:
             try:
-                trades_b = await self._run_portfolio_b(
+                trades_b, b_reasoning = await self._run_portfolio_b(
                     closes, volumes, yield_curve, vix, today,
                     news_context=news_context,
                     session=session,
                     regime_result=regime_result,
                 )
                 summary["trades"]["B"] = len(trades_b)
+                summary["b_reasoning"] = b_reasoning
             except Exception as e:
                 log.error("portfolio_b_failed", error=str(e))
                 summary["errors"].append(f"Portfolio B failed: {e}")
@@ -449,7 +450,7 @@ class Orchestrator:
                 model_override = PORTFOLIO_B.escalation_model
             elif choice == "skip":
                 log.info("portfolio_b_skipped_by_user")
-                return []
+                return [], ""
             # "sonnet" or timeout → model_override stays None
 
         # ── Build memory context for system prompt ─────────────────────
@@ -548,7 +549,7 @@ class Orchestrator:
             model_override=model_override,
             complexity_score=complexity.score,
         )
-        return trades
+        return trades, response.get("reasoning", "")
 
     @staticmethod
     def _format_correlation(corr_data: dict) -> str:
@@ -776,8 +777,13 @@ class Orchestrator:
                 }
 
             # Add strategy-specific fields
-            portfolio_summaries["A"]["top_ticker"] = "—"
-            portfolio_summaries["B"]["reasoning"] = ""
+            positions_a = await self._db.get_positions("A")
+            if positions_a:
+                top = max(positions_a, key=lambda p: p.shares * p.avg_price)
+                portfolio_summaries["A"]["top_ticker"] = top.ticker
+            else:
+                portfolio_summaries["A"]["top_ticker"] = "cash"
+            portfolio_summaries["B"]["reasoning"] = summary.get("b_reasoning", "")
 
             from src.storage.models import TradeSchema
             proposed = [t for t in proposed_trades if isinstance(t, TradeSchema)]
