@@ -5,7 +5,7 @@ Same 3-method interface as PaperTrader.
 """
 
 import asyncio
-from datetime import date
+from datetime import date, datetime
 
 import structlog
 from alpaca.trading.client import TradingClient
@@ -34,13 +34,15 @@ class AlpacaExecutor:
         self,
         db: Database,
         client: TradingClient,
-        fill_timeout: float = 30.0,
-        fill_poll_interval: float = 1.0,
+        fill_timeout: float = 120.0,
+        fill_poll_interval: float = 2.0,
     ) -> None:
         self._db = db
         self._client = client
         self._fill_timeout = fill_timeout
         self._fill_poll_interval = fill_poll_interval
+        # Track timed-out orders for reconciliation
+        self._pending_orders: list[dict] = []
 
     async def initialize_portfolios(self) -> None:
         """Create portfolio rows if they don't exist."""
@@ -56,6 +58,7 @@ class AlpacaExecutor:
         """Submit market orders to Alpaca and log fills to DB.
 
         Processes sells before buys to free up cash.
+        After all orders, reconciles any that timed out during polling.
 
         Args:
             trades: List of validated TradeSchema objects.
@@ -66,11 +69,17 @@ class AlpacaExecutor:
         sells = [t for t in trades if t.side.value == "SELL"]
         buys = [t for t in trades if t.side.value == "BUY"]
         executed: list[TradeSchema] = []
+        self._pending_orders.clear()
 
         for trade in sells + buys:
             success = await self._execute_single(trade)
             if success:
                 executed.append(trade)
+
+        # Reconcile timed-out orders that may have filled after timeout
+        if self._pending_orders:
+            reconciled = await self._reconcile_pending_orders()
+            executed.extend(reconciled)
 
         log.info(
             "alpaca_trades_executed",
@@ -135,7 +144,7 @@ class AlpacaExecutor:
                 qty=int(trade.shares),
                 side=side,
                 time_in_force=TimeInForce.DAY,
-                client_order_id=f"kk-{portfolio_name}-{trade.ticker}",
+                client_order_id=f"kk-{portfolio_name}-{trade.ticker}-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
             )
             order = self._client.submit_order(order_request)
 
@@ -152,13 +161,25 @@ class AlpacaExecutor:
             fill = await self._wait_for_fill(str(order.id))
             fill_status = fill["status"]
 
-            if fill_status in ("rejected", "canceled", "expired", "timeout"):
+            if fill_status in ("rejected", "canceled", "expired"):
                 log.warning(
                     "alpaca_order_not_filled",
                     order_id=str(order.id),
                     status=fill_status,
                     ticker=trade.ticker,
                 )
+                return False
+
+            if fill_status == "timeout":
+                log.warning(
+                    "alpaca_order_timeout_will_reconcile",
+                    order_id=str(order.id),
+                    ticker=trade.ticker,
+                )
+                self._pending_orders.append({
+                    "order_id": str(order.id),
+                    "trade": trade,
+                })
                 return False
 
             # Use actual fill data
@@ -258,51 +279,198 @@ class AlpacaExecutor:
             reason=reason,
         )
 
-    async def sync_positions(self) -> dict[str, list[dict]]:
-        """Compare Alpaca account positions with our DB and log drift.
+    async def _reconcile_pending_orders(self) -> list[TradeSchema]:
+        """Check timed-out orders for late fills and log them to DB.
 
         Returns:
-            Dict with 'alpaca' and 'drift' keys.
+            List of trades that were reconciled (filled after timeout).
+        """
+        if not self._pending_orders:
+            return []
+
+        log.info("reconciliation_starting", pending_orders=len(self._pending_orders))
+        reconciled: list[TradeSchema] = []
+
+        for entry in self._pending_orders:
+            order_id = entry["order_id"]
+            trade: TradeSchema = entry["trade"]
+            try:
+                order = await asyncio.to_thread(
+                    self._client.get_order_by_id, order_id
+                )
+                status = str(order.status).lower()
+                filled_qty = float(order.filled_qty) if order.filled_qty else 0.0
+                filled_price = (
+                    float(order.filled_avg_price)
+                    if order.filled_avg_price
+                    else None
+                )
+
+                if status in ("filled", "partially_filled") and filled_qty > 0:
+                    fill_price = filled_price or trade.price
+                    await self._update_portfolio_state(
+                        portfolio_name=trade.portfolio.value,
+                        ticker=trade.ticker,
+                        side=trade.side.value,
+                        filled_shares=filled_qty,
+                        fill_price=fill_price,
+                        reason=trade.reason,
+                    )
+                    reconciled.append(trade)
+                    log.info(
+                        "reconciliation_filled",
+                        order_id=order_id,
+                        ticker=trade.ticker,
+                        filled_qty=filled_qty,
+                        filled_price=fill_price,
+                    )
+                else:
+                    log.warning(
+                        "reconciliation_still_unfilled",
+                        order_id=order_id,
+                        ticker=trade.ticker,
+                        status=status,
+                    )
+            except Exception as e:
+                log.error(
+                    "reconciliation_check_failed",
+                    order_id=order_id,
+                    ticker=trade.ticker,
+                    error=str(e),
+                )
+
+        self._pending_orders.clear()
+        log.info(
+            "reconciliation_complete",
+            checked=len(self._pending_orders) + len(reconciled),
+            reconciled=len(reconciled),
+        )
+        return reconciled
+
+    async def sync_positions(self) -> dict[str, list[dict]]:
+        """Sync DB positions to match Alpaca's actual state.
+
+        Alpaca is the source of truth. When drift is detected, DB is
+        corrected to match. Positions are assigned to whichever portfolio
+        already owns them in the DB; unknown positions default to B.
+
+        Also syncs portfolio cash from the Alpaca account balance.
+
+        Returns:
+            Dict with 'alpaca', 'drift', and 'corrections' keys.
         """
         try:
             alpaca_positions = self._client.get_all_positions()
         except Exception as e:
             log.error("alpaca_sync_failed", error=str(e))
-            return {"alpaca": [], "drift": []}
+            return {"alpaca": [], "drift": [], "corrections": []}
 
         alpaca_map: dict[str, float] = {}
+        alpaca_price_map: dict[str, float] = {}
         for pos in alpaca_positions:
-            alpaca_map[pos.symbol] = float(pos.qty)
+            qty = float(pos.qty)
+            # Skip short positions (negative qty) — bot doesn't short
+            if qty <= 0:
+                log.warning(
+                    "alpaca_short_position_skipped",
+                    ticker=pos.symbol, qty=qty,
+                )
+                continue
+            alpaca_map[pos.symbol] = qty
+            alpaca_price_map[pos.symbol] = float(pos.avg_entry_price)
 
-        # Build our combined DB positions across A and B
-        db_map: dict[str, float] = {}
+        # Build DB position map: ticker -> (portfolio, shares, avg_price)
+        db_positions: dict[str, dict] = {}
         for pname in ("A", "B"):
             positions = await self._db.get_positions(pname)
             for p in positions:
-                db_map[p.ticker] = db_map.get(p.ticker, 0) + p.shares
+                if p.ticker not in db_positions:
+                    db_positions[p.ticker] = {
+                        "portfolio": pname,
+                        "shares": p.shares,
+                        "avg_price": p.avg_price,
+                    }
+                else:
+                    # Ticker in both portfolios — accumulate
+                    db_positions[p.ticker]["shares"] += p.shares
 
         # Detect drift
-        all_tickers = set(alpaca_map) | set(db_map)
+        all_tickers = set(alpaca_map) | set(db_positions)
         drift: list[dict] = []
+        corrections: list[dict] = []
+
         for ticker in sorted(all_tickers):
             alpaca_qty = alpaca_map.get(ticker, 0)
-            db_qty = db_map.get(ticker, 0)
-            if abs(alpaca_qty - db_qty) > 0.01:
-                entry = {
-                    "ticker": ticker,
-                    "alpaca_qty": alpaca_qty,
-                    "db_qty": db_qty,
-                    "diff": alpaca_qty - db_qty,
-                }
-                drift.append(entry)
-                log.warning("position_drift_detected", **entry)
+            db_entry = db_positions.get(ticker)
+            db_qty = db_entry["shares"] if db_entry else 0
+
+            if abs(alpaca_qty - db_qty) < 0.01:
+                continue
+
+            entry = {
+                "ticker": ticker,
+                "alpaca_qty": alpaca_qty,
+                "db_qty": db_qty,
+                "diff": alpaca_qty - db_qty,
+            }
+            drift.append(entry)
+            log.warning("position_drift_detected", **entry)
+
+            # Correct DB to match Alpaca
+            portfolio = db_entry["portfolio"] if db_entry else "B"
+            avg_price = (
+                alpaca_price_map.get(ticker)
+                or (db_entry["avg_price"] if db_entry else 0)
+            )
+
+            await self._db.upsert_position(
+                portfolio, ticker, alpaca_qty, avg_price,
+            )
+            corrections.append({
+                "ticker": ticker,
+                "portfolio": portfolio,
+                "old_qty": db_qty,
+                "new_qty": alpaca_qty,
+            })
+            log.info(
+                "position_drift_corrected",
+                ticker=ticker,
+                portfolio=portfolio,
+                old_qty=db_qty,
+                new_qty=alpaca_qty,
+            )
+
+        # Sync cash from Alpaca account
+        try:
+            account = self._client.get_account()
+            alpaca_cash = float(account.cash)
+            # Distribute cash proportionally to initial allocations (A=33%, B=66%)
+            for pname, ratio in [("A", 1 / 3), ("B", 2 / 3)]:
+                portfolio = await self._db.get_portfolio(pname)
+                if portfolio:
+                    new_cash = round(alpaca_cash * ratio, 2)
+                    await self._db.upsert_portfolio(
+                        pname, cash=new_cash, total_value=portfolio.total_value,
+                    )
+            log.info("cash_synced_from_alpaca", total_cash=alpaca_cash)
+        except Exception as e:
+            log.warning("cash_sync_failed", error=str(e))
 
         if not drift:
             log.info("positions_in_sync", tickers=len(all_tickers))
+        else:
+            log.info(
+                "position_sync_complete",
+                drift_count=len(drift),
+                corrections=len(corrections),
+            )
 
         return {
-            "alpaca": [{"symbol": t, "qty": q} for t, q in alpaca_map.items()],
+            "alpaca": [
+                {"symbol": t, "qty": q} for t, q in alpaca_map.items()
+            ],
             "drift": drift,
+            "corrections": corrections,
         }
 
     async def take_snapshot(

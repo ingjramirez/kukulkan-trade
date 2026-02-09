@@ -58,7 +58,7 @@ class TestAlpacaNewsFetcher:
         mock_news_item.url = "https://example.com/nvda"
 
         mock_response = MagicMock()
-        mock_response.news = [mock_news_item]
+        mock_response.data = [mock_news_item]
 
         mock_client = MagicMock()
         mock_client.get_news.return_value = mock_response

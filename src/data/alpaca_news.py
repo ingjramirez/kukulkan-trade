@@ -69,7 +69,7 @@ class AlpacaNewsFetcher:
             response = client.get_news(request)
 
             articles: list[NewsArticle] = []
-            for item in response.news:
+            for item in response.data:
                 published = None
                 if hasattr(item, "created_at") and item.created_at:
                     published = (

@@ -221,7 +221,7 @@ class TestAlpacaExecutorTrades:
         await executor.execute_trades([trade])
 
         order_request = mock_client.submit_order.call_args[0][0]
-        assert order_request.client_order_id == "kk-B-AAPL"
+        assert order_request.client_order_id.startswith("kk-B-AAPL-")
 
 
 class TestAlpacaFillPolling:
@@ -321,14 +321,19 @@ class TestAlpacaSyncPositions:
         mock_pos = MagicMock()
         mock_pos.symbol = "XLK"
         mock_pos.qty = "10"
+        mock_pos.avg_entry_price = "200.0"
         mock_client.get_all_positions.return_value = [mock_pos]
+
+        mock_account = MagicMock()
+        mock_account.cash = "33000.0"
+        mock_client.get_account.return_value = mock_account
 
         result = await executor.sync_positions()
         assert len(result["drift"]) == 0
         assert len(result["alpaca"]) == 1
 
-    async def test_sync_detects_drift(self, db: Database, mock_client) -> None:
-        """Drift detected when quantities differ."""
+    async def test_sync_detects_and_corrects_drift(self, db: Database, mock_client) -> None:
+        """Drift detected and corrected when quantities differ."""
         executor = AlpacaExecutor(db, mock_client, fill_timeout=2, fill_poll_interval=0.01)
         await executor.initialize_portfolios()
         await db.upsert_position("A", "XLK", 10, 200.0)
@@ -337,7 +342,12 @@ class TestAlpacaSyncPositions:
         mock_pos = MagicMock()
         mock_pos.symbol = "XLK"
         mock_pos.qty = "15"
+        mock_pos.avg_entry_price = "205.0"
         mock_client.get_all_positions.return_value = [mock_pos]
+
+        mock_account = MagicMock()
+        mock_account.cash = "30000.0"
+        mock_client.get_account.return_value = mock_account
 
         result = await executor.sync_positions()
         assert len(result["drift"]) == 1
@@ -345,13 +355,18 @@ class TestAlpacaSyncPositions:
         assert result["drift"][0]["alpaca_qty"] == 15.0
         assert result["drift"][0]["db_qty"] == 10.0
 
+        # Verify DB was corrected
+        positions = await db.get_positions("A")
+        xlk = next(p for p in positions if p.ticker == "XLK")
+        assert xlk.shares == 15
+
     async def test_sync_handles_api_error(self, db: Database, mock_client) -> None:
         """Graceful handling when Alpaca API fails."""
         mock_client.get_all_positions.side_effect = Exception("API down")
         executor = AlpacaExecutor(db, mock_client, fill_timeout=2, fill_poll_interval=0.01)
 
         result = await executor.sync_positions()
-        assert result == {"alpaca": [], "drift": []}
+        assert result == {"alpaca": [], "drift": [], "corrections": []}
 
 
 class TestAlpacaExecutorSnapshot:
@@ -389,6 +404,210 @@ class TestAlpacaExecutorSnapshot:
         snapshots = await db.get_snapshots("A")
         # Initial value = 33000, current = 33000 → 0%
         assert snapshots[0].cumulative_return_pct == 0.0
+
+
+class TestAlpacaReconciliation:
+    """Tests for post-execution reconciliation of timed-out orders."""
+
+    async def test_timeout_triggers_reconciliation(self, db: Database, mock_client) -> None:
+        """Timed-out order that later fills is reconciled."""
+        # First poll returns "new" (timeout), reconciliation returns "filled"
+        new_order = _mock_order(status="new", filled_qty=0, filled_avg_price=None)
+        filled_order = _mock_order(status="filled", filled_qty=10, filled_avg_price=200.0)
+        mock_client.get_order_by_id.side_effect = [new_order, filled_order]
+
+        executor = AlpacaExecutor(
+            db, mock_client, fill_timeout=0.01, fill_poll_interval=0.01,
+        )
+        await executor.initialize_portfolios()
+
+        trade = _make_trade(ticker="XLK", side=OrderSide.BUY, shares=10, price=200.0)
+        executed = await executor.execute_trades([trade])
+
+        assert len(executed) == 1
+        positions = await db.get_positions("A")
+        assert len(positions) == 1
+        assert positions[0].ticker == "XLK"
+        assert positions[0].shares == 10
+
+    async def test_timeout_still_unfilled_not_reconciled(
+        self, db: Database, mock_client,
+    ) -> None:
+        """Timed-out order that stays unfilled is not logged."""
+        new_order = _mock_order(status="new", filled_qty=0, filled_avg_price=None)
+        mock_client.get_order_by_id.return_value = new_order
+
+        executor = AlpacaExecutor(
+            db, mock_client, fill_timeout=0.01, fill_poll_interval=0.01,
+        )
+        await executor.initialize_portfolios()
+
+        trade = _make_trade(ticker="XLK", side=OrderSide.BUY, shares=10, price=200.0)
+        executed = await executor.execute_trades([trade])
+
+        assert len(executed) == 0
+        positions = await db.get_positions("A")
+        assert len(positions) == 0
+
+    async def test_reconciliation_logs_trade(self, db: Database, mock_client) -> None:
+        """Reconciled trade is saved to the trade log."""
+        new_order = _mock_order(status="new", filled_qty=0, filled_avg_price=None)
+        filled_order = _mock_order(status="filled", filled_qty=10, filled_avg_price=205.0)
+        mock_client.get_order_by_id.side_effect = [new_order, filled_order]
+
+        executor = AlpacaExecutor(
+            db, mock_client, fill_timeout=0.01, fill_poll_interval=0.01,
+        )
+        await executor.initialize_portfolios()
+
+        trade = _make_trade(
+            ticker="XLK", side=OrderSide.BUY, shares=10,
+            price=200.0, reason="AI: test",
+        )
+        await executor.execute_trades([trade])
+
+        trades = await db.get_trades("A")
+        assert len(trades) == 1
+        assert trades[0].ticker == "XLK"
+        assert trades[0].price == 205.0
+
+    async def test_multiple_timeouts_reconciled(self, db: Database, mock_client) -> None:
+        """Multiple timed-out orders are all reconciled."""
+        new_order = _mock_order(status="new", filled_qty=0, filled_avg_price=None)
+        filled1 = _mock_order(status="filled", filled_qty=10, filled_avg_price=200.0)
+        filled2 = _mock_order(status="filled", filled_qty=5, filled_avg_price=150.0)
+        # Two polls timeout, then two reconciliation checks succeed
+        mock_client.get_order_by_id.side_effect = [
+            new_order, new_order, filled1, filled2,
+        ]
+
+        executor = AlpacaExecutor(
+            db, mock_client, fill_timeout=0.01, fill_poll_interval=0.01,
+        )
+        await executor.initialize_portfolios()
+
+        trade1 = _make_trade(
+            ticker="XLK", side=OrderSide.BUY, shares=10, price=200.0,
+        )
+        trade2 = _make_trade(
+            ticker="AAPL", side=OrderSide.BUY, shares=5, price=150.0,
+        )
+        executed = await executor.execute_trades([trade1, trade2])
+
+        assert len(executed) == 2
+
+
+class TestAlpacaSyncPositionsFix:
+    """Tests for the position sync that corrects drift."""
+
+    async def test_sync_corrects_drift(self, db: Database, mock_client) -> None:
+        """DB position is corrected to match Alpaca."""
+        executor = AlpacaExecutor(db, mock_client, fill_timeout=2, fill_poll_interval=0.01)
+        await executor.initialize_portfolios()
+        await db.upsert_position("B", "XLE", 222, 53.0)
+
+        # Alpaca shows 111 XLE (not 222)
+        mock_pos = MagicMock()
+        mock_pos.symbol = "XLE"
+        mock_pos.qty = "111"
+        mock_pos.avg_entry_price = "54.0"
+        mock_client.get_all_positions.return_value = [mock_pos]
+
+        mock_account = MagicMock()
+        mock_account.cash = "9000.0"
+        mock_client.get_account.return_value = mock_account
+
+        result = await executor.sync_positions()
+
+        assert len(result["drift"]) == 1
+        assert len(result["corrections"]) == 1
+        assert result["corrections"][0]["old_qty"] == 222
+        assert result["corrections"][0]["new_qty"] == 111
+
+        # Verify DB was actually updated
+        positions = await db.get_positions("B")
+        xle = next(p for p in positions if p.ticker == "XLE")
+        assert xle.shares == 111
+
+    async def test_sync_removes_stale_position(self, db: Database, mock_client) -> None:
+        """DB position removed when Alpaca has none."""
+        executor = AlpacaExecutor(db, mock_client, fill_timeout=2, fill_poll_interval=0.01)
+        await executor.initialize_portfolios()
+        await db.upsert_position("B", "IWM", 19, 260.0)
+
+        # Alpaca has no IWM
+        mock_client.get_all_positions.return_value = []
+        mock_account = MagicMock()
+        mock_account.cash = "9000.0"
+        mock_client.get_account.return_value = mock_account
+
+        await executor.sync_positions()
+
+        positions = await db.get_positions("B")
+        iwm = [p for p in positions if p.ticker == "IWM"]
+        assert len(iwm) == 0  # upsert_position with 0 shares deletes
+
+    async def test_sync_adds_new_position(self, db: Database, mock_client) -> None:
+        """New Alpaca position not in DB is added to portfolio B."""
+        executor = AlpacaExecutor(db, mock_client, fill_timeout=2, fill_poll_interval=0.01)
+        await executor.initialize_portfolios()
+
+        # Alpaca has GOOGL but DB doesn't
+        mock_pos = MagicMock()
+        mock_pos.symbol = "GOOGL"
+        mock_pos.qty = "4"
+        mock_pos.avg_entry_price = "180.0"
+        mock_client.get_all_positions.return_value = [mock_pos]
+
+        mock_account = MagicMock()
+        mock_account.cash = "9000.0"
+        mock_client.get_account.return_value = mock_account
+
+        result = await executor.sync_positions()
+
+        assert len(result["corrections"]) == 1
+        positions = await db.get_positions("B")
+        googl = next(p for p in positions if p.ticker == "GOOGL")
+        assert googl.shares == 4
+        assert googl.avg_price == 180.0
+
+    async def test_sync_skips_short_positions(self, db: Database, mock_client) -> None:
+        """Short positions (negative qty) from Alpaca are skipped."""
+        executor = AlpacaExecutor(db, mock_client, fill_timeout=2, fill_poll_interval=0.01)
+        await executor.initialize_portfolios()
+
+        mock_short = MagicMock()
+        mock_short.symbol = "JPM"
+        mock_short.qty = "-10"
+        mock_short.avg_entry_price = "200.0"
+        mock_client.get_all_positions.return_value = [mock_short]
+
+        mock_account = MagicMock()
+        mock_account.cash = "9000.0"
+        mock_client.get_account.return_value = mock_account
+
+        result = await executor.sync_positions()
+
+        # No corrections — short position was skipped
+        assert len(result["corrections"]) == 0
+
+    async def test_sync_updates_cash(self, db: Database, mock_client) -> None:
+        """Portfolio cash is synced from Alpaca account."""
+        executor = AlpacaExecutor(db, mock_client, fill_timeout=2, fill_poll_interval=0.01)
+        await executor.initialize_portfolios()
+
+        mock_client.get_all_positions.return_value = []
+        mock_account = MagicMock()
+        mock_account.cash = "9000.0"
+        mock_client.get_account.return_value = mock_account
+
+        await executor.sync_positions()
+
+        port_a = await db.get_portfolio("A")
+        port_b = await db.get_portfolio("B")
+        # 9000 * 1/3 = 3000, 9000 * 2/3 = 6000
+        assert port_a.cash == 3000.0
+        assert port_b.cash == 6000.0
 
 
 class TestAlpacaExecutorInterface:
