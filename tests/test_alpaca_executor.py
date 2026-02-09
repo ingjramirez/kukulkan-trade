@@ -497,6 +497,32 @@ class TestAlpacaReconciliation:
         assert len(executed) == 2
 
 
+class TestAlpacaOrderStatusParsing:
+    """Tests for handling Alpaca SDK enum status strings."""
+
+    async def test_reconciliation_handles_enum_status(
+        self, db: Database, mock_client,
+    ) -> None:
+        """Alpaca SDK returns 'OrderStatus.FILLED' — reconciliation must parse it."""
+        new_order = _mock_order(status="pending_new", filled_qty=0, filled_avg_price=None)
+        # Simulate real Alpaca SDK enum repr
+        filled_order = _mock_order(filled_qty=10, filled_avg_price=200.0)
+        filled_order.status = "OrderStatus.FILLED"
+        mock_client.get_order_by_id.side_effect = [new_order, filled_order]
+
+        executor = AlpacaExecutor(
+            db, mock_client, fill_timeout=0.01, fill_poll_interval=0.01,
+        )
+        await executor.initialize_portfolios()
+
+        trade = _make_trade(ticker="XLK", side=OrderSide.BUY, shares=10, price=200.0)
+        executed = await executor.execute_trades([trade])
+
+        assert len(executed) == 1
+        positions = await db.get_positions("A")
+        assert positions[0].shares == 10
+
+
 class TestAlpacaSyncPositionsFix:
     """Tests for the position sync that corrects drift."""
 

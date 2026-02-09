@@ -23,6 +23,16 @@ _TERMINAL_STATES = frozenset({"filled", "canceled", "expired", "rejected"})
 _PARTIAL_FILL_STATE = "partially_filled"
 
 
+def _order_status(raw_status) -> str:
+    """Extract lowercase status string from Alpaca OrderStatus enum or string.
+
+    Alpaca SDK returns enums like OrderStatus.FILLED where str() gives
+    'orderstatus.filled'. We need just 'filled'.
+    """
+    s = str(raw_status).lower()
+    return s.rsplit(".", 1)[-1] if "." in s else s
+
+
 class AlpacaExecutor:
     """Executes trades via Alpaca REST API and logs to our database.
 
@@ -102,7 +112,7 @@ class AlpacaExecutor:
             order = await asyncio.to_thread(
                 self._client.get_order_by_id, order_id,
             )
-            status = str(order.status).lower()
+            status = _order_status(order.status)
 
             if status in _TERMINAL_STATES or status == _PARTIAL_FILL_STATE:
                 filled_qty = float(order.filled_qty) if order.filled_qty else 0.0
@@ -300,7 +310,7 @@ class AlpacaExecutor:
                 order = await asyncio.to_thread(
                     self._client.get_order_by_id, order_id
                 )
-                status = str(order.status).lower()
+                status = _order_status(order.status)
                 filled_qty = float(order.filled_qty) if order.filled_qty else 0.0
                 filled_price = (
                     float(order.filled_avg_price)
