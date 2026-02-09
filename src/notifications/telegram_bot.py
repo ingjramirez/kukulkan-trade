@@ -348,9 +348,20 @@ def format_daily_brief(
     # Header
     session_label = f" ({session})" if session else ""
     strategy_label = STRATEGY_LABELS.get(strategy_mode, strategy_mode)
+    regime_icons = {
+        "BULL": "\U0001f7e2",       # green circle
+        "BEAR": "\U0001f534",       # red circle
+        "CORRECTION": "\U0001f7e0", # orange circle
+        "CRISIS": "\u26a0\ufe0f",   # warning sign
+        "CONSOLIDATION": "\U0001f7e1",  # yellow circle
+    }
+    regime_label = ""
+    if regime:
+        icon = regime_icons.get(regime.upper(), "")
+        regime_label = f" | Regime: {icon} {regime.upper()}"
     lines = [
         f"<b>Kukulkan Daily Brief — {brief_date.isoformat()}{session_label}</b>",
-        f"Strategy: {strategy_label}",
+        f"Strategy: {strategy_label}{regime_label}",
         "",
     ]
 
