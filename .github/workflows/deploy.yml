@@ -78,16 +78,14 @@ jobs:
             source .venv/bin/activate && \
             pip install -e ."
 
-      - name: Run database migrations
-        run: |
-          ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "\
-            cd /opt/kukulkan-trade && \
-            source .venv/bin/activate && \
-            python scripts/migrate.py --db data/kukulkan.db"
-
       - name: Restart services
         run: |
           ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "\
             systemctl enable kukulkan-api && \
             systemctl restart kukulkan-bot && \
             systemctl restart kukulkan-api"
+
+  migrate:
+    needs: deploy
+    uses: ./.github/workflows/migrate.yml
+    secrets: inherit
