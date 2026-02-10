@@ -211,7 +211,21 @@ class TelegramNotifier:
                 for update in updates:
                     last_update_id = update.update_id
                     if update.callback_query and update.callback_query.data:
-                        data = update.callback_query.data
+                        cb = update.callback_query
+                        # Verify callback is from the authorised chat
+                        cb_chat = str(
+                            getattr(cb.message, "chat_id", None)
+                            or getattr(getattr(cb.message, "chat", None), "id", None)
+                            or ""
+                        )
+                        if cb_chat != self._chat_id:
+                            log.warning(
+                                "approval_rejected_wrong_chat",
+                                expected=self._chat_id,
+                                got=cb_chat,
+                            )
+                            continue
+                        data = cb.data
                         if data.startswith(f"{request_id}:"):
                             choice = data.split(":", 1)[1]
                             if choice in ("opus", "sonnet", "skip"):
@@ -297,7 +311,20 @@ class TelegramNotifier:
                 for update in updates:
                     last_update_id = update.update_id
                     if update.callback_query and update.callback_query.data:
-                        data = update.callback_query.data
+                        cb = update.callback_query
+                        cb_chat = str(
+                            getattr(cb.message, "chat_id", None)
+                            or getattr(getattr(cb.message, "chat", None), "id", None)
+                            or ""
+                        )
+                        if cb_chat != self._chat_id:
+                            log.warning(
+                                "ticker_approval_rejected_wrong_chat",
+                                expected=self._chat_id,
+                                got=cb_chat,
+                            )
+                            continue
+                        data = cb.data
                         if data.startswith(f"{request_id}:"):
                             choice = data.split(":", 1)[1]
                             if choice in ("approve", "reject"):

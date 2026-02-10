@@ -2,8 +2,12 @@
 
 Connects all components: data fetching → strategy execution → trade generation
 → execution → snapshots. Single entry point: run_daily().
+
+Multi-tenant support: run_all_tenants() iterates active tenants,
+creating per-tenant Alpaca clients and Telegram bots.
 """
 
+import asyncio
 import uuid
 from datetime import date
 
@@ -31,11 +35,15 @@ from src.data.news_fetcher import NewsFetcher
 from src.execution.paper_trader import PaperTrader
 from src.notifications.telegram_bot import TelegramNotifier
 from src.storage.database import Database
+from src.storage.models import TenantRow
 from src.strategies.portfolio_a import MomentumStrategy
 from src.strategies.portfolio_b import AIAutonomyStrategy
 from src.utils.market_calendar import is_market_open, trading_days_between
 
 log = structlog.get_logger()
+
+# Delay between tenant sessions to avoid Alpaca rate limits
+_INTER_TENANT_DELAY_SECONDS = 2.0
 
 
 class Orchestrator:
@@ -68,8 +76,133 @@ class Orchestrator:
         self._memory_manager = AgentMemoryManager()
         self._regime_classifier = RegimeClassifier()
 
+    async def run_all_tenants(
+        self, today: date | None = None, session: str = "",
+    ) -> list[dict]:
+        """Run the daily pipeline for all active tenants.
+
+        Iterates tenants sequentially with a delay between each to avoid
+        broker rate limits. Each tenant's failure is isolated.
+
+        Args:
+            today: Override date for testing.
+            session: Run label (e.g. "Morning", "Midday", "Closing").
+
+        Returns:
+            List of per-tenant summary dicts.
+        """
+        tenants = await self._db.get_active_tenants()
+        if not tenants:
+            # No tenants configured — fall back to default behavior
+            log.info("no_tenants_configured_running_default")
+            summary = await self.run_daily(today=today, session=session)
+            return [summary]
+
+        results: list[dict] = []
+        for i, tenant in enumerate(tenants):
+            log.info(
+                "tenant_session_start",
+                tenant_id=tenant.id,
+                tenant_name=tenant.name,
+                strategy=tenant.strategy_mode,
+            )
+            try:
+                summary = await self.run_tenant_session(
+                    tenant=tenant, today=today, session=session,
+                )
+                results.append(summary)
+            except Exception as e:
+                log.error(
+                    "tenant_session_failed",
+                    tenant_id=tenant.id,
+                    tenant_name=tenant.name,
+                    error=str(e),
+                )
+                results.append({
+                    "tenant_id": tenant.id,
+                    "tenant_name": tenant.name,
+                    "error": str(e),
+                })
+                # Try to notify tenant of the failure
+                try:
+                    from src.notifications.telegram_factory import TelegramFactory
+                    notifier = TelegramFactory.get_notifier(tenant)
+                    await notifier.send_error(
+                        f"Pipeline failed for {tenant.name} ({session}): {e}"
+                    )
+                except Exception:
+                    pass
+
+            # Delay between tenants (except after the last one)
+            if i < len(tenants) - 1:
+                await asyncio.sleep(_INTER_TENANT_DELAY_SECONDS)
+
+        log.info(
+            "all_tenants_complete",
+            tenants=len(tenants),
+            successes=sum(1 for r in results if "error" not in r),
+        )
+        return results
+
+    async def run_tenant_session(
+        self,
+        tenant: TenantRow,
+        today: date | None = None,
+        session: str = "",
+    ) -> dict:
+        """Run the daily pipeline for a single tenant.
+
+        Creates tenant-specific executor and notifier, then runs the
+        standard pipeline with the tenant's configuration.
+
+        Args:
+            tenant: Active TenantRow.
+            today: Override date for testing.
+            session: Run label.
+
+        Returns:
+            Summary dict with tenant info.
+        """
+        from src.execution.client_factory import AlpacaClientFactory
+        from src.notifications.telegram_factory import TelegramFactory
+
+        # Create tenant-specific components
+        notifier = TelegramFactory.get_notifier(tenant)
+        client = AlpacaClientFactory.get_trading_client(tenant)
+
+        from src.execution.alpaca_executor import AlpacaExecutor
+        executor = AlpacaExecutor(self._db, client)
+
+        # Build tenant-scoped orchestrator state
+        saved_executor = self._executor
+        saved_notifier = self._notifier
+
+        self._executor = executor
+        self._notifier = notifier
+
+        try:
+            summary = await self.run_daily(
+                today=today,
+                session=session,
+                tenant_id=tenant.id,
+                strategy_mode=tenant.strategy_mode,
+                run_portfolio_a=tenant.run_portfolio_a,
+                run_portfolio_b=tenant.run_portfolio_b,
+            )
+            summary["tenant_id"] = tenant.id
+            summary["tenant_name"] = tenant.name
+            return summary
+        finally:
+            # Restore original executor/notifier
+            self._executor = saved_executor
+            self._notifier = saved_notifier
+
     async def run_daily(
         self, today: date | None = None, session: str = "",
+        tenant_id: str = "default",
+        strategy_mode: str | None = None,
+        run_portfolio_a: bool = True,
+        run_portfolio_b: bool = True,
     ) -> dict:
         """Execute the full daily pipeline.
 
@@ -87,11 +220,16 @@ class Orchestrator:
         Args:
             today: Override date for testing. Defaults to date.today().
             session: Label for this run (e.g. "Morning", "Midday", "Closing").
+            tenant_id: Tenant UUID for data isolation (default="default").
+            strategy_mode: Override strategy mode (None = use settings).
+            run_portfolio_a: Whether to run Portfolio A for this tenant.
+            run_portfolio_b: Whether to run Portfolio B for this tenant.
 
         Returns:
             Summary dict with results from each step.
         """
         today = today or date.today()
+        active_strategy = strategy_mode or settings.agent.strategy_mode
         summary: dict = {"date": today.isoformat(), "trades": {}, "errors": []}
 
         # Guard: skip if market is closed (holidays, weekends)
@@ -111,7 +249,8 @@ class Orchestrator:
         log.info(
             "daily_pipeline_start",
             date=str(today),
-            strategy_mode=settings.agent.strategy_mode,
+            strategy_mode=active_strategy,
+            tenant_id=tenant_id,
         )
 
         # Step 1: Initialize portfolios
@@ -155,7 +294,9 @@ class Orchestrator:
 
         # Step 2.5: Missed day recovery
         try:
-            recovered = await self.recovery_check(today, closes)
+            recovered = await self.recovery_check(
+                today, closes, tenant_id=tenant_id,
+            )
             if recovered:
                 summary["recovered_days"] = recovered
         except Exception as e:
@@ -200,12 +341,17 @@ class Orchestrator:
         # Step 4: Portfolio A — Momentum
         log.info("step_4_portfolio_a")
         trades_a: list = []
-        if "A" in halted_portfolios:
+        if not run_portfolio_a:
+            log.info("portfolio_a_skipped_not_configured", tenant_id=tenant_id)
+            summary["trades"]["A"] = 0
+        elif "A" in halted_portfolios:
             log.info("portfolio_a_skipped_circuit_breaker")
             summary["trades"]["A"] = 0
         else:
             try:
-                trades_a = await self._run_portfolio_a(closes, today)
+                trades_a = await self._run_portfolio_a(
+                    closes, today, tenant_id=tenant_id,
+                )
                 summary["trades"]["A"] = len(trades_a)
             except Exception as e:
                 log.error("portfolio_a_failed", error=str(e))
@@ -240,7 +386,7 @@ class Orchestrator:
                     log.warning("news_store_failed", error=str(e))
 
             # Compact for agent prompt
-            positions_b = await self._db.get_positions("B")
+            positions_b = await self._db.get_positions("B", tenant_id=tenant_id)
             held_tickers = [p.ticker for p in positions_b]
             if len(closes) >= 2:
                 pct = (
@@ -262,7 +408,10 @@ class Orchestrator:
         # Step 6: Portfolio B — AI Agent
         log.info("step_6_portfolio_b")
         trades_b: list = []
-        if "B" in halted_portfolios:
+        if not run_portfolio_b:
+            log.info("portfolio_b_skipped_not_configured", tenant_id=tenant_id)
+            summary["trades"]["B"] = 0
+        elif "B" in halted_portfolios:
             log.info("portfolio_b_skipped_circuit_breaker")
             summary["trades"]["B"] = 0
         else:
@@ -272,6 +421,8 @@ class Orchestrator:
                     news_context=news_context,
                     session=session,
                     regime_result=regime_result,
+                    tenant_id=tenant_id,
+                    strategy_mode=active_strategy,
                 )
                 summary["trades"]["B"] = len(trades_b)
                 summary["b_reasoning"] = b_reasoning
@@ -285,8 +436,8 @@ class Orchestrator:
         for pname, trades in [("A", trades_a), ("B", trades_b)]:
             if not trades:
                 continue
-            portfolio = await self._db.get_portfolio(pname)
-            positions = await self._db.get_positions(pname)
+            portfolio = await self._db.get_portfolio(pname, tenant_id=tenant_id)
+            positions = await self._db.get_positions(pname, tenant_id=tenant_id)
             position_map = {p.ticker: p.shares for p in positions}
             pval = portfolio.total_value if portfolio else (33_000.0 if pname == "A" else 66_000.0)
             pcash = portfolio.cash if portfolio else pval
@@ -341,6 +492,8 @@ class Orchestrator:
             summary=summary,
             session=session,
             regime_result=regime_result,
+            tenant_id=tenant_id,
+            strategy_mode=active_strategy,
         )
 
         log.info(
@@ -354,10 +507,13 @@ class Orchestrator:
 
         return summary
 
-    async def _run_portfolio_a(self, closes: pd.DataFrame, today: date):
+    async def _run_portfolio_a(
+        self, closes: pd.DataFrame, today: date,
+        tenant_id: str = "default",
+    ):
         """Run Portfolio A momentum strategy and return trades."""
-        portfolio = await self._db.get_portfolio("A")
-        positions = await self._db.get_positions("A")
+        portfolio = await self._db.get_portfolio("A", tenant_id=tenant_id)
+        positions = await self._db.get_positions("A", tenant_id=tenant_id)
         position_map = {p.ticker: p.shares for p in positions}
         cash = portfolio.cash if portfolio else 33_000.0
 
@@ -380,10 +536,13 @@ class Orchestrator:
         news_context: str = "",
         session: str = "",
         regime_result: RegimeResult | None = None,
+        tenant_id: str = "default",
+        strategy_mode: str | None = None,
     ):
         """Run Portfolio B AI strategy with complexity-based model routing."""
-        portfolio = await self._db.get_portfolio("B")
-        positions = await self._db.get_positions("B")
+        active_strategy = strategy_mode or settings.agent.strategy_mode
+        portfolio = await self._db.get_portfolio("B", tenant_id=tenant_id)
+        positions = await self._db.get_positions("B", tenant_id=tenant_id)
         position_map = {p.ticker: p.shares for p in positions}
         cash = portfolio.cash if portfolio else 66_000.0
         total_value = portfolio.total_value if portfolio else 66_000.0
@@ -401,7 +560,7 @@ class Orchestrator:
         ]
 
         # Get recent trades for context
-        recent_trades_raw = await self._db.get_trades("B")
+        recent_trades_raw = await self._db.get_trades("B", tenant_id=tenant_id)
         recent_trades = [
             {
                 "ticker": t.ticker,
@@ -414,7 +573,7 @@ class Orchestrator:
         ]
 
         # ── Complexity detection & model routing ─────────────────────────
-        snapshots = await self._db.get_snapshots("B")
+        snapshots = await self._db.get_snapshots("B", tenant_id=tenant_id)
         peak_value = max(
             (s.total_value for s in snapshots if s.total_value),
             default=total_value,
@@ -459,7 +618,7 @@ class Orchestrator:
         # ── Build memory context for system prompt ─────────────────────
         memory_text: str | None = None
         try:
-            memories = await self._db.get_all_agent_memory_context()
+            memories = await self._db.get_all_agent_memory_context(tenant_id=tenant_id)
             memory_text = self._memory_manager.build_memory_prompt(memories) or None
         except Exception as e:
             log.warning("memory_context_failed", error=str(e))
@@ -494,7 +653,7 @@ class Orchestrator:
         dynamic_prompt = build_system_prompt(
             performance_stats=perf_text,
             memory_context=memory_text,
-            strategy_mode=settings.agent.strategy_mode,
+            strategy_mode=active_strategy,
             session=session,
             regime_summary=regime_result.summary if regime_result else None,
         )
@@ -635,6 +794,7 @@ class Orchestrator:
 
     async def recovery_check(
         self, today: date, closes: pd.DataFrame,
+        tenant_id: str = "default",
     ) -> list[str]:
         """Detect missed trading days and backfill snapshots.
 
@@ -645,6 +805,7 @@ class Orchestrator:
         Args:
             today: Current trading date.
             closes: Full historical closes DataFrame.
+            tenant_id: Tenant UUID for data isolation.
 
         Returns:
             List of recovered date strings (ISO format).
@@ -657,7 +818,7 @@ class Orchestrator:
             ("A", PORTFOLIO_A.allocation_usd),
             ("B", PORTFOLIO_B.allocation_usd),
         ]:
-            snapshots = await self._db.get_snapshots(pname)
+            snapshots = await self._db.get_snapshots(pname, tenant_id=tenant_id)
             if not snapshots:
                 continue
 
@@ -698,11 +859,15 @@ class Orchestrator:
                     continue
 
                 # Calculate value from existing positions
-                portfolio = await self._db.get_portfolio(pname)
+                portfolio = await self._db.get_portfolio(
+                    pname, tenant_id=tenant_id,
+                )
                 if portfolio is None:
                     continue
 
-                positions = await self._db.get_positions(pname)
+                positions = await self._db.get_positions(
+                    pname, tenant_id=tenant_id,
+                )
                 pos_value = sum(
                     p.shares * prices.get(p.ticker, p.avg_price)
                     for p in positions
@@ -724,6 +889,7 @@ class Orchestrator:
                     positions_value=pos_value,
                     daily_return_pct=daily_ret,
                     cumulative_return_pct=cum_ret,
+                    tenant_id=tenant_id,
                 )
 
                 recovered_dates.append(str(miss_date))
@@ -755,14 +921,17 @@ class Orchestrator:
         summary: dict,
         session: str = "",
         regime_result: RegimeResult | None = None,
+        tenant_id: str = "default",
+        strategy_mode: str | None = None,
     ) -> None:
         """Send daily brief and trade confirmation via Telegram."""
+        active_strategy = strategy_mode or settings.agent.strategy_mode
         try:
             # Build portfolio summaries from snapshots
             portfolio_summaries = {}
             for name in ("A", "B"):
-                portfolio = await self._db.get_portfolio(name)
-                snapshots = await self._db.get_snapshots(name)
+                portfolio = await self._db.get_portfolio(name, tenant_id=tenant_id)
+                snapshots = await self._db.get_snapshots(name, tenant_id=tenant_id)
                 today_snap = next(
                     (s for s in snapshots if s.date == today), None
                 )
@@ -780,7 +949,7 @@ class Orchestrator:
                 }
 
             # Add strategy-specific fields
-            positions_a = await self._db.get_positions("A")
+            positions_a = await self._db.get_positions("A", tenant_id=tenant_id)
             if positions_a:
                 top = max(positions_a, key=lambda p: p.shares * p.avg_price)
                 portfolio_summaries["A"]["top_ticker"] = top.ticker
@@ -799,7 +968,7 @@ class Orchestrator:
                 proposed_trades=proposed,
                 commentary="",
                 session=session,
-                strategy_mode=settings.agent.strategy_mode,
+                strategy_mode=active_strategy,
             )
 
             # Only send trade confirmation for actually filled trades

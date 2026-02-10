@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     # JWT
     jwt_secret: str = "change-me-in-production"
 
+    # Tenant credential encryption (Fernet key)
+    tenant_encryption_key: str = ""
+
     # Sub-settings
     alpaca: AlpacaSettings = AlpacaSettings()
     telegram: TelegramSettings = TelegramSettings()

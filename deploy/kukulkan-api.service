@@ -5,8 +5,8 @@ Wants=kukulkan-bot.service
 
 [Service]
 Type=simple
-User=root
-Group=root
+User=kukulkan
+Group=kukulkan
 WorkingDirectory=/opt/kukulkan-trade
 ExecStart=/opt/kukulkan-trade/.venv/bin/uvicorn src.api.main:app \
     --host 127.0.0.1 \

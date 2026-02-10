@@ -5,6 +5,7 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 from sqlalchemy import (
+    Boolean,
     Column,
     Date,
     DateTime,
@@ -50,9 +51,11 @@ class PortfolioRow(Base):
     """Current state of each portfolio."""
 
     __tablename__ = "portfolios"
+    __table_args__ = (UniqueConstraint("tenant_id", "name"),)
 
     id = Column(Integer, primary_key=True)
-    name = Column(String(1), unique=True, nullable=False)  # A, B
+    tenant_id = Column(String(36), nullable=False, default="default")
+    name = Column(String(1), nullable=False)  # A, B
     cash = Column(Float, nullable=False, default=33_000.0)
     total_value = Column(Float, nullable=False, default=33_000.0)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -62,9 +65,10 @@ class PositionRow(Base):
     """Open positions per portfolio."""
 
     __tablename__ = "positions"
-    __table_args__ = (UniqueConstraint("portfolio", "ticker"),)
+    __table_args__ = (UniqueConstraint("tenant_id", "portfolio", "ticker"),)
 
     id = Column(Integer, primary_key=True)
+    tenant_id = Column(String(36), nullable=False, default="default")
     portfolio = Column(String(1), nullable=False)
     ticker = Column(String(10), nullable=False)
     shares = Column(Float, nullable=False)
@@ -80,6 +84,7 @@ class TradeRow(Base):
     __tablename__ = "trades"
 
     id = Column(Integer, primary_key=True)
+    tenant_id = Column(String(36), nullable=False, default="default")
     portfolio = Column(String(1), nullable=False)
     ticker = Column(String(10), nullable=False)
     side = Column(String(4), nullable=False)  # BUY / SELL
@@ -94,9 +99,10 @@ class DailySnapshotRow(Base):
     """End-of-day portfolio snapshot for performance tracking."""
 
     __tablename__ = "daily_snapshots"
-    __table_args__ = (UniqueConstraint("portfolio", "date"),)
+    __table_args__ = (UniqueConstraint("tenant_id", "portfolio", "date"),)
 
     id = Column(Integer, primary_key=True)
+    tenant_id = Column(String(36), nullable=False, default="default")
     portfolio = Column(String(1), nullable=False)
     date = Column(Date, nullable=False)
     total_value = Column(Float, nullable=False)
@@ -125,6 +131,7 @@ class AgentDecisionRow(Base):
     __tablename__ = "agent_decisions"
 
     id = Column(Integer, primary_key=True)
+    tenant_id = Column(String(36), nullable=False, default="default")
     date = Column(Date, nullable=False)
     prompt_summary = Column(Text)
     response_summary = Column(Text)
@@ -221,9 +228,10 @@ class AgentMemoryRow(Base):
     """Persistent memory for Portfolio B AI agent."""
 
     __tablename__ = "agent_memory"
-    __table_args__ = (UniqueConstraint("category", "key"),)
+    __table_args__ = (UniqueConstraint("tenant_id", "category", "key"),)
 
     id = Column(Integer, primary_key=True)
+    tenant_id = Column(String(36), nullable=False, default="default")
     category = Column(String(20), nullable=False)  # short_term, weekly_summary, agent_note
     key = Column(String(100), nullable=False)
     content = Column(Text, nullable=False)
@@ -244,6 +252,54 @@ class WeeklyReportRow(Base):
     benchmark_return = Column(Float)  # SPY
     report_text = Column(Text)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class TenantRow(Base):
+    """Multi-tenant configuration: credentials, strategy, and universe."""
+
+    __tablename__ = "tenants"
+
+    id = Column(String(36), primary_key=True)  # UUID
+    name = Column(String(100), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+
+    # Alpaca credentials (Fernet-encrypted)
+    alpaca_api_key_enc = Column(Text, nullable=False)
+    alpaca_api_secret_enc = Column(Text, nullable=False)
+    alpaca_base_url = Column(
+        String(200), nullable=False, default="https://paper-api.alpaca.markets"
+    )
+
+    # Telegram credentials (Fernet-encrypted)
+    telegram_bot_token_enc = Column(Text, nullable=False)
+    telegram_chat_id_enc = Column(Text, nullable=False)
+
+    # Claude API key (encrypted, nullable = use system default)
+    claude_api_key_enc = Column(Text, nullable=True)
+
+    # Strategy
+    strategy_mode = Column(String(20), nullable=False, default="conservative")
+
+    # Portfolio config
+    run_portfolio_a = Column(Boolean, nullable=False, default=False)
+    run_portfolio_b = Column(Boolean, nullable=False, default=True)
+    portfolio_a_cash = Column(Float, nullable=False, default=33_000.0)
+    portfolio_b_cash = Column(Float, nullable=False, default=66_000.0)
+
+    # Ticker customization (JSON arrays, nullable = use defaults)
+    ticker_whitelist = Column(Text, nullable=True)   # JSON: ["AAPL","TSLA"]
+    ticker_additions = Column(Text, nullable=True)   # JSON: ["COIN","MSTR"]
+    ticker_exclusions = Column(Text, nullable=True)  # JSON: ["META","GOOGL"]
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self) -> str:
+        """Mask sensitive fields in repr to prevent credential leaks."""
+        return (
+            f"<Tenant id={self.id!r} name={self.name!r} "
+            f"active={self.is_active} strategy={self.strategy_mode!r}>"
+        )
 
 
 # ── Pydantic Schemas (for API / validation layer) ───────────────────────────
@@ -302,3 +358,68 @@ class DailyBrief(BaseModel):
     portfolio_b: PortfolioSnapshot
     proposed_trades: list[TradeSchema] = []
     commentary: str = ""
+
+
+# ── Tenant Pydantic Schemas ──────────────────────────────────────────────────
+
+
+class TenantCreate(BaseModel):
+    """Schema for creating a new tenant."""
+
+    name: str = Field(max_length=100)
+    alpaca_api_key: str = Field(min_length=1)
+    alpaca_api_secret: str = Field(min_length=1)
+    alpaca_base_url: str = "https://paper-api.alpaca.markets"
+    telegram_bot_token: str = Field(min_length=1)
+    telegram_chat_id: str = Field(min_length=1)
+    strategy_mode: str = Field(default="conservative", pattern=r"^(conservative|standard|aggressive)$")
+    run_portfolio_a: bool = False
+    run_portfolio_b: bool = True
+    portfolio_a_cash: float = Field(default=33_000.0, gt=0)
+    portfolio_b_cash: float = Field(default=66_000.0, gt=0)
+    ticker_whitelist: list[str] | None = None
+    ticker_additions: list[str] | None = None
+    ticker_exclusions: list[str] | None = None
+
+
+class TenantUpdate(BaseModel):
+    """Schema for updating a tenant (all fields optional)."""
+
+    name: str | None = Field(default=None, max_length=100)
+    alpaca_api_key: str | None = None
+    alpaca_api_secret: str | None = None
+    alpaca_base_url: str | None = None
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
+    strategy_mode: str | None = Field(
+        default=None, pattern=r"^(conservative|standard|aggressive)$"
+    )
+    run_portfolio_a: bool | None = None
+    run_portfolio_b: bool | None = None
+    portfolio_a_cash: float | None = Field(default=None, gt=0)
+    portfolio_b_cash: float | None = Field(default=None, gt=0)
+    ticker_whitelist: list[str] | None = None
+    ticker_additions: list[str] | None = None
+    ticker_exclusions: list[str] | None = None
+    is_active: bool | None = None
+
+
+class TenantRead(BaseModel):
+    """Schema for tenant API responses — credentials are always masked."""
+
+    id: str
+    name: str
+    is_active: bool
+    alpaca_api_key_masked: str
+    alpaca_base_url: str
+    telegram_chat_id_masked: str
+    strategy_mode: str
+    run_portfolio_a: bool
+    run_portfolio_b: bool
+    portfolio_a_cash: float
+    portfolio_b_cash: float
+    ticker_whitelist: list[str] | None = None
+    ticker_additions: list[str] | None = None
+    ticker_exclusions: list[str] | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None

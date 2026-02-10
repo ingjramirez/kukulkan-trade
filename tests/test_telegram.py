@@ -390,10 +390,12 @@ class TestWaitForApproval:
         notifier = TelegramNotifier(bot_token="test-token", chat_id="12345")
         mock_bot = AsyncMock()
 
-        # Simulate callback query with opus choice
+        # Simulate callback query with opus choice from authorised chat
         mock_update = MagicMock()
         mock_update.update_id = 1
         mock_update.callback_query.data = "req123:opus"
+        mock_update.callback_query.message.chat.id = 12345
+        mock_update.callback_query.message.chat_id = None
         mock_bot.get_updates.return_value = [mock_update]
         notifier._bot = mock_bot
 
@@ -407,6 +409,8 @@ class TestWaitForApproval:
         mock_update = MagicMock()
         mock_update.update_id = 1
         mock_update.callback_query.data = "req123:skip"
+        mock_update.callback_query.message.chat.id = 12345
+        mock_update.callback_query.message.chat_id = None
         mock_bot.get_updates.return_value = [mock_update]
         notifier._bot = mock_bot
 
@@ -421,10 +425,14 @@ class TestWaitForApproval:
         unrelated = MagicMock()
         unrelated.update_id = 1
         unrelated.callback_query.data = "other_req:opus"
+        unrelated.callback_query.message.chat.id = 12345
+        unrelated.callback_query.message.chat_id = None
 
         matching = MagicMock()
         matching.update_id = 2
         matching.callback_query.data = "req123:sonnet"
+        matching.callback_query.message.chat.id = 12345
+        matching.callback_query.message.chat_id = None
 
         mock_bot.get_updates.side_effect = [[unrelated], [matching]]
         notifier._bot = mock_bot
@@ -440,3 +448,39 @@ class TestWaitForApproval:
 
         result = await notifier.wait_for_approval("req123", timeout_seconds=1)
         assert result == "sonnet"
+
+    async def test_rejects_callback_from_wrong_chat(self) -> None:
+        """Callbacks from unauthorized chat IDs must be ignored."""
+        notifier = TelegramNotifier(bot_token="test-token", chat_id="12345")
+        mock_bot = AsyncMock()
+
+        # Attacker sends callback from a different chat
+        attacker_update = MagicMock()
+        attacker_update.update_id = 1
+        attacker_update.callback_query.data = "req123:opus"
+        attacker_update.callback_query.message.chat.id = 99999  # wrong chat
+        attacker_update.callback_query.message.chat_id = None
+
+        mock_bot.get_updates.return_value = [attacker_update]
+        notifier._bot = mock_bot
+
+        # Should timeout (ignore the attacker's callback) and default to sonnet
+        result = await notifier.wait_for_approval("req123", timeout_seconds=1)
+        assert result == "sonnet"
+
+    async def test_rejects_ticker_callback_from_wrong_chat(self) -> None:
+        """Ticker approval callbacks from unauthorized chat IDs must be ignored."""
+        notifier = TelegramNotifier(bot_token="test-token", chat_id="12345")
+        mock_bot = AsyncMock()
+
+        attacker_update = MagicMock()
+        attacker_update.update_id = 1
+        attacker_update.callback_query.data = "req456:approve"
+        attacker_update.callback_query.message.chat.id = 99999
+        attacker_update.callback_query.message.chat_id = None
+
+        mock_bot.get_updates.return_value = [attacker_update]
+        notifier._bot = mock_bot
+
+        result = await notifier.wait_for_ticker_approval("req456", timeout_seconds=1)
+        assert result == "reject"

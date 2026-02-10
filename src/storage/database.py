@@ -18,6 +18,7 @@ from src.storage.models import (
     MomentumRankingRow,
     PortfolioRow,
     PositionRow,
+    TenantRow,
     TradeRow,
 )
 
@@ -53,19 +54,32 @@ class Database:
 
     # ── Portfolio CRUD ───────────────────────────────────────────────────
 
-    async def get_portfolio(self, name: str) -> PortfolioRow | None:
-        """Get portfolio by name (A, B, or C)."""
+    async def get_portfolio(
+        self, name: str, tenant_id: str = "default",
+    ) -> PortfolioRow | None:
+        """Get portfolio by name and tenant."""
         async with self.session() as s:
             result = await s.execute(
-                select(PortfolioRow).where(PortfolioRow.name == name)
+                select(PortfolioRow).where(
+                    PortfolioRow.tenant_id == tenant_id,
+                    PortfolioRow.name == name,
+                )
             )
             return result.scalar_one_or_none()
 
-    async def upsert_portfolio(self, name: str, cash: float, total_value: float) -> None:
+    async def upsert_portfolio(
+        self, name: str, cash: float, total_value: float,
+        tenant_id: str = "default",
+    ) -> None:
         """Create or update a portfolio."""
         async with self.session() as s:
             existing = (
-                await s.execute(select(PortfolioRow).where(PortfolioRow.name == name))
+                await s.execute(
+                    select(PortfolioRow).where(
+                        PortfolioRow.tenant_id == tenant_id,
+                        PortfolioRow.name == name,
+                    )
+                )
             ).scalar_one_or_none()
 
             if existing:
@@ -74,17 +88,23 @@ class Database:
                 existing.updated_at = datetime.utcnow()
             else:
                 s.add(PortfolioRow(
-                    name=name, cash=cash, total_value=total_value
+                    tenant_id=tenant_id, name=name,
+                    cash=cash, total_value=total_value,
                 ))
             await s.commit()
 
     # ── Position CRUD ────────────────────────────────────────────────────
 
-    async def get_positions(self, portfolio: str) -> list[PositionRow]:
+    async def get_positions(
+        self, portfolio: str, tenant_id: str = "default",
+    ) -> list[PositionRow]:
         """Get all open positions for a portfolio."""
         async with self.session() as s:
             result = await s.execute(
-                select(PositionRow).where(PositionRow.portfolio == portfolio)
+                select(PositionRow).where(
+                    PositionRow.tenant_id == tenant_id,
+                    PositionRow.portfolio == portfolio,
+                )
             )
             return list(result.scalars().all())
 
@@ -94,12 +114,14 @@ class Database:
         ticker: str,
         shares: float,
         avg_price: float,
+        tenant_id: str = "default",
     ) -> None:
         """Create or update a position. Deletes if shares == 0."""
         async with self.session() as s:
             existing = (
                 await s.execute(
                     select(PositionRow).where(
+                        PositionRow.tenant_id == tenant_id,
                         PositionRow.portfolio == portfolio,
                         PositionRow.ticker == ticker,
                     )
@@ -114,6 +136,7 @@ class Database:
                 existing.updated_at = datetime.utcnow()
             elif shares > 0:
                 s.add(PositionRow(
+                    tenant_id=tenant_id,
                     portfolio=portfolio,
                     ticker=ticker,
                     shares=shares,
@@ -131,10 +154,12 @@ class Database:
         shares: float,
         price: float,
         reason: str = "",
+        tenant_id: str = "default",
     ) -> None:
         """Record an executed trade."""
         async with self.session() as s:
             s.add(TradeRow(
+                tenant_id=tenant_id,
                 portfolio=portfolio,
                 ticker=ticker,
                 side=side,
@@ -154,11 +179,15 @@ class Database:
         )
 
     async def get_trades(
-        self, portfolio: str, since: date | None = None
+        self, portfolio: str, since: date | None = None,
+        tenant_id: str = "default",
     ) -> list[TradeRow]:
         """Get trades for a portfolio, optionally filtered by date."""
         async with self.session() as s:
-            stmt = select(TradeRow).where(TradeRow.portfolio == portfolio)
+            stmt = select(TradeRow).where(
+                TradeRow.tenant_id == tenant_id,
+                TradeRow.portfolio == portfolio,
+            )
             if since:
                 since_dt = datetime.combine(since, datetime.min.time())
                 stmt = stmt.where(TradeRow.executed_at >= since_dt)
@@ -177,17 +206,20 @@ class Database:
         positions_value: float,
         daily_return_pct: float | None = None,
         cumulative_return_pct: float | None = None,
+        tenant_id: str = "default",
     ) -> None:
         """Save end-of-day portfolio snapshot (replaces if exists)."""
         async with self.session() as s:
-            # Delete existing snapshot for this portfolio+date if re-running
+            # Delete existing snapshot for this tenant+portfolio+date if re-running
             await s.execute(
                 delete(DailySnapshotRow).where(
+                    DailySnapshotRow.tenant_id == tenant_id,
                     DailySnapshotRow.portfolio == portfolio,
                     DailySnapshotRow.date == snapshot_date,
                 )
             )
             s.add(DailySnapshotRow(
+                tenant_id=tenant_id,
                 portfolio=portfolio,
                 date=snapshot_date,
                 total_value=total_value,
@@ -199,12 +231,14 @@ class Database:
             await s.commit()
 
     async def get_snapshots(
-        self, portfolio: str, since: date | None = None
+        self, portfolio: str, since: date | None = None,
+        tenant_id: str = "default",
     ) -> list[DailySnapshotRow]:
         """Get snapshots for a portfolio."""
         async with self.session() as s:
             stmt = select(DailySnapshotRow).where(
-                DailySnapshotRow.portfolio == portfolio
+                DailySnapshotRow.tenant_id == tenant_id,
+                DailySnapshotRow.portfolio == portfolio,
             )
             if since:
                 stmt = stmt.where(DailySnapshotRow.date >= since)
@@ -346,10 +380,16 @@ class Database:
 
     # ── API Query Methods ──────────────────────────────────────────────
 
-    async def get_all_portfolios(self) -> list[PortfolioRow]:
-        """Get all portfolios."""
+    async def get_all_portfolios(
+        self, tenant_id: str = "default",
+    ) -> list[PortfolioRow]:
+        """Get all portfolios for a tenant."""
         async with self.session() as s:
-            result = await s.execute(select(PortfolioRow))
+            result = await s.execute(
+                select(PortfolioRow).where(
+                    PortfolioRow.tenant_id == tenant_id,
+                )
+            )
             return list(result.scalars().all())
 
     async def get_all_trades(
@@ -357,10 +397,11 @@ class Database:
         portfolio: str | None = None,
         side: str | None = None,
         limit: int = 100,
+        tenant_id: str = "default",
     ) -> list[TradeRow]:
         """Get trades with optional filters."""
         async with self.session() as s:
-            stmt = select(TradeRow)
+            stmt = select(TradeRow).where(TradeRow.tenant_id == tenant_id)
             if portfolio:
                 stmt = stmt.where(TradeRow.portfolio == portfolio)
             if side:
@@ -373,10 +414,13 @@ class Database:
         self,
         portfolio: str | None = None,
         since: date | None = None,
+        tenant_id: str = "default",
     ) -> list[DailySnapshotRow]:
         """Get snapshots with optional filters."""
         async with self.session() as s:
-            stmt = select(DailySnapshotRow)
+            stmt = select(DailySnapshotRow).where(
+                DailySnapshotRow.tenant_id == tenant_id,
+            )
             if portfolio:
                 stmt = stmt.where(DailySnapshotRow.portfolio == portfolio)
             if since:
@@ -385,11 +429,14 @@ class Database:
             result = await s.execute(stmt)
             return list(result.scalars().all())
 
-    async def get_agent_decisions(self, limit: int = 10) -> list[AgentDecisionRow]:
+    async def get_agent_decisions(
+        self, limit: int = 10, tenant_id: str = "default",
+    ) -> list[AgentDecisionRow]:
         """Get recent agent decisions."""
         async with self.session() as s:
             result = await s.execute(
                 select(AgentDecisionRow)
+                .where(AgentDecisionRow.tenant_id == tenant_id)
                 .order_by(AgentDecisionRow.date.desc())
                 .limit(limit)
             )
@@ -397,12 +444,17 @@ class Database:
 
     # ── Agent Memory ──────────────────────────────────────────────────
 
-    async def get_agent_memories(self, category: str) -> list[AgentMemoryRow]:
+    async def get_agent_memories(
+        self, category: str, tenant_id: str = "default",
+    ) -> list[AgentMemoryRow]:
         """Get all memories for a given category, ordered by created_at."""
         async with self.session() as s:
             result = await s.execute(
                 select(AgentMemoryRow)
-                .where(AgentMemoryRow.category == category)
+                .where(
+                    AgentMemoryRow.tenant_id == tenant_id,
+                    AgentMemoryRow.category == category,
+                )
                 .order_by(AgentMemoryRow.created_at)
             )
             return list(result.scalars().all())
@@ -413,12 +465,14 @@ class Database:
         key: str,
         content: str,
         expires_at: datetime | None = None,
+        tenant_id: str = "default",
     ) -> None:
         """Create or update an agent memory entry."""
         async with self.session() as s:
             existing = (
                 await s.execute(
                     select(AgentMemoryRow).where(
+                        AgentMemoryRow.tenant_id == tenant_id,
                         AgentMemoryRow.category == category,
                         AgentMemoryRow.key == key,
                     )
@@ -431,6 +485,7 @@ class Database:
                 existing.created_at = datetime.utcnow()
             else:
                 s.add(AgentMemoryRow(
+                    tenant_id=tenant_id,
                     category=category,
                     key=key,
                     content=content,
@@ -453,7 +508,9 @@ class Database:
             await s.commit()
             return len(expired)
 
-    async def get_all_agent_memory_context(self) -> dict:
+    async def get_all_agent_memory_context(
+        self, tenant_id: str = "default",
+    ) -> dict:
         """Return all 3 memory tiers as a dict.
 
         Returns:
@@ -461,7 +518,100 @@ class Database:
             Each value is a list of AgentMemoryRow.
         """
         return {
-            "short_term": await self.get_agent_memories("short_term"),
-            "weekly_summary": await self.get_agent_memories("weekly_summary"),
-            "agent_note": await self.get_agent_memories("agent_note"),
+            "short_term": await self.get_agent_memories("short_term", tenant_id),
+            "weekly_summary": await self.get_agent_memories("weekly_summary", tenant_id),
+            "agent_note": await self.get_agent_memories("agent_note", tenant_id),
         }
+
+    # ── Tenant CRUD ──────────────────────────────────────────────────
+
+    async def create_tenant(self, tenant: TenantRow) -> TenantRow:
+        """Insert a new tenant row.
+
+        Args:
+            tenant: Fully-populated TenantRow (credentials already encrypted).
+
+        Returns:
+            The inserted TenantRow.
+        """
+        async with self.session() as s:
+            s.add(tenant)
+            await s.commit()
+            await s.refresh(tenant)
+        log.info("tenant_created", tenant_id=tenant.id, name=tenant.name)
+        return tenant
+
+    async def get_tenant(self, tenant_id: str) -> TenantRow | None:
+        """Get a tenant by ID."""
+        async with self.session() as s:
+            result = await s.execute(
+                select(TenantRow).where(TenantRow.id == tenant_id)
+            )
+            return result.scalar_one_or_none()
+
+    async def get_active_tenants(self) -> list[TenantRow]:
+        """Get all active tenants, ordered by name."""
+        async with self.session() as s:
+            result = await s.execute(
+                select(TenantRow)
+                .where(TenantRow.is_active.is_(True))
+                .order_by(TenantRow.name)
+            )
+            return list(result.scalars().all())
+
+    async def get_all_tenants(self) -> list[TenantRow]:
+        """Get all tenants (active and inactive)."""
+        async with self.session() as s:
+            result = await s.execute(
+                select(TenantRow).order_by(TenantRow.name)
+            )
+            return list(result.scalars().all())
+
+    async def update_tenant(
+        self, tenant_id: str, updates: dict,
+    ) -> TenantRow | None:
+        """Update a tenant's fields.
+
+        Args:
+            tenant_id: Tenant UUID.
+            updates: Dict of column_name -> new_value (only non-None).
+
+        Returns:
+            Updated TenantRow, or None if not found.
+        """
+        async with self.session() as s:
+            row = (
+                await s.execute(
+                    select(TenantRow).where(TenantRow.id == tenant_id)
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                return None
+            for key, value in updates.items():
+                if hasattr(row, key) and value is not None:
+                    setattr(row, key, value)
+            row.updated_at = datetime.utcnow()
+            await s.commit()
+            await s.refresh(row)
+        log.info("tenant_updated", tenant_id=tenant_id, fields=list(updates.keys()))
+        return row
+
+    async def deactivate_tenant(self, tenant_id: str) -> bool:
+        """Soft-delete a tenant by setting is_active=False.
+
+        Returns:
+            True if tenant was found and deactivated.
+        """
+        async with self.session() as s:
+            row = (
+                await s.execute(
+                    select(TenantRow).where(TenantRow.id == tenant_id)
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                return False
+            row.is_active = False
+            row.updated_at = datetime.utcnow()
+            await s.commit()
+        log.info("tenant_deactivated", tenant_id=tenant_id)
+        return True

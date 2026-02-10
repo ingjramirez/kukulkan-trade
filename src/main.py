@@ -119,8 +119,8 @@ async def run_scheduled() -> None:
     for label, hour, minute, session_name in schedules:
         async def scheduled_job(session=session_name):
             try:
-                summary = await orchestrator.run_daily(session=session)
-                log.info("scheduled_run_complete", session=session, summary=summary)
+                results = await orchestrator.run_all_tenants(session=session)
+                log.info("scheduled_run_complete", session=session, tenants=len(results))
             except Exception as e:
                 log.error("scheduled_run_failed", session=session, error=str(e))
                 await notifier.send_error(f"Pipeline failed ({session}): {e}")

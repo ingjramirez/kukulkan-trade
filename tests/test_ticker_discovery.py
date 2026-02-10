@@ -414,6 +414,8 @@ class TestWaitForTickerApproval:
         mock_update = MagicMock()
         mock_update.update_id = 1
         mock_update.callback_query.data = "req123:approve"
+        mock_update.callback_query.message.chat.id = 12345
+        mock_update.callback_query.message.chat_id = None
         mock_bot.get_updates.return_value = [mock_update]
         notifier._bot = mock_bot
 
