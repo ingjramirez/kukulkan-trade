@@ -382,3 +382,80 @@ async def test_end_to_end_memory_flow(db, memory_manager):
     # Notes should have 3
     notes = memories["agent_note"]
     assert len(notes) == 3
+
+
+# ── Multi-Tenant Tests ──────────────────────────────────────────────────────
+
+
+async def test_save_short_term_with_tenant_id(db, memory_manager):
+    """save_short_term stores memory under the given tenant_id."""
+    response = {
+        "regime_assessment": "Bull",
+        "reasoning": "Momentum up",
+        "trades": [],
+    }
+
+    await memory_manager.save_short_term(
+        db, "2026-02-10", response, tenant_id="tenant-xyz",
+    )
+
+    # Should NOT appear under default tenant
+    default_memories = await db.get_agent_memories("short_term", tenant_id="default")
+    assert len(default_memories) == 0
+
+    # Should appear under tenant-xyz
+    tenant_memories = await db.get_agent_memories("short_term", tenant_id="tenant-xyz")
+    assert len(tenant_memories) == 1
+    assert "Bull" in tenant_memories[0].content
+
+
+async def test_save_agent_notes_with_tenant_id(db, memory_manager):
+    """save_agent_notes stores notes under the given tenant_id."""
+    notes = [{"key": "thesis-1", "content": "Tech is strong"}]
+
+    await memory_manager.save_agent_notes(db, notes, tenant_id="tenant-abc")
+
+    # Should NOT appear under default
+    default_notes = await db.get_agent_memories("agent_note", tenant_id="default")
+    assert len(default_notes) == 0
+
+    # Should appear under tenant-abc
+    tenant_notes = await db.get_agent_memories("agent_note", tenant_id="tenant-abc")
+    assert len(tenant_notes) == 1
+    assert tenant_notes[0].key == "thesis-1"
+
+
+async def test_run_weekly_compaction_with_tenant_id(db, memory_manager):
+    """Weekly compaction reads and writes under the given tenant_id."""
+    # Seed short-term under tenant-1
+    await db.upsert_agent_memory(
+        "short_term", "2026-01-15", "Bull | Tech up",
+        tenant_id="tenant-1",
+    )
+    # Seed under default (should NOT be picked up)
+    await db.upsert_agent_memory(
+        "short_term", "2026-01-15", "Bear | Everything down",
+        tenant_id="default",
+    )
+
+    mock_agent = MagicMock()
+    mock_response = MagicMock()
+    mock_response.content = [MagicMock(text="Tenant-1 week summary.")]
+    mock_agent.client.messages.create.return_value = mock_response
+
+    await memory_manager.run_weekly_compaction(db, mock_agent, tenant_id="tenant-1")
+
+    # The prompt sent to Claude should contain tenant-1's data
+    call_args = mock_agent.client.messages.create.call_args
+    prompt_text = call_args.kwargs["messages"][0]["content"]
+    assert "Tech up" in prompt_text
+    assert "Everything down" not in prompt_text
+
+    # Summary saved under tenant-1
+    weekly = await db.get_agent_memories("weekly_summary", tenant_id="tenant-1")
+    assert len(weekly) == 1
+    assert "Tenant-1" in weekly[0].content
+
+    # Nothing under default
+    default_weekly = await db.get_agent_memories("weekly_summary", tenant_id="default")
+    assert len(default_weekly) == 0

@@ -56,7 +56,8 @@ class AgentMemoryManager:
         return "## Memory\n" + "\n\n".join(sections)
 
     async def save_short_term(
-        self, db: Database, analysis_date: str, response: dict
+        self, db: Database, analysis_date: str, response: dict,
+        tenant_id: str = "default",
     ) -> None:
         """Extract and save a short-term memory from an agent response.
 
@@ -83,10 +84,11 @@ class AgentMemoryManager:
             category="short_term",
             key=analysis_date,
             content=content,
+            tenant_id=tenant_id,
         )
 
         # Prune to keep only the last MAX_SHORT_TERM
-        all_short = await db.get_agent_memories("short_term")
+        all_short = await db.get_agent_memories("short_term", tenant_id=tenant_id)
         if len(all_short) > MAX_SHORT_TERM:
             to_delete = all_short[: len(all_short) - MAX_SHORT_TERM]
             async with db.session() as s:
@@ -99,7 +101,8 @@ class AgentMemoryManager:
         log.info("short_term_memory_saved", date=analysis_date)
 
     async def save_agent_notes(
-        self, db: Database, notes: list[dict]
+        self, db: Database, notes: list[dict],
+        tenant_id: str = "default",
     ) -> None:
         """Parse and save agent notes from the response.
 
@@ -125,10 +128,11 @@ class AgentMemoryManager:
                 category="agent_note",
                 key=key,
                 content=content,
+                tenant_id=tenant_id,
             )
 
         # Enforce max notes limit
-        all_notes = await db.get_agent_memories("agent_note")
+        all_notes = await db.get_agent_memories("agent_note", tenant_id=tenant_id)
         if len(all_notes) > MAX_AGENT_NOTES:
             to_delete = all_notes[: len(all_notes) - MAX_AGENT_NOTES]
             async with db.session() as s:
@@ -141,7 +145,8 @@ class AgentMemoryManager:
         log.info("agent_notes_saved", count=len(notes))
 
     async def run_weekly_compaction(
-        self, db: Database, agent
+        self, db: Database, agent,
+        tenant_id: str = "default",
     ) -> None:
         """Compress the past week's decisions into a ~200-token summary.
 
@@ -153,7 +158,7 @@ class AgentMemoryManager:
             agent: ClaudeAgent instance for the compression call.
         """
         # Fetch last 7 days of short-term memories
-        short_term = await db.get_agent_memories("short_term")
+        short_term = await db.get_agent_memories("short_term", tenant_id=tenant_id)
         if not short_term:
             log.info("weekly_compaction_skipped_no_data")
             return
@@ -193,10 +198,11 @@ Write a concise summary paragraph (no headers, no bullets):"""
             key=week_key,
             content=summary,
             expires_at=now + timedelta(weeks=5),
+            tenant_id=tenant_id,
         )
 
         # Prune to keep only last MAX_WEEKLY_SUMMARIES
-        all_weekly = await db.get_agent_memories("weekly_summary")
+        all_weekly = await db.get_agent_memories("weekly_summary", tenant_id=tenant_id)
         if len(all_weekly) > MAX_WEEKLY_SUMMARIES:
             to_delete = all_weekly[: len(all_weekly) - MAX_WEEKLY_SUMMARIES]
             async with db.session() as s:

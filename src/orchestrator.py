@@ -345,7 +345,7 @@ class Orchestrator:
         halted_portfolios: set[str] = set()
         for pname in ("A", "B"):
             halted, reason = await self._risk_manager.check_circuit_breakers(
-                pname, self._db, today,
+                pname, self._db, today, tenant_id=tenant_id,
             )
             if halted:
                 halted_portfolios.add(pname)
@@ -701,15 +701,17 @@ class Orchestrator:
         )
 
         # Save decision
-        await self._strategy_b.save_decision(self._db, today, response, trades)
+        await self._strategy_b.save_decision(
+            self._db, today, response, trades, tenant_id=tenant_id,
+        )
 
         # Save agent memory (short-term + notes)
         try:
             await self._memory_manager.save_short_term(
-                self._db, today.isoformat(), response,
+                self._db, today.isoformat(), response, tenant_id=tenant_id,
             )
             await self._memory_manager.save_agent_notes(
-                self._db, response.get("memory_notes", []),
+                self._db, response.get("memory_notes", []), tenant_id=tenant_id,
             )
         except Exception as e:
             log.warning("memory_save_failed", error=str(e))

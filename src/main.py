@@ -89,9 +89,9 @@ async def run_once() -> None:
     executor, cleanup = await _create_executor(db)
 
     orchestrator = Orchestrator(db, notifier=notifier, executor=executor)
-    summary = await orchestrator.run_daily()
+    results = await orchestrator.run_all_tenants()
 
-    log.info("run_complete", summary=summary)
+    log.info("run_complete", results=results)
 
     if cleanup:
         await cleanup()
@@ -142,7 +142,21 @@ async def run_scheduled() -> None:
 
     async def weekly_compaction():
         try:
-            await memory_manager.run_weekly_compaction(db, agent)
+            tenants = await db.get_active_tenants()
+            if tenants:
+                for tenant in tenants:
+                    if Orchestrator._tenant_fully_configured(tenant):
+                        try:
+                            await memory_manager.run_weekly_compaction(
+                                db, agent, tenant_id=tenant.id,
+                            )
+                        except Exception as e:
+                            log.error(
+                                "weekly_compaction_tenant_failed",
+                                tenant_id=tenant.id, error=str(e),
+                            )
+            else:
+                await memory_manager.run_weekly_compaction(db, agent)
             await db.delete_expired_memories()
             log.info("weekly_compaction_job_complete")
         except Exception as e:
@@ -161,8 +175,6 @@ async def run_scheduled() -> None:
     )
 
     # Weekly performance report (Friday 5 PM ET)
-    reporter = WeeklyReporter(db, notifier)
-
     async def weekly_report():
         from datetime import date as _date
 
@@ -171,7 +183,30 @@ async def run_scheduled() -> None:
             log.info("weekly_report_skipped_holiday")
             return
         try:
-            await reporter.generate_and_send(today)
+            tenants = await db.get_active_tenants()
+            if tenants:
+                from src.notifications.telegram_factory import TelegramFactory
+                for tenant in tenants:
+                    if not Orchestrator._tenant_fully_configured(tenant):
+                        log.info(
+                            "weekly_report_tenant_skipped",
+                            tenant_id=tenant.id,
+                        )
+                        continue
+                    try:
+                        tenant_notifier = TelegramFactory.get_notifier(tenant)
+                        reporter = WeeklyReporter(
+                            db, tenant_notifier, tenant_id=tenant.id,
+                        )
+                        await reporter.generate_and_send(today)
+                    except Exception as e:
+                        log.error(
+                            "weekly_report_tenant_failed",
+                            tenant_id=tenant.id, error=str(e),
+                        )
+            else:
+                reporter = WeeklyReporter(db, notifier)
+                await reporter.generate_and_send(today)
             log.info("weekly_report_job_complete")
         except Exception as e:
             log.error("weekly_report_job_failed", error=str(e))

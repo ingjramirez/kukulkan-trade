@@ -13,9 +13,13 @@ log = structlog.get_logger()
 class WeeklyReporter:
     """Generates and sends weekly performance summaries."""
 
-    def __init__(self, db: Database, notifier: TelegramNotifier) -> None:
+    def __init__(
+        self, db: Database, notifier: TelegramNotifier,
+        tenant_id: str = "default",
+    ) -> None:
         self._db = db
         self._notifier = notifier
+        self._tenant_id = tenant_id
 
     async def generate_and_send(self, report_date: date | None = None) -> str:
         """Generate weekly report and send via Telegram.
@@ -33,6 +37,7 @@ class WeeklyReporter:
             "weekly_report_generating",
             week_start=str(week_start),
             week_end=str(report_date),
+            tenant_id=self._tenant_id,
         )
 
         sections: list[str] = []
@@ -71,7 +76,9 @@ class WeeklyReporter:
         self, portfolio_name: str, week_start: date, week_end: date,
     ) -> str:
         """Summarize a portfolio's weekly performance."""
-        snapshots = await self._db.get_snapshots(portfolio_name)
+        snapshots = await self._db.get_snapshots(
+            portfolio_name, tenant_id=self._tenant_id,
+        )
         if not snapshots:
             return f"Portfolio {portfolio_name}: No data yet"
 
@@ -119,7 +126,7 @@ class WeeklyReporter:
             pass
 
         # Count trades this week
-        trades = await self._db.get_trades(portfolio_name)
+        trades = await self._db.get_trades(portfolio_name, tenant_id=self._tenant_id)
         week_trades = [
             t for t in trades
             if week_start <= t.executed_at.date() <= week_end
@@ -141,7 +148,7 @@ class WeeklyReporter:
 
         all_trades = []
         for pname in ("A", "B"):
-            trades = await self._db.get_trades(pname)
+            trades = await self._db.get_trades(pname, tenant_id=self._tenant_id)
             week_trades = [
                 t for t in trades
                 if week_start <= t.executed_at.date() <= week_end
@@ -173,7 +180,9 @@ class WeeklyReporter:
         """Summarize Claude's decisions for Portfolio B."""
         lines = ["\nAI Decisions (Portfolio B)"]
 
-        decisions = await self._db.get_agent_decisions(limit=50)
+        decisions = await self._db.get_agent_decisions(
+            limit=50, tenant_id=self._tenant_id,
+        )
         week_decisions = [
             d for d in decisions
             if week_start <= d.date <= week_end
@@ -207,7 +216,7 @@ class WeeklyReporter:
         lines = ["\nDrawdown Status"]
 
         for pname in ("A", "B"):
-            snapshots = await self._db.get_snapshots(pname)
+            snapshots = await self._db.get_snapshots(pname, tenant_id=self._tenant_id)
             if not snapshots:
                 continue
 

@@ -298,6 +298,7 @@ class AIAutonomyStrategy:
         analysis_date: date,
         response: dict,
         trades: list[TradeSchema],
+        tenant_id: str = "default",
     ) -> None:
         """Persist the agent's decision to the database.
 
@@ -314,6 +315,7 @@ class AIAutonomyStrategy:
 
         async with db.session() as s:
             s.add(AgentDecisionRow(
+                tenant_id=tenant_id,
                 date=analysis_date,
                 prompt_summary=f"Portfolio B analysis for {analysis_date}",
                 response_summary=response.get("regime_assessment", ""),

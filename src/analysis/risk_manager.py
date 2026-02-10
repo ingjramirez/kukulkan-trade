@@ -38,6 +38,7 @@ class RiskManager:
 
     async def check_circuit_breakers(
         self, portfolio_name: str, db: Database, today: date,
+        tenant_id: str = "default",
     ) -> tuple[bool, str]:
         """Check if trading should be halted due to drawdown.
 
@@ -45,11 +46,12 @@ class RiskManager:
             portfolio_name: Portfolio to check (A or B).
             db: Database instance.
             today: Current date.
+            tenant_id: Tenant UUID for data isolation.
 
         Returns:
             (should_halt, reason) — True means skip trading for this portfolio.
         """
-        snapshots = await db.get_snapshots(portfolio_name)
+        snapshots = await db.get_snapshots(portfolio_name, tenant_id=tenant_id)
         if not snapshots:
             return False, ""
 

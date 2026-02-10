@@ -289,3 +289,21 @@ class TestCorrelation:
         result = rm.compute_portfolio_correlation(closes, ["AAPL", "MSFT"])
         # After pct_change().dropna() on 3 days → only 2 rows, barely enough
         assert result["matrix_size"] == 2
+
+
+# ── TestCircuitBreakersTenantId ────────────────────────────────────────
+
+
+class TestCircuitBreakersTenantId:
+    """Verify tenant_id is forwarded to db.get_snapshots."""
+
+    @pytest.mark.asyncio
+    async def test_tenant_id_forwarded_to_get_snapshots(self):
+        """check_circuit_breakers passes tenant_id to db.get_snapshots."""
+        db = AsyncMock()
+        db.get_snapshots = AsyncMock(return_value=[])
+        rm = RiskManager()
+
+        await rm.check_circuit_breakers("A", db, date.today(), tenant_id="tenant-abc")
+
+        db.get_snapshots.assert_called_once_with("A", tenant_id="tenant-abc")

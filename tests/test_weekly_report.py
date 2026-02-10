@@ -192,3 +192,82 @@ async def test_report_handles_no_agent_decisions(db, mock_notifier):
     report = await reporter.generate_and_send(date(2026, 2, 6))
 
     assert "No AI decisions this week" in report
+
+
+# ── Multi-Tenant Tests ──────────────────────────────────────────────────────
+
+
+async def test_tenant_scoped_report(db, mock_notifier):
+    """WeeklyReporter with tenant_id only sees that tenant's data."""
+    tenant_id = "tenant-abc"
+
+    async with db.session() as s:
+        # Seed data for tenant-abc
+        s.add(DailySnapshotRow(
+            portfolio="A", date=date(2026, 2, 2), tenant_id=tenant_id,
+            total_value=33000.0, cash=30000.0, positions_value=3000.0,
+        ))
+        s.add(DailySnapshotRow(
+            portfolio="A", date=date(2026, 2, 6), tenant_id=tenant_id,
+            total_value=33500.0, cash=30000.0, positions_value=3500.0,
+        ))
+        s.add(TradeRow(
+            portfolio="A", ticker="XLK", side="BUY", shares=10,
+            price=200.0, total=2000.0, reason="Momentum",
+            executed_at=datetime(2026, 2, 3, 15, 0), tenant_id=tenant_id,
+        ))
+        await s.commit()
+
+    reporter = WeeklyReporter(db, mock_notifier, tenant_id=tenant_id)
+    report = await reporter.generate_and_send(date(2026, 2, 6))
+
+    assert "Portfolio A" in report
+    assert "XLK" in report or "1 this week" in report
+
+
+async def test_tenant_isolation_in_reports(db, mock_notifier):
+    """Data from one tenant does not leak into another tenant's report."""
+    async with db.session() as s:
+        # Seed data for tenant-1
+        s.add(DailySnapshotRow(
+            portfolio="A", date=date(2026, 2, 2), tenant_id="tenant-1",
+            total_value=33000.0, cash=30000.0, positions_value=3000.0,
+        ))
+        s.add(DailySnapshotRow(
+            portfolio="A", date=date(2026, 2, 6), tenant_id="tenant-1",
+            total_value=34000.0, cash=30000.0, positions_value=4000.0,
+        ))
+        s.add(TradeRow(
+            portfolio="B", ticker="NVDA", side="BUY", shares=5,
+            price=800.0, total=4000.0, reason="AI: GPU demand",
+            executed_at=datetime(2026, 2, 4, 10, 0), tenant_id="tenant-1",
+        ))
+
+        # Seed data for tenant-2 (should NOT appear in tenant-1 report)
+        s.add(DailySnapshotRow(
+            portfolio="A", date=date(2026, 2, 2), tenant_id="tenant-2",
+            total_value=50000.0, cash=45000.0, positions_value=5000.0,
+        ))
+        s.add(DailySnapshotRow(
+            portfolio="A", date=date(2026, 2, 6), tenant_id="tenant-2",
+            total_value=48000.0, cash=45000.0, positions_value=3000.0,
+        ))
+        s.add(TradeRow(
+            portfolio="B", ticker="AAPL", side="SELL", shares=100,
+            price=150.0, total=15000.0, reason="AI: exit",
+            executed_at=datetime(2026, 2, 5, 10, 0), tenant_id="tenant-2",
+        ))
+        await s.commit()
+
+    # Generate report for tenant-1
+    reporter1 = WeeklyReporter(db, mock_notifier, tenant_id="tenant-1")
+    report1 = await reporter1.generate_and_send(date(2026, 2, 6))
+
+    # tenant-1 should see NVDA trade but NOT AAPL
+    assert "NVDA" in report1
+    assert "AAPL" not in report1
+
+    # tenant-1 portfolio value should be ~$34K, not $48K-$50K
+    assert "$34,000" in report1
+    assert "$48,000" not in report1
+    assert "$50,000" not in report1
