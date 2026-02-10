@@ -3,12 +3,14 @@
 import hmac
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import jwt
 
 from config.settings import settings
 from src.api.schemas import LoginRequest, TokenResponse
+from src.storage.database import Database
+from src.utils.crypto import decrypt_value
 
 _bearer = HTTPBearer()
 
@@ -22,16 +24,20 @@ TOKEN_EXPIRE_HOURS = 2
 _revoked_tokens: set[str] = set()
 
 
-def create_access_token(subject: str) -> str:
+def create_access_token(
+    subject: str, *, tenant_id: str | None = None,
+) -> str:
     now = datetime.now(timezone.utc)
     expire = now + timedelta(hours=TOKEN_EXPIRE_HOURS)
     jti = f"{subject}:{int(now.timestamp())}"
-    payload = {"sub": subject, "exp": expire, "jti": jti}
+    payload: dict = {"sub": subject, "exp": expire, "jti": jti}
+    if tenant_id is not None:
+        payload["tenant_id"] = tenant_id
     return jwt.encode(payload, settings.jwt_secret, algorithm=ALGORITHM)
 
 
-def decode_access_token(token: str) -> str:
-    """Decode and validate a JWT. Returns the subject claim."""
+def decode_access_token(token: str) -> dict[str, str | None]:
+    """Decode and validate a JWT. Returns {"username": str, "tenant_id": str | None}."""
     payload = jwt.decode(token, settings.jwt_secret, algorithms=[ALGORITHM])
     sub: str | None = payload.get("sub")
     if sub is None:
@@ -39,7 +45,10 @@ def decode_access_token(token: str) -> str:
     jti = payload.get("jti")
     if jti and jti in _revoked_tokens:
         raise ValueError("Token has been revoked")
-    return sub
+    return {
+        "username": sub,
+        "tenant_id": payload.get("tenant_id"),
+    }
 
 
 def revoke_token(token: str) -> None:
@@ -54,16 +63,36 @@ def revoke_token(token: str) -> None:
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest) -> TokenResponse:
+async def login(body: LoginRequest, request: Request) -> TokenResponse:
+    """Authenticate via tenant credentials or global admin."""
+    db: Database | None = getattr(
+        getattr(request.app, "state", None), "db", None,
+    )
+
+    # 1. Try tenant login (if db is available)
+    if db is not None:
+        tenant = await db.get_tenant_by_username(body.username)
+        if tenant and tenant.dashboard_password_enc:
+            stored_password = decrypt_value(tenant.dashboard_password_enc)
+            if hmac.compare_digest(body.password, stored_password):
+                token = create_access_token(
+                    subject=body.username, tenant_id=tenant.id,
+                )
+                return TokenResponse(
+                    access_token=token, tenant_id=tenant.id,
+                )
+
+    # 2. Fall back to global admin
     user_ok = hmac.compare_digest(body.username, settings.dashboard.user)
     pass_ok = hmac.compare_digest(body.password, settings.dashboard.password)
-    if not (user_ok and pass_ok):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-        )
-    token = create_access_token(subject=body.username)
-    return TokenResponse(access_token=token)
+    if user_ok and pass_ok:
+        token = create_access_token(subject=body.username)
+        return TokenResponse(access_token=token)
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid credentials",
+    )
 
 
 @router.post("/logout", status_code=204)

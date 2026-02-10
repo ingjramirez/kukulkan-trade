@@ -13,6 +13,7 @@ class LoginRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    tenant_id: str | None = None
 
 
 class AccountResponse(BaseModel):
@@ -97,11 +98,11 @@ class AgentDecisionResponse(BaseModel):
 
 class TenantCreateRequest(BaseModel):
     name: str = Field(max_length=100)
-    alpaca_api_key: str = Field(min_length=1)
-    alpaca_api_secret: str = Field(min_length=1)
+    alpaca_api_key: str | None = None
+    alpaca_api_secret: str | None = None
     alpaca_base_url: str = "https://paper-api.alpaca.markets"
-    telegram_bot_token: str = Field(min_length=1)
-    telegram_chat_id: str = Field(min_length=1)
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
     strategy_mode: str = Field(
         default="conservative",
         pattern=r"^(conservative|standard|aggressive)$",
@@ -113,6 +114,8 @@ class TenantCreateRequest(BaseModel):
     ticker_whitelist: list[str] | None = None
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None
+    username: str | None = None
+    password: str | None = None
 
 
 class TenantUpdateRequest(BaseModel):
@@ -133,15 +136,17 @@ class TenantUpdateRequest(BaseModel):
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None
     is_active: bool | None = None
+    username: str | None = None
+    password: str | None = None
 
 
 class TenantReadResponse(BaseModel):
     id: str
     name: str
     is_active: bool
-    alpaca_api_key_masked: str
+    alpaca_api_key_masked: str | None = None
     alpaca_base_url: str
-    telegram_chat_id_masked: str
+    telegram_chat_id_masked: str | None = None
     strategy_mode: str
     run_portfolio_a: bool
     run_portfolio_b: bool
@@ -150,5 +155,6 @@ class TenantReadResponse(BaseModel):
     ticker_whitelist: list[str] | None = None
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None
+    dashboard_user: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

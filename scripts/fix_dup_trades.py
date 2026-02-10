@@ -2,8 +2,9 @@
 
 import asyncio
 
-from src.storage.database import Database
 from sqlalchemy import text
+
+from src.storage.database import Database
 
 
 async def fix():

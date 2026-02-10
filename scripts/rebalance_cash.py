@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from alpaca.trading.client import TradingClient
+
 from src.storage.database import Database
 
 

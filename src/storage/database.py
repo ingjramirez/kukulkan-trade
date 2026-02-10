@@ -559,6 +559,16 @@ class Database:
             )
             return list(result.scalars().all())
 
+    async def get_tenant_by_username(self, username: str) -> TenantRow | None:
+        """Find an active tenant by dashboard_user (for login)."""
+        async with self.session() as s:
+            result = await s.execute(
+                select(TenantRow)
+                .where(TenantRow.dashboard_user == username)
+                .where(TenantRow.is_active.is_(True))
+            )
+            return result.scalar_one_or_none()
+
     async def get_all_tenants(self) -> list[TenantRow]:
         """Get all tenants (active and inactive)."""
         async with self.session() as s:

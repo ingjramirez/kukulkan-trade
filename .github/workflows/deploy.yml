@@ -71,12 +71,23 @@ jobs:
             cp /opt/kukulkan-trade/deploy/kukulkan-api.service /etc/systemd/system/ && \
             systemctl daemon-reload"
 
-      - name: Install and restart services
+      - name: Install dependencies
         run: |
           ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "\
             cd /opt/kukulkan-trade && \
             source .venv/bin/activate && \
-            pip install -e . && \
+            pip install -e ."
+
+      - name: Run database migrations
+        run: |
+          ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "\
+            cd /opt/kukulkan-trade && \
+            source .venv/bin/activate && \
+            python scripts/migrate.py --db data/kukulkan.db"
+
+      - name: Restart services
+        run: |
+          ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "\
             systemctl enable kukulkan-api && \
             systemctl restart kukulkan-bot && \
             systemctl restart kukulkan-api"

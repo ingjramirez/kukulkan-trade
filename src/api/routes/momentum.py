@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/momentum", tags=["momentum"])
 async def list_rankings(
     tenant_id: str = Query("default"),  # noqa: ARG001 — accepted for FE compat
     db: Database = Depends(get_db),
-    _user: str = Depends(get_current_user),
+    _user: dict = Depends(get_current_user),
 ) -> list[MomentumRankingResponse]:
     rows = await db.get_latest_momentum_rankings()
     return [

@@ -263,16 +263,20 @@ class TenantRow(Base):
     name = Column(String(100), nullable=False)
     is_active = Column(Boolean, nullable=False, default=True)
 
-    # Alpaca credentials (Fernet-encrypted)
-    alpaca_api_key_enc = Column(Text, nullable=False)
-    alpaca_api_secret_enc = Column(Text, nullable=False)
+    # Alpaca credentials (Fernet-encrypted, nullable = not yet configured)
+    alpaca_api_key_enc = Column(Text, nullable=True)
+    alpaca_api_secret_enc = Column(Text, nullable=True)
     alpaca_base_url = Column(
         String(200), nullable=False, default="https://paper-api.alpaca.markets"
     )
 
-    # Telegram credentials (Fernet-encrypted)
-    telegram_bot_token_enc = Column(Text, nullable=False)
-    telegram_chat_id_enc = Column(Text, nullable=False)
+    # Telegram credentials (Fernet-encrypted, nullable = not yet configured)
+    telegram_bot_token_enc = Column(Text, nullable=True)
+    telegram_chat_id_enc = Column(Text, nullable=True)
+
+    # Dashboard credentials (for per-tenant login)
+    dashboard_user = Column(String(100), nullable=True)
+    dashboard_password_enc = Column(Text, nullable=True)  # Fernet-encrypted
 
     # Claude API key (encrypted, nullable = use system default)
     claude_api_key_enc = Column(Text, nullable=True)
@@ -383,6 +387,8 @@ class TenantCreate(BaseModel):
     ticker_whitelist: list[str] | None = None
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None
+    dashboard_user: str | None = None
+    dashboard_password: str | None = None
 
 
 class TenantUpdate(BaseModel):
@@ -405,6 +411,8 @@ class TenantUpdate(BaseModel):
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None
     is_active: bool | None = None
+    dashboard_user: str | None = None
+    dashboard_password: str | None = None
 
 
 class TenantRead(BaseModel):
@@ -424,5 +432,6 @@ class TenantRead(BaseModel):
     ticker_whitelist: list[str] | None = None
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None
+    dashboard_user: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from src.api.deps import get_current_user, get_db
+from src.api.deps import get_db, require_admin
 from src.api.schemas import TenantCreateRequest, TenantReadResponse, TenantUpdateRequest
 from src.storage.database import Database
 from src.storage.models import TenantRow
@@ -18,15 +18,21 @@ router = APIRouter(prefix="/api/tenants", tags=["tenants"])
 
 def _tenant_to_response(tenant: TenantRow) -> TenantReadResponse:
     """Convert a TenantRow to the safe API response schema."""
-    api_key = decrypt_value(tenant.alpaca_api_key_enc)
-    chat_id = decrypt_value(tenant.telegram_chat_id_enc)
+    api_key_masked = (
+        mask_credential(decrypt_value(tenant.alpaca_api_key_enc))
+        if tenant.alpaca_api_key_enc else None
+    )
+    chat_id_masked = (
+        mask_credential(decrypt_value(tenant.telegram_chat_id_enc))
+        if tenant.telegram_chat_id_enc else None
+    )
     return TenantReadResponse(
         id=tenant.id,
         name=tenant.name,
         is_active=tenant.is_active,
-        alpaca_api_key_masked=mask_credential(api_key),
+        alpaca_api_key_masked=api_key_masked,
         alpaca_base_url=tenant.alpaca_base_url or "https://paper-api.alpaca.markets",
-        telegram_chat_id_masked=mask_credential(chat_id),
+        telegram_chat_id_masked=chat_id_masked,
         strategy_mode=tenant.strategy_mode,
         run_portfolio_a=tenant.run_portfolio_a,
         run_portfolio_b=tenant.run_portfolio_b,
@@ -41,6 +47,7 @@ def _tenant_to_response(tenant: TenantRow) -> TenantReadResponse:
         ticker_exclusions=(
             json.loads(tenant.ticker_exclusions) if tenant.ticker_exclusions else None
         ),
+        dashboard_user=tenant.dashboard_user,
         created_at=tenant.created_at,
         updated_at=tenant.updated_at,
     )
@@ -50,25 +57,51 @@ def _tenant_to_response(tenant: TenantRow) -> TenantReadResponse:
 async def create_tenant(
     body: TenantCreateRequest,
     db: Database = Depends(get_db),
-    _user: str = Depends(get_current_user),
+    _user: dict = Depends(require_admin),
 ) -> TenantReadResponse:
     """Create a new tenant with encrypted credentials."""
+    # Check username uniqueness
+    if body.username:
+        existing = await db.get_tenant_by_username(body.username)
+        if existing:
+            raise HTTPException(
+                status_code=409, detail="Username already taken",
+            )
+
     tenant = TenantRow(
         id=str(uuid.uuid4()),
         name=body.name,
-        alpaca_api_key_enc=encrypt_value(body.alpaca_api_key),
-        alpaca_api_secret_enc=encrypt_value(body.alpaca_api_secret),
+        alpaca_api_key_enc=(
+            encrypt_value(body.alpaca_api_key) if body.alpaca_api_key else None
+        ),
+        alpaca_api_secret_enc=(
+            encrypt_value(body.alpaca_api_secret) if body.alpaca_api_secret else None
+        ),
         alpaca_base_url=body.alpaca_base_url,
-        telegram_bot_token_enc=encrypt_value(body.telegram_bot_token),
-        telegram_chat_id_enc=encrypt_value(body.telegram_chat_id),
+        telegram_bot_token_enc=(
+            encrypt_value(body.telegram_bot_token) if body.telegram_bot_token else None
+        ),
+        telegram_chat_id_enc=(
+            encrypt_value(body.telegram_chat_id) if body.telegram_chat_id else None
+        ),
         strategy_mode=body.strategy_mode,
         run_portfolio_a=body.run_portfolio_a,
         run_portfolio_b=body.run_portfolio_b,
         portfolio_a_cash=body.portfolio_a_cash,
         portfolio_b_cash=body.portfolio_b_cash,
-        ticker_whitelist=json.dumps(body.ticker_whitelist) if body.ticker_whitelist else None,
-        ticker_additions=json.dumps(body.ticker_additions) if body.ticker_additions else None,
-        ticker_exclusions=json.dumps(body.ticker_exclusions) if body.ticker_exclusions else None,
+        ticker_whitelist=(
+            json.dumps(body.ticker_whitelist) if body.ticker_whitelist else None
+        ),
+        ticker_additions=(
+            json.dumps(body.ticker_additions) if body.ticker_additions else None
+        ),
+        ticker_exclusions=(
+            json.dumps(body.ticker_exclusions) if body.ticker_exclusions else None
+        ),
+        dashboard_user=body.username,
+        dashboard_password_enc=(
+            encrypt_value(body.password) if body.password else None
+        ),
     )
     await db.create_tenant(tenant)
     return _tenant_to_response(tenant)
@@ -77,7 +110,7 @@ async def create_tenant(
 @router.get("", response_model=list[TenantReadResponse])
 async def list_tenants(
     db: Database = Depends(get_db),
-    _user: str = Depends(get_current_user),
+    _user: dict = Depends(require_admin),
 ) -> list[TenantReadResponse]:
     """List all tenants (active and inactive, credentials masked)."""
     tenants = await db.get_all_tenants()
@@ -88,7 +121,7 @@ async def list_tenants(
 async def get_tenant(
     tenant_id: str,
     db: Database = Depends(get_db),
-    _user: str = Depends(get_current_user),
+    _user: dict = Depends(require_admin),
 ) -> TenantReadResponse:
     """Get a single tenant by ID."""
     tenant = await db.get_tenant(tenant_id)
@@ -102,7 +135,7 @@ async def update_tenant(
     tenant_id: str,
     body: TenantUpdateRequest,
     db: Database = Depends(get_db),
-    _user: str = Depends(get_current_user),
+    _user: dict = Depends(require_admin),
 ) -> TenantReadResponse:
     """Update a tenant's config (strategy, tickers, active status, credentials)."""
     tenant = await db.get_tenant(tenant_id)
@@ -134,6 +167,16 @@ async def update_tenant(
         updates["portfolio_b_cash"] = body.portfolio_b_cash
     if body.is_active is not None:
         updates["is_active"] = body.is_active
+    if body.username is not None:
+        # Check uniqueness (exclude current tenant)
+        existing = await db.get_tenant_by_username(body.username)
+        if existing and existing.id != tenant_id:
+            raise HTTPException(
+                status_code=409, detail="Username already taken",
+            )
+        updates["dashboard_user"] = body.username
+    if body.password is not None:
+        updates["dashboard_password_enc"] = encrypt_value(body.password)
     # Ticker lists: allow setting to empty [] or null
     if body.ticker_whitelist is not None:
         updates["ticker_whitelist"] = (
@@ -166,7 +209,7 @@ async def update_tenant(
 async def deactivate_tenant(
     tenant_id: str,
     db: Database = Depends(get_db),
-    _user: str = Depends(get_current_user),
+    _user: dict = Depends(require_admin),
 ):
     """Soft-delete a tenant (set is_active=False)."""
     found = await db.deactivate_tenant(tenant_id)
@@ -179,12 +222,15 @@ async def deactivate_tenant(
 async def test_alpaca(
     tenant_id: str,
     db: Database = Depends(get_db),
-    _user: str = Depends(get_current_user),
+    _user: dict = Depends(require_admin),
 ) -> dict:
     """Test a tenant's Alpaca connection by calling get_account()."""
     tenant = await db.get_tenant(tenant_id)
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
+
+    if not tenant.alpaca_api_key_enc or not tenant.alpaca_api_secret_enc:
+        return {"success": False, "error": "Alpaca credentials not configured"}
 
     try:
         from src.execution.client_factory import AlpacaClientFactory
@@ -203,12 +249,15 @@ async def test_alpaca(
 async def test_telegram(
     tenant_id: str,
     db: Database = Depends(get_db),
-    _user: str = Depends(get_current_user),
+    _user: dict = Depends(require_admin),
 ) -> dict:
     """Send a test message via a tenant's Telegram bot."""
     tenant = await db.get_tenant(tenant_id)
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
+
+    if not tenant.telegram_bot_token_enc or not tenant.telegram_chat_id_enc:
+        return {"success": False, "error": "Telegram credentials not configured"}
 
     try:
         from src.notifications.telegram_factory import TelegramFactory

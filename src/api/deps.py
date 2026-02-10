@@ -15,7 +15,8 @@ def get_db(request: Request) -> Database:
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
-) -> str:
+) -> dict[str, str | None]:
+    """Decode JWT and return {"username": str, "tenant_id": str | None}."""
     try:
         return decode_access_token(credentials.credentials)
     except Exception:
@@ -23,3 +24,15 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
         )
+
+
+async def require_admin(
+    user: dict[str, str | None] = Depends(get_current_user),
+) -> dict[str, str | None]:
+    """Require the caller to be a global admin (no tenant_id in JWT)."""
+    if user.get("tenant_id") is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    return user

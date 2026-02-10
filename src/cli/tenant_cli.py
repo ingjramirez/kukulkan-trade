@@ -33,11 +33,20 @@ async def add_tenant(args: argparse.Namespace) -> None:
         tenant = TenantRow(
             id=str(uuid.uuid4()),
             name=args.name,
-            alpaca_api_key_enc=encrypt_value(args.alpaca_key),
-            alpaca_api_secret_enc=encrypt_value(args.alpaca_secret),
+            alpaca_api_key_enc=(
+                encrypt_value(args.alpaca_key) if args.alpaca_key else None
+            ),
+            alpaca_api_secret_enc=(
+                encrypt_value(args.alpaca_secret) if args.alpaca_secret else None
+            ),
             alpaca_base_url=args.alpaca_url,
-            telegram_bot_token_enc=encrypt_value(args.telegram_token),
-            telegram_chat_id_enc=encrypt_value(args.telegram_chat_id),
+            telegram_bot_token_enc=(
+                encrypt_value(args.telegram_token) if args.telegram_token else None
+            ),
+            telegram_chat_id_enc=(
+                encrypt_value(args.telegram_chat_id)
+                if args.telegram_chat_id else None
+            ),
             strategy_mode=args.strategy,
             run_portfolio_a=not args.portfolio_b_only,
             run_portfolio_b=True,
@@ -50,6 +59,10 @@ async def add_tenant(args: argparse.Namespace) -> None:
             ticker_exclusions=(
                 json.dumps(args.remove_tickers.split(","))
                 if args.remove_tickers else None
+            ),
+            dashboard_user=args.username,
+            dashboard_password_enc=(
+                encrypt_value(args.password) if args.password else None
             ),
         )
         await db.create_tenant(tenant)
@@ -72,7 +85,10 @@ async def list_tenants(args: argparse.Namespace) -> None:
             return
         for t in tenants:
             status = "active" if t.is_active else "INACTIVE"
-            api_key = mask_credential(decrypt_value(t.alpaca_api_key_enc))
+            api_key = (
+                mask_credential(decrypt_value(t.alpaca_api_key_enc))
+                if t.alpaca_api_key_enc else "not set"
+            )
             print(
                 f"  [{status}] {t.id[:8]}... "
                 f"{t.name} | {t.strategy_mode} | "
@@ -208,11 +224,11 @@ def main() -> None:
     # add-tenant
     add_p = subparsers.add_parser("add-tenant", help="Add a new tenant")
     add_p.add_argument("--name", required=True)
-    add_p.add_argument("--alpaca-key", required=True)
-    add_p.add_argument("--alpaca-secret", required=True)
+    add_p.add_argument("--alpaca-key", default=None, help="Alpaca API key (optional)")
+    add_p.add_argument("--alpaca-secret", default=None, help="Alpaca API secret (optional)")
     add_p.add_argument("--alpaca-url", default="https://paper-api.alpaca.markets")
-    add_p.add_argument("--telegram-token", required=True)
-    add_p.add_argument("--telegram-chat-id", required=True)
+    add_p.add_argument("--telegram-token", default=None, help="Telegram bot token (optional)")
+    add_p.add_argument("--telegram-chat-id", default=None, help="Telegram chat ID (optional)")
     add_p.add_argument("--strategy", default="conservative",
                         choices=["conservative", "standard", "aggressive"])
     add_p.add_argument("--portfolio-b-only", action="store_true")
@@ -220,6 +236,8 @@ def main() -> None:
     add_p.add_argument("--portfolio-b-cash", type=float, default=66000.0)
     add_p.add_argument("--add-tickers", help="Comma-separated tickers to add")
     add_p.add_argument("--remove-tickers", help="Comma-separated tickers to remove")
+    add_p.add_argument("--username", help="Dashboard login username")
+    add_p.add_argument("--password", help="Dashboard login password")
 
     # list-tenants
     subparsers.add_parser("list-tenants", help="List all tenants")

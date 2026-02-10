@@ -99,6 +99,8 @@ class TestAddTenant:
             portfolio_b_cash=66000.0,
             add_tickers="COIN,MSTR",
             remove_tickers=None,
+            username=None,
+            password=None,
         )
 
         await add_tenant(args)

@@ -16,7 +16,7 @@ async def list_decisions(
     limit: int = Query(10, ge=1, le=100),
     tenant_id: str = Query("default"),
     db: Database = Depends(get_db),
-    _user: str = Depends(get_current_user),
+    _user: dict = Depends(get_current_user),
 ) -> list[AgentDecisionResponse]:
     rows = await db.get_agent_decisions(limit=limit, tenant_id=tenant_id)
     results = []

@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/portfolios", tags=["portfolios"])
 async def list_portfolios(
     tenant_id: str = Query("default"),
     db: Database = Depends(get_db),
-    _user: str = Depends(get_current_user),
+    _user: dict = Depends(get_current_user),
 ) -> list[PortfolioSummary]:
     rows = await db.get_all_portfolios(tenant_id=tenant_id)
     return [
@@ -32,7 +32,7 @@ async def get_portfolio(
     name: str,
     tenant_id: str = Query("default"),
     db: Database = Depends(get_db),
-    _user: str = Depends(get_current_user),
+    _user: dict = Depends(get_current_user),
 ) -> PortfolioDetail:
     portfolio = await db.get_portfolio(name, tenant_id=tenant_id)
     if not portfolio:
@@ -62,7 +62,7 @@ async def get_positions(
     name: str,
     tenant_id: str = Query("default"),
     db: Database = Depends(get_db),
-    _user: str = Depends(get_current_user),
+    _user: dict = Depends(get_current_user),
 ) -> list[PositionResponse]:
     positions = await db.get_positions(name, tenant_id=tenant_id)
     return [

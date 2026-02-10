@@ -101,8 +101,8 @@ def _auth_header() -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-async def _bypass_user() -> str:
-    return "test-user"
+async def _bypass_user() -> dict[str, str | None]:
+    return {"username": "test-user", "tenant_id": None}
 
 
 @pytest.fixture

@@ -16,7 +16,7 @@ async def list_trades(
     limit: int = Query(100, ge=1, le=1000),
     tenant_id: str = Query("default"),
     db: Database = Depends(get_db),
-    _user: str = Depends(get_current_user),
+    _user: dict = Depends(get_current_user),
 ) -> list[TradeResponse]:
     rows = await db.get_all_trades(
         portfolio=portfolio, side=side, limit=limit, tenant_id=tenant_id,

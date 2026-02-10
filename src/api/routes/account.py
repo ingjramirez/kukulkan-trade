@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api", tags=["account"])
 async def account(
     tenant_id: str = Query("default"),
     db: Database = Depends(get_db),
-    _user: str = Depends(get_current_user),
+    _user: dict = Depends(get_current_user),
 ) -> AccountResponse:
     data = await _get_account_data(tenant_id, db)
     if data is None:
