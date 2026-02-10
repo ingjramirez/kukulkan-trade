@@ -1,8 +1,20 @@
 """Pydantic response models for the REST API."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
+from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
+
+
+def _ensure_utc(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+UTCDatetime = Annotated[datetime, AfterValidator(_ensure_utc)]
 
 
 class LoginRequest(BaseModel):
@@ -30,14 +42,14 @@ class PortfolioSummary(BaseModel):
     name: str
     cash: float
     total_value: float
-    updated_at: datetime | None = None
+    updated_at: UTCDatetime | None = None
 
 
 class PortfolioDetail(BaseModel):
     name: str
     cash: float
     total_value: float
-    updated_at: datetime | None = None
+    updated_at: UTCDatetime | None = None
     positions: list["PositionResponse"]
 
 
@@ -71,7 +83,7 @@ class TradeResponse(BaseModel):
     price: float
     total: float
     reason: str | None = None
-    executed_at: datetime
+    executed_at: UTCDatetime
 
 
 class MomentumRankingResponse(BaseModel):
@@ -90,7 +102,7 @@ class AgentDecisionResponse(BaseModel):
     reasoning: str | None = None
     model_used: str | None = None
     tokens_used: int | None = None
-    created_at: datetime
+    created_at: UTCDatetime
 
 
 # ── Tenant Schemas ────────────────────────────────────────────────────
@@ -163,5 +175,5 @@ class TenantReadResponse(BaseModel):
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None
     dashboard_user: str | None = None
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
+    created_at: UTCDatetime | None = None
+    updated_at: UTCDatetime | None = None
