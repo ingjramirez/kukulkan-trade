@@ -142,6 +142,32 @@ async def update_tenant(
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
+    # Portfolio config fields require Alpaca + Telegram to be configured
+    _portfolio_fields = {
+        "run_portfolio_a", "run_portfolio_b", "portfolio_a_cash",
+        "portfolio_b_cash", "strategy_mode", "ticker_whitelist",
+        "ticker_additions", "ticker_exclusions",
+    }
+    has_portfolio_update = any(
+        getattr(body, f) is not None for f in _portfolio_fields
+    )
+    if has_portfolio_update:
+        # Check current + incoming credentials
+        has_alpaca = bool(
+            (body.alpaca_api_key or tenant.alpaca_api_key_enc)
+            and (body.alpaca_api_secret or tenant.alpaca_api_secret_enc)
+        )
+        has_telegram = bool(
+            (body.telegram_bot_token or tenant.telegram_bot_token_enc)
+            and (body.telegram_chat_id or tenant.telegram_chat_id_enc)
+        )
+        if not (has_alpaca and has_telegram):
+            raise HTTPException(
+                status_code=422,
+                detail="Alpaca and Telegram credentials must be configured "
+                       "before setting portfolio configuration",
+            )
+
     updates: dict = {}
     if body.name is not None:
         updates["name"] = body.name

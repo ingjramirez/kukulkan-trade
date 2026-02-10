@@ -100,6 +100,20 @@ class Orchestrator:
 
         results: list[dict] = []
         for i, tenant in enumerate(tenants):
+            # Skip tenants without complete credentials
+            if not self._tenant_fully_configured(tenant):
+                log.info(
+                    "tenant_skipped_incomplete_config",
+                    tenant_id=tenant.id,
+                    tenant_name=tenant.name,
+                )
+                results.append({
+                    "tenant_id": tenant.id,
+                    "tenant_name": tenant.name,
+                    "skipped": "incomplete_credentials",
+                })
+                continue
+
             log.info(
                 "tenant_session_start",
                 tenant_id=tenant.id,
@@ -721,6 +735,16 @@ class Orchestrator:
         for t1, t2, val in corr_data["high_pairs"]:
             lines.append(f"  {t1}-{t2}: {val:.2f} (HIGH)")
         return "\n".join(lines)
+
+    @staticmethod
+    def _tenant_fully_configured(tenant: TenantRow) -> bool:
+        """Check if a tenant has all required credentials to run the bot."""
+        return bool(
+            tenant.alpaca_api_key_enc
+            and tenant.alpaca_api_secret_enc
+            and tenant.telegram_bot_token_enc
+            and tenant.telegram_chat_id_enc
+        )
 
     def _notifier_available(self) -> bool:
         """Check if Telegram notifier is configured."""
