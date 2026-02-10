@@ -3,8 +3,6 @@
 import json
 from unittest.mock import MagicMock
 
-import pytest
-
 from config.universe import PORTFOLIO_A_UNIVERSE, PORTFOLIO_B_UNIVERSE
 from src.utils.tenant_universe import get_tenant_universe
 

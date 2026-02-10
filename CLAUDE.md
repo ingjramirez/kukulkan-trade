@@ -12,6 +12,7 @@ After completing any significant work (features, bug fixes, refactors, config ch
 - Pydantic v2 for validation, structlog for logging
 - `ruff` for linting (line-length=100, target py311)
 - pytest-asyncio with `asyncio_mode = "auto"`
+- **Before committing, always run `ruff check` and fix all lint errors** (unused imports F401, unused variables F841, line length E501, import sorting I001). The `scripts/` directory has pre-existing E402 errors that are acceptable (load_dotenv before imports).
 
 ## Testing
 - All changes must include tests. Run `python -m pytest tests/ -x -q` before committing.

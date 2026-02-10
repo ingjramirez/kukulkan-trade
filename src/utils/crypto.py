@@ -5,7 +5,7 @@ using a symmetric key from the TENANT_ENCRYPTION_KEY env var.
 """
 
 import structlog
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import Fernet
 
 from config.settings import settings
 
@@ -17,8 +17,9 @@ def _get_fernet() -> Fernet:
     key = settings.tenant_encryption_key
     if not key:
         raise ValueError(
-            "TENANT_ENCRYPTION_KEY not set. "
-            "Generate one with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
+            "TENANT_ENCRYPTION_KEY not set. Generate one with: "
+            "python -c 'from cryptography.fernet import Fernet; "
+            "print(Fernet.generate_key().decode())'"
         )
     return Fernet(key.encode() if isinstance(key, str) else key)
 

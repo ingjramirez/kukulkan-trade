@@ -2,12 +2,10 @@
 
 import pytest
 from cryptography.fernet import Fernet
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
 
 from config.settings import settings
 from src.storage.database import Database
-from src.storage.models import Base, TenantRow
+from src.storage.models import TenantRow
 from src.utils.crypto import encrypt_value
 
 _TEST_KEY = Fernet.generate_key().decode()

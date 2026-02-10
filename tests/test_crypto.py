@@ -5,7 +5,6 @@ from cryptography.fernet import Fernet, InvalidToken
 
 from config.settings import settings
 
-
 # Generate a test encryption key for this module
 _TEST_KEY = Fernet.generate_key().decode()
 

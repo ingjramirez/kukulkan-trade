@@ -66,8 +66,8 @@ class TestAlpacaClientFactory:
         from src.execution.client_factory import AlpacaClientFactory
         t1 = _mock_tenant("t1")
         t2 = _mock_tenant("t2")
-        c1 = AlpacaClientFactory.get_trading_client(t1)
-        c2 = AlpacaClientFactory.get_trading_client(t2)
+        AlpacaClientFactory.get_trading_client(t1)
+        AlpacaClientFactory.get_trading_client(t2)
         assert mock_tc.call_count == 2
 
     @patch("src.execution.client_factory.TradingClient")

@@ -372,7 +372,10 @@ class TenantCreate(BaseModel):
     alpaca_base_url: str = "https://paper-api.alpaca.markets"
     telegram_bot_token: str = Field(min_length=1)
     telegram_chat_id: str = Field(min_length=1)
-    strategy_mode: str = Field(default="conservative", pattern=r"^(conservative|standard|aggressive)$")
+    strategy_mode: str = Field(
+        default="conservative",
+        pattern=r"^(conservative|standard|aggressive)$",
+    )
     run_portfolio_a: bool = False
     run_portfolio_b: bool = True
     portfolio_a_cash: float = Field(default=33_000.0, gt=0)

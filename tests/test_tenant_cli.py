@@ -1,10 +1,10 @@
 """Tests for tenant CLI commands."""
 
 import argparse
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from cryptography.fernet import Fernet
-from unittest.mock import patch, AsyncMock
 
 from config.settings import settings
 from src.storage.database import Database

@@ -1,6 +1,6 @@
 """Tests for multi-tenant orchestrator iteration and isolation."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from cryptography.fernet import Fernet
@@ -117,7 +117,7 @@ class TestRunDaily:
         """run_portfolio_a=False should skip Portfolio A."""
         orchestrator = Orchestrator(db)
         # Use a mock to avoid full pipeline execution
-        with patch.object(orchestrator, "_run_portfolio_a", new_callable=AsyncMock) as mock_a:
+        with patch.object(orchestrator, "_run_portfolio_a", new_callable=AsyncMock):
             with patch.object(orchestrator, "_executor") as mock_exec:
                 mock_exec.initialize_portfolios = AsyncMock()
                 mock_exec.sync_positions = AsyncMock()

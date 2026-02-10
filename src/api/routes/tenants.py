@@ -32,9 +32,15 @@ def _tenant_to_response(tenant: TenantRow) -> TenantReadResponse:
         run_portfolio_b=tenant.run_portfolio_b,
         portfolio_a_cash=tenant.portfolio_a_cash,
         portfolio_b_cash=tenant.portfolio_b_cash,
-        ticker_whitelist=json.loads(tenant.ticker_whitelist) if tenant.ticker_whitelist else None,
-        ticker_additions=json.loads(tenant.ticker_additions) if tenant.ticker_additions else None,
-        ticker_exclusions=json.loads(tenant.ticker_exclusions) if tenant.ticker_exclusions else None,
+        ticker_whitelist=(
+            json.loads(tenant.ticker_whitelist) if tenant.ticker_whitelist else None
+        ),
+        ticker_additions=(
+            json.loads(tenant.ticker_additions) if tenant.ticker_additions else None
+        ),
+        ticker_exclusions=(
+            json.loads(tenant.ticker_exclusions) if tenant.ticker_exclusions else None
+        ),
         created_at=tenant.created_at,
         updated_at=tenant.updated_at,
     )
@@ -130,11 +136,17 @@ async def update_tenant(
         updates["is_active"] = body.is_active
     # Ticker lists: allow setting to empty [] or null
     if body.ticker_whitelist is not None:
-        updates["ticker_whitelist"] = json.dumps(body.ticker_whitelist) if body.ticker_whitelist else None
+        updates["ticker_whitelist"] = (
+            json.dumps(body.ticker_whitelist) if body.ticker_whitelist else None
+        )
     if body.ticker_additions is not None:
-        updates["ticker_additions"] = json.dumps(body.ticker_additions) if body.ticker_additions else None
+        updates["ticker_additions"] = (
+            json.dumps(body.ticker_additions) if body.ticker_additions else None
+        )
     if body.ticker_exclusions is not None:
-        updates["ticker_exclusions"] = json.dumps(body.ticker_exclusions) if body.ticker_exclusions else None
+        updates["ticker_exclusions"] = (
+            json.dumps(body.ticker_exclusions) if body.ticker_exclusions else None
+        )
 
     if not updates:
         return _tenant_to_response(tenant)
