@@ -1,8 +1,8 @@
 """Portfolio endpoints — list, detail, and positions."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 
-from src.api.deps import get_current_user, get_db
+from src.api.deps import get_authorized_tenant_id, get_db
 from src.api.schemas import PortfolioDetail, PortfolioSummary, PositionResponse
 from src.storage.database import Database
 
@@ -11,9 +11,8 @@ router = APIRouter(prefix="/api/portfolios", tags=["portfolios"])
 
 @router.get("", response_model=list[PortfolioSummary])
 async def list_portfolios(
-    tenant_id: str = Query("default"),
+    tenant_id: str = Depends(get_authorized_tenant_id),
     db: Database = Depends(get_db),
-    _user: dict = Depends(get_current_user),
 ) -> list[PortfolioSummary]:
     rows = await db.get_all_portfolios(tenant_id=tenant_id)
     return [
@@ -30,9 +29,8 @@ async def list_portfolios(
 @router.get("/{name}", response_model=PortfolioDetail)
 async def get_portfolio(
     name: str,
-    tenant_id: str = Query("default"),
+    tenant_id: str = Depends(get_authorized_tenant_id),
     db: Database = Depends(get_db),
-    _user: dict = Depends(get_current_user),
 ) -> PortfolioDetail:
     portfolio = await db.get_portfolio(name, tenant_id=tenant_id)
     if not portfolio:
@@ -60,9 +58,8 @@ async def get_portfolio(
 @router.get("/{name}/positions", response_model=list[PositionResponse])
 async def get_positions(
     name: str,
-    tenant_id: str = Query("default"),
+    tenant_id: str = Depends(get_authorized_tenant_id),
     db: Database = Depends(get_db),
-    _user: dict = Depends(get_current_user),
 ) -> list[PositionResponse]:
     positions = await db.get_positions(name, tenant_id=tenant_id)
     return [

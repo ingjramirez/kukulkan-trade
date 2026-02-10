@@ -1,6 +1,6 @@
 """Pydantic schemas and SQLAlchemy ORM models for Kukulkan."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -58,7 +58,7 @@ class PortfolioRow(Base):
     name = Column(String(1), nullable=False)  # A, B
     cash = Column(Float, nullable=False, default=33_000.0)
     total_value = Column(Float, nullable=False, default=33_000.0)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
 class PositionRow(Base):
@@ -75,7 +75,7 @@ class PositionRow(Base):
     avg_price = Column(Float, nullable=False)
     current_price = Column(Float)
     market_value = Column(Float)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
 class TradeRow(Base):
@@ -92,7 +92,7 @@ class TradeRow(Base):
     price = Column(Float, nullable=False)
     total = Column(Float, nullable=False)
     reason = Column(Text)
-    executed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    executed_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
 class DailySnapshotRow(Base):
@@ -139,7 +139,7 @@ class AgentDecisionRow(Base):
     reasoning = Column(Text)
     model_used = Column(String(50))
     tokens_used = Column(Integer)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
 class MarketDataRow(Base):
@@ -204,7 +204,7 @@ class NewsLogRow(Base):
     published_at = Column(DateTime)
     sentiment = Column(Float)  # -1.0 to 1.0
     embedding_id = Column(String(100))  # ChromaDB document ID
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
 class DiscoveredTickerRow(Base):
@@ -235,7 +235,7 @@ class AgentMemoryRow(Base):
     category = Column(String(20), nullable=False)  # short_term, weekly_summary, agent_note
     key = Column(String(100), nullable=False)
     content = Column(Text, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     expires_at = Column(DateTime, nullable=True)
 
 
@@ -251,7 +251,7 @@ class WeeklyReportRow(Base):
     portfolio_b_return = Column(Float)
     benchmark_return = Column(Float)  # SPY
     report_text = Column(Text)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
 class TenantRow(Base):
@@ -295,8 +295,8 @@ class TenantRow(Base):
     ticker_additions = Column(Text, nullable=True)   # JSON: ["COIN","MSTR"]
     ticker_exclusions = Column(Text, nullable=True)  # JSON: ["META","GOOGL"]
 
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
     def __repr__(self) -> str:
         """Mask sensitive fields in repr to prevent credential leaks."""

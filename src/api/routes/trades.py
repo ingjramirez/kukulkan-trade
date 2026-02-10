@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, Query
 
-from src.api.deps import get_current_user, get_db
+from src.api.deps import get_authorized_tenant_id, get_db
 from src.api.schemas import TradeResponse
 from src.storage.database import Database
 
@@ -14,9 +14,8 @@ async def list_trades(
     portfolio: str | None = Query(None),
     side: str | None = Query(None),
     limit: int = Query(100, ge=1, le=1000),
-    tenant_id: str = Query("default"),
+    tenant_id: str = Depends(get_authorized_tenant_id),
     db: Database = Depends(get_db),
-    _user: dict = Depends(get_current_user),
 ) -> list[TradeResponse]:
     rows = await db.get_all_trades(
         portfolio=portfolio, side=side, limit=limit, tenant_id=tenant_id,

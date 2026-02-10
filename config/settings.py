@@ -1,5 +1,6 @@
 """Application settings loaded from environment variables."""
 
+import os
 from pathlib import Path
 
 from pydantic_settings import BaseSettings
@@ -96,4 +97,30 @@ class Settings(BaseSettings):
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
+def _is_dev_or_test() -> bool:
+    """Check if running in dev/test mode (pytest or explicit env)."""
+    import sys
+
+    env = os.environ.get("ENV", os.environ.get("ENVIRONMENT", "")).lower()
+    if env in ("dev", "development", "test", "testing"):
+        return True
+    # Detect pytest execution
+    if "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ:
+        return True
+    return "pytest" in os.environ.get("_", "")
+
+
 settings = Settings()
+
+if not _is_dev_or_test():
+    if settings.jwt_secret == "change-me-in-production":
+        raise ValueError(
+            "JWT_SECRET must be changed from the default value in production. "
+            "Set a random 64+ character string in your .env file."
+        )
+    if not settings.tenant_encryption_key:
+        raise ValueError(
+            "TENANT_ENCRYPTION_KEY must be set in production. "
+            "Generate one with: python -c "
+            "'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
+        )

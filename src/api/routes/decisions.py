@@ -4,7 +4,7 @@ import json
 
 from fastapi import APIRouter, Depends, Query
 
-from src.api.deps import get_current_user, get_db
+from src.api.deps import get_authorized_tenant_id, get_db
 from src.api.schemas import AgentDecisionResponse
 from src.storage.database import Database
 
@@ -14,9 +14,8 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 @router.get("/decisions", response_model=list[AgentDecisionResponse])
 async def list_decisions(
     limit: int = Query(10, ge=1, le=100),
-    tenant_id: str = Query("default"),
+    tenant_id: str = Depends(get_authorized_tenant_id),
     db: Database = Depends(get_db),
-    _user: dict = Depends(get_current_user),
 ) -> list[AgentDecisionResponse]:
     rows = await db.get_agent_decisions(limit=limit, tenant_id=tenant_id)
     results = []

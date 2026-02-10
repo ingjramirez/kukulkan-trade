@@ -2,10 +2,10 @@
 
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.alpaca_client import get_live_account
-from src.api.deps import get_current_user, get_db
+from src.api.deps import get_authorized_tenant_id, get_db
 from src.api.schemas import AccountResponse, PositionResponse
 from src.storage.database import Database
 
@@ -14,9 +14,8 @@ router = APIRouter(prefix="/api", tags=["account"])
 
 @router.get("/account", response_model=AccountResponse)
 async def account(
-    tenant_id: str = Query("default"),
+    tenant_id: str = Depends(get_authorized_tenant_id),
     db: Database = Depends(get_db),
-    _user: dict = Depends(get_current_user),
 ) -> AccountResponse:
     data = await _get_account_data(tenant_id, db)
     if data is None:

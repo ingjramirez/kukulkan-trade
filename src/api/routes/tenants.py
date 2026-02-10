@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import uuid
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.deps import get_current_user, get_db, require_admin
@@ -16,7 +17,9 @@ from src.api.schemas import (
 )
 from src.storage.database import Database
 from src.storage.models import TenantRow
-from src.utils.crypto import decrypt_value, encrypt_value, mask_credential
+from src.utils.crypto import decrypt_value, encrypt_value, hash_password, mask_credential
+
+log = structlog.get_logger()
 
 router = APIRouter(prefix="/api/tenants", tags=["tenants"])
 
@@ -151,8 +154,9 @@ async def test_my_alpaca(
         client = AlpacaClientFactory.get_trading_client(tenant)
         account = await asyncio.to_thread(client.get_account)
         return {"success": True, "equity": float(account.equity)}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except Exception:
+        log.error("test_alpaca_failed", tenant_id=tenant_id)
+        return {"success": False, "error": "Connection failed. Check credentials and try again."}
 
 
 @router.post("/me/test-telegram")
@@ -180,8 +184,11 @@ async def test_my_telegram(
         if success:
             return {"success": True, "message": "Test message sent"}
         return {"success": False, "error": "Send returned False"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except Exception:
+        log.error("test_telegram_failed", tenant_id=tenant_id)
+        return {
+            "success": False, "error": "Connection failed. Check credentials and try again.",
+        }
 
 
 # ── Admin CRUD ───────────────────────────────────────────────────────────
@@ -234,7 +241,7 @@ async def create_tenant(
         ),
         dashboard_user=body.username,
         dashboard_password_enc=(
-            encrypt_value(body.password) if body.password else None
+            hash_password(body.password) if body.password else None
         ),
     )
     await db.create_tenant(tenant)
@@ -336,7 +343,7 @@ async def update_tenant(
             )
         updates["dashboard_user"] = body.username
     if body.password is not None:
-        updates["dashboard_password_enc"] = encrypt_value(body.password)
+        updates["dashboard_password_enc"] = hash_password(body.password)
     # Ticker lists: allow setting to empty [] or null
     if body.ticker_whitelist is not None:
         updates["ticker_whitelist"] = (
@@ -401,8 +408,9 @@ async def test_alpaca(
             "success": True,
             "equity": float(account.equity),
         }
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except Exception:
+        log.error("test_alpaca_failed", tenant_id=tenant_id)
+        return {"success": False, "error": "Connection failed. Check credentials and try again."}
 
 
 @router.post("/{tenant_id}/test-telegram")
@@ -428,5 +436,8 @@ async def test_telegram(
         if success:
             return {"success": True, "message": "Test message sent"}
         return {"success": False, "error": "Send returned False"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except Exception:
+        log.error("test_telegram_failed", tenant_id=tenant_id)
+        return {
+            "success": False, "error": "Connection failed. Check credentials and try again.",
+        }

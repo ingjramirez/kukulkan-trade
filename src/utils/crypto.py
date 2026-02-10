@@ -1,9 +1,11 @@
-"""Fernet-based encryption for tenant credentials.
+"""Fernet-based encryption for tenant credentials + bcrypt password hashing.
 
 All sensitive credentials (API keys, tokens) are encrypted at rest
 using a symmetric key from the TENANT_ENCRYPTION_KEY env var.
+Passwords are hashed with bcrypt (one-way, not reversible).
 """
 
+import bcrypt
 import structlog
 from cryptography.fernet import Fernet
 
@@ -51,6 +53,31 @@ def decrypt_value(ciphertext: str) -> str:
     """
     f = _get_fernet()
     return f.decrypt(ciphertext.encode()).decode()
+
+
+def hash_password(plaintext: str) -> str:
+    """Hash a password using bcrypt.
+
+    Args:
+        plaintext: The password to hash.
+
+    Returns:
+        Bcrypt hash string.
+    """
+    return bcrypt.hashpw(plaintext.encode(), bcrypt.gensalt()).decode()
+
+
+def verify_password(plaintext: str, hashed: str) -> bool:
+    """Verify a plaintext password against a bcrypt hash.
+
+    Args:
+        plaintext: The password to check.
+        hashed: The stored bcrypt hash.
+
+    Returns:
+        True if the password matches.
+    """
+    return bcrypt.checkpw(plaintext.encode(), hashed.encode())
 
 
 def mask_credential(value: str) -> str:

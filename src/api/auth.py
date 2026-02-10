@@ -3,6 +3,7 @@
 import hmac
 from datetime import datetime, timedelta, timezone
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import jwt
@@ -10,7 +11,9 @@ from jose import jwt
 from config.settings import settings
 from src.api.schemas import LoginRequest, TokenResponse
 from src.storage.database import Database
-from src.utils.crypto import decrypt_value
+from src.utils.crypto import decrypt_value, hash_password, verify_password
+
+log = structlog.get_logger()
 
 _bearer = HTTPBearer()
 
@@ -73,8 +76,27 @@ async def login(body: LoginRequest, request: Request) -> TokenResponse:
     if db is not None:
         tenant = await db.get_tenant_by_username(body.username)
         if tenant and tenant.dashboard_password_enc:
-            stored_password = decrypt_value(tenant.dashboard_password_enc)
-            if hmac.compare_digest(body.password, stored_password):
+            password_ok = False
+            stored = tenant.dashboard_password_enc
+            # Try bcrypt first (new format)
+            if stored.startswith("$2"):
+                password_ok = verify_password(body.password, stored)
+            else:
+                # Fallback: legacy Fernet-encrypted password
+                try:
+                    decrypted = decrypt_value(stored)
+                    if hmac.compare_digest(body.password, decrypted):
+                        password_ok = True
+                        # Re-hash with bcrypt for future logins
+                        new_hash = hash_password(body.password)
+                        await db.update_tenant(
+                            tenant.id, {"dashboard_password_enc": new_hash},
+                        )
+                        log.info("password_migrated_to_bcrypt", tenant_id=tenant.id)
+                except Exception:
+                    pass  # Corrupted stored value — treat as wrong password
+
+            if password_ok:
                 token = create_access_token(
                     subject=body.username, tenant_id=tenant.id,
                 )

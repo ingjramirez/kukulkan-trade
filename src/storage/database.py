@@ -1,6 +1,6 @@
 """SQLite database setup and CRUD operations."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import structlog
@@ -42,7 +42,8 @@ class Database:
 
         async with self._engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        log.info("database_initialized", url=self._url)
+        db_type = self._url.split(":")[0].split("+")[0]
+        log.info("database_initialized", type=db_type)
 
     def session(self) -> AsyncSession:
         """Create a new async session."""
@@ -85,7 +86,7 @@ class Database:
             if existing:
                 existing.cash = cash
                 existing.total_value = total_value
-                existing.updated_at = datetime.utcnow()
+                existing.updated_at = datetime.now(timezone.utc)
             else:
                 s.add(PortfolioRow(
                     tenant_id=tenant_id, name=name,
@@ -133,7 +134,7 @@ class Database:
             elif existing:
                 existing.shares = shares
                 existing.avg_price = avg_price
-                existing.updated_at = datetime.utcnow()
+                existing.updated_at = datetime.now(timezone.utc)
             elif shares > 0:
                 s.add(PositionRow(
                     tenant_id=tenant_id,
@@ -482,7 +483,7 @@ class Database:
             if existing:
                 existing.content = content
                 existing.expires_at = expires_at
-                existing.created_at = datetime.utcnow()
+                existing.created_at = datetime.now(timezone.utc)
             else:
                 s.add(AgentMemoryRow(
                     tenant_id=tenant_id,
@@ -499,7 +500,7 @@ class Database:
             result = await s.execute(
                 select(AgentMemoryRow).where(
                     AgentMemoryRow.expires_at.isnot(None),
-                    AgentMemoryRow.expires_at <= datetime.utcnow(),
+                    AgentMemoryRow.expires_at <= datetime.now(timezone.utc),
                 )
             )
             expired = list(result.scalars().all())
@@ -600,7 +601,7 @@ class Database:
             for key, value in updates.items():
                 if hasattr(row, key) and value is not None:
                     setattr(row, key, value)
-            row.updated_at = datetime.utcnow()
+            row.updated_at = datetime.now(timezone.utc)
             await s.commit()
             await s.refresh(row)
         log.info("tenant_updated", tenant_id=tenant_id, fields=list(updates.keys()))
@@ -621,7 +622,7 @@ class Database:
             if row is None:
                 return False
             row.is_active = False
-            row.updated_at = datetime.utcnow()
+            row.updated_at = datetime.now(timezone.utc)
             await s.commit()
         log.info("tenant_deactivated", tenant_id=tenant_id)
         return True

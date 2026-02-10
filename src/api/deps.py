@@ -1,6 +1,6 @@
 """FastAPI dependencies: database session and auth."""
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from src.api.auth import decode_access_token
@@ -36,3 +36,18 @@ async def require_admin(
             detail="Admin access required",
         )
     return user
+
+
+async def get_authorized_tenant_id(
+    tenant_id: str = Query("default"),
+    user: dict[str, str | None] = Depends(get_current_user),
+) -> str:
+    """Return the authorized tenant_id for data endpoints.
+
+    - Tenant users: always use their own tenant_id from JWT (ignores query param).
+    - Admins (tenant_id=None in JWT): use the requested tenant_id query param.
+    """
+    jwt_tenant = user.get("tenant_id")
+    if jwt_tenant is not None:
+        return jwt_tenant
+    return tenant_id

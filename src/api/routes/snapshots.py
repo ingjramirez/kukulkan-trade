@@ -4,7 +4,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, Query
 
-from src.api.deps import get_current_user, get_db
+from src.api.deps import get_authorized_tenant_id, get_db
 from src.api.schemas import SnapshotResponse
 from src.storage.database import Database
 
@@ -15,9 +15,8 @@ router = APIRouter(prefix="/api", tags=["snapshots"])
 async def list_snapshots(
     portfolio: str | None = Query(None),
     since: date | None = Query(None),
-    tenant_id: str = Query("default"),
+    tenant_id: str = Depends(get_authorized_tenant_id),
     db: Database = Depends(get_db),
-    _user: dict = Depends(get_current_user),
 ) -> list[SnapshotResponse]:
     rows = await db.get_all_snapshots(
         portfolio=portfolio, since=since, tenant_id=tenant_id,

@@ -1,9 +1,9 @@
-"""Tests for security fixes: rate limiting, timing-safe auth, CORS, headers."""
+"""Tests for security fixes: rate limiting, timing-safe auth, CORS, headers, IDOR."""
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from src.api.auth import _revoked_tokens, revoke_token
+from src.api.auth import _revoked_tokens, create_access_token, revoke_token
 from src.api.deps import get_current_user, get_db
 from src.api.main import app
 from src.api.rate_limit import RateLimitMiddleware
@@ -242,3 +242,43 @@ class TestLoginInputValidation:
             json={"username": "admin", "password": "x" * 201},
         )
         assert r.status_code == 422
+
+
+# ── IDOR Protection ────────────────────────────────────────────────────────
+
+
+class TestIDORProtection:
+    """Verify tenant users cannot access other tenants' data via query param."""
+
+    @pytest.fixture
+    async def idor_client(self, db):
+        """Client with real auth (no bypass) for IDOR testing."""
+        app.dependency_overrides[get_db] = lambda: db
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            _reset_rate_limiter()
+            yield c
+        app.dependency_overrides.clear()
+
+    async def test_tenant_user_cannot_query_other_tenant(self, idor_client):
+        """Tenant user trying to pass tenant_id of another tenant gets own data."""
+        token = create_access_token("papa", tenant_id="tenant-papa")
+        headers = {"Authorization": f"Bearer {token}"}
+        # Try to access "default" tenant's data (IDOR attempt)
+        r = await idor_client.get(
+            "/api/portfolios?tenant_id=default", headers=headers,
+        )
+        assert r.status_code == 200
+        # Should return empty (tenant-papa has no portfolios), NOT default's data
+        assert r.json() == []
+
+    async def test_admin_can_query_any_tenant(self, idor_client):
+        """Admin user can use tenant_id query param to see any tenant."""
+        token = create_access_token("admin")
+        headers = {"Authorization": f"Bearer {token}"}
+        r = await idor_client.get(
+            "/api/portfolios?tenant_id=default", headers=headers,
+        )
+        assert r.status_code == 200
+        # Admin should get the seeded "default" tenant data
+        assert len(r.json()) == 1

@@ -4,7 +4,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from config.universe import PORTFOLIO_B_UNIVERSE
-from src.api.deps import get_db
+from src.api.deps import get_current_user, get_db
 from src.api.main import app
 from src.api.rate_limit import RateLimitMiddleware
 from src.storage.database import Database
@@ -20,6 +20,10 @@ def _reset_rate_limiter() -> None:
         handler = getattr(handler, "app", None)
 
 
+async def _bypass_user() -> dict[str, str | None]:
+    return {"username": "test-user", "tenant_id": None}
+
+
 @pytest.fixture
 async def db():
     test_db = Database(url="sqlite+aiosqlite:///:memory:")
@@ -30,7 +34,19 @@ async def db():
 
 @pytest.fixture
 async def client(db):
-    """Unauthenticated client — universe endpoint is public."""
+    """Authenticated client for universe endpoint."""
+    _reset_rate_limiter()
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_current_user] = _bypass_user
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def unauth_client(db):
+    """Unauthenticated client for testing auth requirement."""
     _reset_rate_limiter()
     app.dependency_overrides[get_db] = lambda: db
     transport = ASGITransport(app=app)
@@ -60,3 +76,9 @@ async def test_base_universe_sectors_sorted(client):
     # Tickers within each sector are sorted
     for tickers in data["sectors"].values():
         assert tickers == sorted(tickers)
+
+
+async def test_base_universe_requires_auth(unauth_client):
+    """Unauthenticated request should get 401/403."""
+    resp = await unauth_client.get("/api/universe/base")
+    assert resp.status_code in (401, 403)
