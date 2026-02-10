@@ -49,12 +49,18 @@ class TelegramNotifier:
             self._bot = Bot(token=self._token)
         return self._bot
 
-    async def send_message(self, text: str, parse_mode: str | None = ParseMode.HTML) -> bool:
+    async def send_message(
+        self,
+        text: str,
+        parse_mode: str | None = ParseMode.HTML,
+        max_retries: int = 2,
+    ) -> bool:
         """Send a text message to the configured chat.
 
         Args:
             text: Message text (supports HTML formatting).
             parse_mode: Telegram parse mode (HTML or Markdown).
+            max_retries: Number of retry attempts on failure (default 2).
 
         Returns:
             True if sent successfully.
@@ -63,20 +69,32 @@ class TelegramNotifier:
             log.warning("telegram_no_chat_id")
             return False
 
-        try:
-            # Split long messages
-            chunks = _split_message(text, MAX_MSG_LEN)
-            for chunk in chunks:
-                await self.bot.send_message(
-                    chat_id=self._chat_id,
-                    text=chunk,
-                    parse_mode=parse_mode,
-                )
-            log.debug("telegram_message_sent", chunks=len(chunks))
-            return True
-        except Exception as e:
-            log.error("telegram_send_failed", error=str(e))
-            return False
+        chunks = _split_message(text, MAX_MSG_LEN)
+        for attempt in range(1, max_retries + 2):  # 1 initial + max_retries
+            try:
+                for chunk in chunks:
+                    await self.bot.send_message(
+                        chat_id=self._chat_id,
+                        text=chunk,
+                        parse_mode=parse_mode,
+                    )
+                log.debug("telegram_message_sent", chunks=len(chunks))
+                return True
+            except Exception as e:
+                if attempt <= max_retries:
+                    delay = attempt * 3  # 3s, 6s
+                    log.warning(
+                        "telegram_send_retry",
+                        attempt=attempt,
+                        max_retries=max_retries,
+                        delay=delay,
+                        error=str(e),
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    log.error("telegram_send_failed", error=str(e), attempts=attempt)
+                    return False
+        return False  # unreachable, but satisfies type checker
 
     async def send_daily_brief(
         self,

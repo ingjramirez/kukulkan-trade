@@ -266,13 +266,41 @@ class TestTelegramNotifier:
         result = await notifier.send_message("Hello")
         assert result is False
 
-    async def test_send_message_api_failure(self, notifier: TelegramNotifier) -> None:
+    async def test_send_message_api_failure_exhausts_retries(
+        self, notifier: TelegramNotifier,
+    ) -> None:
         mock_bot = AsyncMock()
         mock_bot.send_message.side_effect = Exception("API error")
         notifier._bot = mock_bot
 
-        result = await notifier.send_message("Hello")
+        result = await notifier.send_message("Hello", max_retries=0)
         assert result is False
+        assert mock_bot.send_message.call_count == 1
+
+    async def test_send_message_retries_then_succeeds(
+        self, notifier: TelegramNotifier,
+    ) -> None:
+        mock_bot = AsyncMock()
+        mock_bot.send_message.side_effect = [
+            Exception("Timed out"),
+            None,  # success on retry
+        ]
+        notifier._bot = mock_bot
+
+        result = await notifier.send_message("Hello", max_retries=1)
+        assert result is True
+        assert mock_bot.send_message.call_count == 2
+
+    async def test_send_message_retries_all_fail(
+        self, notifier: TelegramNotifier,
+    ) -> None:
+        mock_bot = AsyncMock()
+        mock_bot.send_message.side_effect = Exception("ConnectError")
+        notifier._bot = mock_bot
+
+        result = await notifier.send_message("Hello", max_retries=2)
+        assert result is False
+        assert mock_bot.send_message.call_count == 3  # 1 initial + 2 retries
 
     async def test_send_message_splits_long(self, notifier: TelegramNotifier) -> None:
         mock_bot = AsyncMock()
