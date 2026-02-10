@@ -50,6 +50,11 @@ jobs:
             --exclude '*.egg-info' \
             ./ ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/opt/kukulkan-trade/
 
+      - name: Fix file ownership
+        run: |
+          ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "\
+            chown -R kukulkan:kukulkan /opt/kukulkan-trade/"
+
       - name: Deploy landing page
         run: |
           rsync -az \
