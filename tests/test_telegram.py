@@ -155,6 +155,59 @@ class TestFormatDailyBrief:
         )
         assert "$103,000" in msg
 
+    def test_no_trades_shows_reasons(self) -> None:
+        msg = format_daily_brief(
+            brief_date=date(2026, 2, 5),
+            regime="BULL",
+            portfolio_a={
+                "total_value": 33424, "cash": 0,
+                "top_ticker": "GDX", "daily_return_pct": None,
+                "reason": "Holding momentum target GDX",
+            },
+            portfolio_b={
+                "total_value": 66978, "cash": 1000,
+                "reasoning": "Conservative hold — maintaining current positions",
+                "daily_return_pct": None,
+            },
+            proposed_trades=[],
+        )
+        assert "No Trades Today" in msg
+        assert "A: Holding momentum target GDX" in msg
+        assert "B: Conservative hold" in msg
+
+    def test_no_trades_no_reasons(self) -> None:
+        """No-trade section still appears even without reason strings."""
+        msg = format_daily_brief(
+            brief_date=date(2026, 2, 5),
+            regime=None,
+            portfolio_a={"total_value": 33000, "daily_return_pct": None},
+            portfolio_b={"total_value": 66000, "daily_return_pct": None, "reasoning": ""},
+            proposed_trades=[],
+        )
+        assert "No Trades Today" in msg
+        # No reason lines when empty
+        assert "  A:" not in msg
+        assert "  B:" not in msg
+
+    def test_trades_present_hides_no_trade_section(self) -> None:
+        """When trades exist, no-trade section must not appear."""
+        trades = [_make_trade(ticker="QQQ", side=OrderSide.BUY, shares=5, price=500)]
+        msg = format_daily_brief(
+            brief_date=date(2026, 2, 5),
+            regime="BULL",
+            portfolio_a={
+                "total_value": 33000, "daily_return_pct": None,
+                "reason": "Rebalancing to QQQ",
+            },
+            portfolio_b={
+                "total_value": 66000, "daily_return_pct": None,
+                "reasoning": "Buying QQQ",
+            },
+            proposed_trades=trades,
+        )
+        assert "Proposed Trades (1)" in msg
+        assert "No Trades Today" not in msg
+
 
 # ── Trade Confirmation Formatting ────────────────────────────────────────────
 

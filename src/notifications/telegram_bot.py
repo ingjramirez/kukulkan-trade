@@ -434,6 +434,15 @@ def format_daily_brief(
                 f"@ ${t.price:.2f} [{t.portfolio.value}]"
             )
         lines.append("")
+    else:
+        a_reason = portfolio_a.get("reason", "")
+        b_reason = portfolio_b.get("reasoning", "")
+        lines.append("<b>No Trades Today</b>")
+        if a_reason:
+            lines.append(f"  A: {_escape_html(a_reason)}")
+        if b_reason:
+            lines.append(f"  B: {_escape_html(b_reason[:100])}")
+        lines.append("")
 
     # Commentary
     if commentary:

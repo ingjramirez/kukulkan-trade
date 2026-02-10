@@ -358,15 +358,18 @@ class Orchestrator:
         if not run_portfolio_a:
             log.info("portfolio_a_skipped_not_configured", tenant_id=tenant_id)
             summary["trades"]["A"] = 0
+            summary["a_reason"] = "Portfolio A not configured"
         elif "A" in halted_portfolios:
             log.info("portfolio_a_skipped_circuit_breaker")
             summary["trades"]["A"] = 0
+            summary["a_reason"] = "Portfolio A halted (circuit breaker)"
         else:
             try:
-                trades_a = await self._run_portfolio_a(
+                trades_a, a_reason = await self._run_portfolio_a(
                     closes, today, tenant_id=tenant_id,
                 )
                 summary["trades"]["A"] = len(trades_a)
+                summary["a_reason"] = a_reason
             except Exception as e:
                 log.error("portfolio_a_failed", error=str(e))
                 summary["errors"].append(f"Portfolio A failed: {e}")
@@ -524,8 +527,8 @@ class Orchestrator:
     async def _run_portfolio_a(
         self, closes: pd.DataFrame, today: date,
         tenant_id: str = "default",
-    ):
-        """Run Portfolio A momentum strategy and return trades."""
+    ) -> tuple[list, str]:
+        """Run Portfolio A momentum strategy and return trades with reason."""
         portfolio = await self._db.get_portfolio("A", tenant_id=tenant_id)
         positions = await self._db.get_positions("A", tenant_id=tenant_id)
         position_map = {p.ticker: p.shares for p in positions}
@@ -542,8 +545,15 @@ class Orchestrator:
             await self._db.save_momentum_rankings(ranking_rows)
 
         target = self._strategy_a.get_target_ticker(closes)
+
+        # Build reason for no-trade explanation
+        if not trades:
+            reason = f"Holding momentum target {target}" if target else "No momentum signal"
+        else:
+            reason = f"Rebalancing to {target}"
+
         log.info("portfolio_a_complete", trades=len(trades), target=target)
-        return trades
+        return trades, reason
 
     async def _run_portfolio_b(
         self, closes, volumes, yield_curve, vix, today,
@@ -981,7 +991,10 @@ class Orchestrator:
                 portfolio_summaries["A"]["top_ticker"] = top.ticker
             else:
                 portfolio_summaries["A"]["top_ticker"] = "cash"
-            portfolio_summaries["B"]["reasoning"] = summary.get("b_reasoning", "")
+            portfolio_summaries["A"]["reason"] = summary.get("a_reason", "")
+            portfolio_summaries["B"]["reasoning"] = (
+                summary.get("b_reasoning", "") or "No changes recommended"
+            )
 
             from src.storage.models import TradeSchema
             proposed = [t for t in proposed_trades if isinstance(t, TradeSchema)]

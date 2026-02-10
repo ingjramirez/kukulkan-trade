@@ -184,6 +184,61 @@ class TestOrchestrator:
 # ── Complexity-based model routing tests ────────────────────────────────────
 
 
+class TestPortfolioAReason:
+    """Tests for _run_portfolio_a returning (trades, reason) tuple."""
+
+    @patch("src.orchestrator.MacroDataFetcher")
+    @patch("src.data.market_data.yf")
+    async def test_holding_target_returns_reason(
+        self, mock_yf, mock_macro_cls, orchestrator: Orchestrator
+    ) -> None:
+        """When target is already held, reason explains hold."""
+        tickers = [
+            "XLK", "XLF", "XLV", "XLE", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE",
+            "QQQ", "SMH", "XBI", "IWM", "EFA", "EEM", "TLT", "HYG", "GDX", "ARKK",
+        ]
+        fake_data = _make_market_data(tickers)
+        closes = pd.DataFrame({t: df["Close"] for t, df in fake_data.items()}).sort_index()
+
+        # Pre-populate with the momentum target already held
+        target = orchestrator._strategy_a.get_target_ticker(closes)
+        assert target is not None
+
+        # Initialize portfolio and add position for target
+        await orchestrator._executor.initialize_portfolios()
+        await orchestrator._db.upsert_position(
+            portfolio="A", ticker=target, shares=100, avg_price=100.0,
+        )
+
+        trades, reason = await orchestrator._run_portfolio_a(
+            closes, date(2026, 2, 5),
+        )
+        assert trades == []
+        assert f"Holding momentum target {target}" in reason
+
+    @patch("src.orchestrator.MacroDataFetcher")
+    @patch("src.data.market_data.yf")
+    async def test_rebalance_returns_reason(
+        self, mock_yf, mock_macro_cls, orchestrator: Orchestrator
+    ) -> None:
+        """When trades are generated, reason mentions rebalancing."""
+        tickers = [
+            "XLK", "XLF", "XLV", "XLE", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE",
+            "QQQ", "SMH", "XBI", "IWM", "EFA", "EEM", "TLT", "HYG", "GDX", "ARKK",
+        ]
+        fake_data = _make_market_data(tickers)
+        closes = pd.DataFrame({t: df["Close"] for t, df in fake_data.items()}).sort_index()
+
+        # Initialize portfolio with cash only — should trigger a buy
+        await orchestrator._executor.initialize_portfolios()
+
+        trades, reason = await orchestrator._run_portfolio_a(
+            closes, date(2026, 2, 5),
+        )
+        assert len(trades) > 0
+        assert "Rebalancing to" in reason
+
+
 class TestComplexityRouting:
     """Tests for complexity detection and model routing in the orchestrator."""
 
