@@ -15,10 +15,13 @@ router = APIRouter(prefix="/api", tags=["snapshots"])
 async def list_snapshots(
     portfolio: str | None = Query(None),
     since: date | None = Query(None),
+    tenant_id: str = Query("default"),
     db: Database = Depends(get_db),
     _user: str = Depends(get_current_user),
 ) -> list[SnapshotResponse]:
-    rows = await db.get_all_snapshots(portfolio=portfolio, since=since)
+    rows = await db.get_all_snapshots(
+        portfolio=portfolio, since=since, tenant_id=tenant_id,
+    )
     return [
         SnapshotResponse(
             portfolio=r.portfolio,

@@ -1,17 +1,24 @@
 """GET /api/account — live Alpaca account data."""
 
-from fastapi import APIRouter, Depends, HTTPException
+import asyncio
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.api.alpaca_client import get_live_account
-from src.api.deps import get_current_user
+from src.api.deps import get_current_user, get_db
 from src.api.schemas import AccountResponse, PositionResponse
+from src.storage.database import Database
 
 router = APIRouter(prefix="/api", tags=["account"])
 
 
 @router.get("/account", response_model=AccountResponse)
-async def account(_user: str = Depends(get_current_user)) -> AccountResponse:
-    data = await get_live_account()
+async def account(
+    tenant_id: str = Query("default"),
+    db: Database = Depends(get_db),
+    _user: str = Depends(get_current_user),
+) -> AccountResponse:
+    data = await _get_account_data(tenant_id, db)
     if data is None:
         raise HTTPException(status_code=503, detail="Alpaca unavailable")
     return AccountResponse(
@@ -34,3 +41,52 @@ async def account(_user: str = Depends(get_current_user)) -> AccountResponse:
             for p in data["positions"]
         ],
     )
+
+
+async def _get_account_data(
+    tenant_id: str, db: Database,
+) -> dict | None:
+    """Fetch account data — uses tenant-specific client or global default."""
+    if tenant_id == "default":
+        return await get_live_account()
+
+    tenant = await db.get_tenant(tenant_id)
+    if tenant is None:
+        return None
+
+    try:
+        from src.execution.client_factory import AlpacaClientFactory
+
+        client = AlpacaClientFactory.get_trading_client(tenant)
+        account = await asyncio.to_thread(client.get_account)
+        positions = await asyncio.to_thread(client.get_all_positions)
+
+        equity = float(account.equity)
+        last_equity = float(account.last_equity)
+        daily_pl = equity - last_equity
+        daily_pl_pct = (
+            (daily_pl / last_equity) * 100 if last_equity else 0.0
+        )
+
+        return {
+            "equity": equity,
+            "last_equity": last_equity,
+            "daily_pl": daily_pl,
+            "daily_pl_pct": daily_pl_pct,
+            "cash": float(account.cash),
+            "buying_power": float(account.buying_power),
+            "positions": [
+                {
+                    "ticker": p.symbol,
+                    "shares": float(p.qty),
+                    "avg_price": float(p.avg_entry_price),
+                    "current_price": float(p.current_price),
+                    "market_value": float(p.market_value),
+                    "unrealized_pl": float(p.unrealized_pl),
+                    "unrealized_plpc": float(p.unrealized_plpc) * 100,
+                }
+                for p in positions
+            ],
+        }
+    except Exception:
+        return None

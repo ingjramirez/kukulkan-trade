@@ -193,9 +193,7 @@ async def test_alpaca(
         account = await asyncio.to_thread(client.get_account)
         return {
             "success": True,
-            "account_id": str(account.id),
             "equity": float(account.equity),
-            "status": str(account.status),
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
