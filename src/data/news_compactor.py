@@ -145,12 +145,14 @@ class NewsCompactor:
 
     def __init__(self, max_clusters: int = 8) -> None:
         self._max_clusters = max_clusters
+        self._last_universe: set[str] | None = None
 
     def compact(
         self,
         articles: list[NewsArticle],
         held_tickers: list[str] | None = None,
         top_movers: list[str] | None = None,
+        universe_tickers: set[str] | None = None,
     ) -> str:
         """Run the full 4-stage compaction pipeline.
 
@@ -158,15 +160,19 @@ class NewsCompactor:
             articles: Raw articles from NewsAggregator.
             held_tickers: Currently held portfolio tickers.
             top_movers: Tickers with largest recent price moves.
+            universe_tickers: Full set of known universe tickers for discovery filtering.
 
         Returns:
             Dense pipe-delimited news context string.
         """
         held = held_tickers or []
         movers = top_movers or []
+        self._last_universe = universe_tickers
 
         # Stage 1: Relevance filter
-        relevant = self._filter_relevant(articles, held, movers)
+        relevant, discovery_articles = self._filter_relevant(
+            articles, held, movers, universe_tickers,
+        )
 
         # Stage 2: Cluster by event
         clusters = self._cluster_by_event(relevant)
@@ -174,27 +180,38 @@ class NewsCompactor:
         # Stage 3: Rank by actionability
         ranked = self._rank_clusters(clusters, held)
 
+        # Stage 3.5: Cluster and rank discovery articles
+        discovery_clusters: list[NewsCluster] = []
+        if discovery_articles:
+            discovery_clusters = self._cluster_by_event(discovery_articles)
+            discovery_clusters = self._rank_discovery(discovery_clusters)
+
         # Stage 4: Format
-        return self._format(ranked)
+        return self._format(ranked, discovery_clusters)
 
     def _filter_relevant(
         self,
         articles: list[NewsArticle],
         held_tickers: list[str],
         top_movers: list[str],
-    ) -> list[NewsArticle]:
-        """Stage 1: Keep only articles about held tickers, top movers, or macro events.
+        universe_tickers: set[str] | None = None,
+    ) -> tuple[list[NewsArticle], list[NewsArticle]]:
+        """Stage 1: Keep articles about held/movers/macro; surface discovery articles.
 
         Args:
             articles: All fetched articles.
             held_tickers: Currently held tickers.
             top_movers: Biggest price movers today.
+            universe_tickers: Full universe set. Articles with non-universe tickers
+                go to discovery list.
 
         Returns:
-            Filtered list of relevant articles.
+            Tuple of (relevant articles, discovery articles).
         """
         priority_tickers = set(held_tickers + top_movers)
+        universe = universe_tickers or set()
         result: list[NewsArticle] = []
+        discovery: list[NewsArticle] = []
 
         for article in articles:
             if not article.headline:
@@ -209,9 +226,19 @@ class NewsCompactor:
 
             if ticker_match or macro_match:
                 result.append(article)
+            elif universe and article.tickers:
+                # Check if any ticker is outside the universe
+                has_non_universe = any(t not in universe for t in article.tickers)
+                if has_non_universe:
+                    discovery.append(article)
 
-        log.debug("news_filter", input=len(articles), output=len(result))
-        return result
+        log.debug(
+            "news_filter",
+            input=len(articles),
+            relevant=len(result),
+            discovery=len(discovery),
+        )
+        return result, discovery
 
     def _cluster_by_event(
         self, articles: list[NewsArticle],
@@ -316,7 +343,70 @@ class NewsCompactor:
         ranked = sorted(clusters, key=lambda c: c.score, reverse=True)
         return ranked[:self._max_clusters]
 
-    def _format(self, clusters: list[NewsCluster]) -> str:
+    def _rank_discovery(
+        self,
+        clusters: list[NewsCluster],
+        max_items: int = 3,
+    ) -> list[NewsCluster]:
+        """Rank discovery clusters by actionability and return top items.
+
+        Scoring:
+        - +20 if earnings or corporate event keywords
+        - +5 per additional source (multi-source confirmation)
+        - +5 if sentiment score available
+
+        Args:
+            clusters: Clustered discovery articles.
+            max_items: Maximum discovery items to return.
+
+        Returns:
+            Top discovery clusters sorted by score.
+        """
+        for cluster in clusters:
+            score = 0
+            headline_lower = cluster.representative.headline.lower()
+            headline_words = set(re.findall(r"\b\w+\b", headline_lower))
+
+            # Earnings/event keyword bonus
+            if headline_words & (_EARNINGS_KEYWORDS | _EVENT_KEYWORDS):
+                score += 20
+
+            # Multi-source confirmation
+            score += min(cluster.source_count, 5) * 5
+
+            # Sentiment available bonus
+            if cluster.representative.sentiment is not None:
+                score += 5
+
+            cluster.score = score
+
+        ranked = sorted(clusters, key=lambda c: c.score, reverse=True)
+        return ranked[:max_items]
+
+    def _pick_discovery_ticker(
+        self, cluster: NewsCluster, universe_tickers: set[str],
+    ) -> str:
+        """Pick the best non-universe ticker from a discovery cluster.
+
+        Args:
+            cluster: Discovery news cluster.
+            universe_tickers: Known universe tickers to exclude.
+
+        Returns:
+            A non-universe ticker string, or first ticker as fallback.
+        """
+        non_universe = [t for t in cluster.all_tickers if t and t not in universe_tickers]
+        if non_universe:
+            return non_universe[0]
+        # Fallback to any ticker
+        tickers = [t for t in cluster.all_tickers if t]
+        return tickers[0] if tickers else "NEW"
+
+    def _format(
+        self,
+        clusters: list[NewsCluster],
+        discovery_clusters: list[NewsCluster] | None = None,
+    ) -> str:
         """Stage 4: Format as dense pipe-delimited output.
 
         Target: ~250 tokens for the full news section.
@@ -325,23 +415,36 @@ class NewsCompactor:
 
         Args:
             clusters: Ranked and filtered clusters.
+            discovery_clusters: Optional discovery clusters (non-universe tickers).
 
         Returns:
             Formatted string ready for agent prompt.
         """
-        if not clusters:
+        if not clusters and not discovery_clusters:
             return ""
 
-        lines = ["TICKER|SIGNAL|EVENT|#SRC"]
+        lines: list[str] = []
 
-        for cluster in clusters:
-            # Pick the most relevant ticker for display
-            ticker = self._pick_display_ticker(cluster)
-            signal = cluster.signal
-            headline = compress_headline(cluster.representative.headline)
-            sources = cluster.source_count
+        if clusters:
+            lines.append("TICKER|SIGNAL|EVENT|#SRC")
+            for cluster in clusters:
+                ticker = self._pick_display_ticker(cluster)
+                signal = cluster.signal
+                headline = compress_headline(cluster.representative.headline)
+                sources = cluster.source_count
+                lines.append(f"{ticker}|{signal}|{headline}|{sources}")
 
-            lines.append(f"{ticker}|{signal}|{headline}|{sources}")
+        if discovery_clusters:
+            lines.append("")
+            lines.append("== DISCOVERY (not in universe) ==")
+            for cluster in discovery_clusters:
+                ticker = self._pick_discovery_ticker(
+                    cluster, self._last_universe or set(),
+                )
+                signal = cluster.signal
+                headline = compress_headline(cluster.representative.headline)
+                sources = cluster.source_count
+                lines.append(f"{ticker}|{signal}|{headline}|{sources}")
 
         return "\n".join(lines)
 

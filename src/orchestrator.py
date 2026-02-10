@@ -417,6 +417,7 @@ class Orchestrator:
                 articles=raw_articles,
                 held_tickers=held_tickers,
                 top_movers=movers,
+                universe_tickers=set(dynamic_universe),
             )
         except Exception as e:
             log.warning("news_fetch_failed", error=str(e))
