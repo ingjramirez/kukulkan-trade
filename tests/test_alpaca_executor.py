@@ -395,6 +395,25 @@ class TestAlpacaExecutorSnapshot:
         # 31000 cash + 10*210 = 33100
         assert snapshots[0].total_value == 33100.0
 
+    async def test_snapshot_updates_position_prices(
+        self, db: Database, mock_client,
+    ) -> None:
+        executor = AlpacaExecutor(db, mock_client)
+        await executor.initialize_portfolios()
+        await db.upsert_position("A", "XLK", 10, 200.0)
+        await db.upsert_position("A", "AAPL", 5, 150.0)
+        await db.upsert_portfolio("A", cash=28_000.0, total_value=33_000.0)
+
+        prices = {"XLK": 210.0, "AAPL": 160.0}
+        await executor.take_snapshot("A", date(2026, 2, 6), prices)
+
+        positions = await db.get_positions("A")
+        by_ticker = {p.ticker: p for p in positions}
+        assert by_ticker["XLK"].current_price == 210.0
+        assert by_ticker["XLK"].market_value == 10 * 210.0
+        assert by_ticker["AAPL"].current_price == 160.0
+        assert by_ticker["AAPL"].market_value == 5 * 160.0
+
     async def test_snapshot_cumulative_return(self, db: Database, mock_client) -> None:
         executor = AlpacaExecutor(db, mock_client)
         await executor.initialize_portfolios()

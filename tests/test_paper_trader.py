@@ -145,6 +145,24 @@ class TestSnapshot:
         # cash = 33000 - 20000 = 13000, positions = 100*205 = 20500
         assert snapshots[0].total_value == 13_000.0 + 20_500.0
 
+    async def test_snapshot_updates_position_prices(self, trader: PaperTrader) -> None:
+        buy = TradeSchema(
+            portfolio=PortfolioName.A, ticker="XLK", side=OrderSide.BUY,
+            shares=100.0, price=200.0,
+        )
+        await trader.execute_trades([buy])
+
+        # Before snapshot, current_price and market_value are None
+        positions = await trader._db.get_positions("A")
+        assert positions[0].current_price is None
+        assert positions[0].market_value is None
+
+        await trader.take_snapshot("A", date(2026, 2, 5), {"XLK": 205.0})
+
+        positions = await trader._db.get_positions("A")
+        assert positions[0].current_price == 205.0
+        assert positions[0].market_value == 100.0 * 205.0
+
     async def test_daily_return_calculation(self, trader: PaperTrader) -> None:
         buy = TradeSchema(
             portfolio=PortfolioName.A, ticker="XLK", side=OrderSide.BUY,

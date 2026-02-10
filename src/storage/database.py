@@ -145,6 +145,30 @@ class Database:
                 ))
             await s.commit()
 
+    async def update_position_prices(
+        self,
+        portfolio: str,
+        prices: dict[str, float],
+        tenant_id: str = "default",
+    ) -> None:
+        """Update current_price and market_value for all positions in a portfolio."""
+        async with self.session() as s:
+            positions = (
+                await s.execute(
+                    select(PositionRow).where(
+                        PositionRow.tenant_id == tenant_id,
+                        PositionRow.portfolio == portfolio,
+                    )
+                )
+            ).scalars().all()
+            for p in positions:
+                price = prices.get(p.ticker)
+                if price is not None:
+                    p.current_price = price
+                    p.market_value = p.shares * price
+                    p.updated_at = datetime.now(timezone.utc)
+            await s.commit()
+
     # ── Trade Log ────────────────────────────────────────────────────────
 
     async def log_trade(

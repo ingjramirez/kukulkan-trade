@@ -65,6 +65,41 @@ class TestPositionCRUD:
         assert len(positions) == 2
 
 
+class TestUpdatePositionPrices:
+    async def test_updates_current_price_and_market_value(self, db: Database) -> None:
+        await db.upsert_position("A", "XLK", shares=10.0, avg_price=200.0)
+        await db.upsert_position("A", "AAPL", shares=5.0, avg_price=150.0)
+
+        await db.update_position_prices("A", {"XLK": 210.0, "AAPL": 160.0})
+
+        positions = await db.get_positions("A")
+        by_ticker = {p.ticker: p for p in positions}
+        assert by_ticker["XLK"].current_price == 210.0
+        assert by_ticker["XLK"].market_value == 2100.0
+        assert by_ticker["AAPL"].current_price == 160.0
+        assert by_ticker["AAPL"].market_value == 800.0
+
+    async def test_skips_tickers_not_in_prices(self, db: Database) -> None:
+        await db.upsert_position("A", "XLK", shares=10.0, avg_price=200.0)
+
+        await db.update_position_prices("A", {})
+
+        positions = await db.get_positions("A")
+        assert positions[0].current_price is None
+        assert positions[0].market_value is None
+
+    async def test_scoped_to_portfolio(self, db: Database) -> None:
+        await db.upsert_position("A", "XLK", shares=10.0, avg_price=200.0)
+        await db.upsert_position("B", "XLK", shares=20.0, avg_price=200.0)
+
+        await db.update_position_prices("A", {"XLK": 210.0})
+
+        pos_a = await db.get_positions("A")
+        pos_b = await db.get_positions("B")
+        assert pos_a[0].current_price == 210.0
+        assert pos_b[0].current_price is None
+
+
 class TestTradeLog:
     async def test_log_and_retrieve_trade(self, db: Database) -> None:
         await db.log_trade("A", "XLK", "BUY", shares=100.0, price=200.0, reason="momentum")

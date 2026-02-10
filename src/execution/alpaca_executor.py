@@ -527,6 +527,7 @@ class AlpacaExecutor:
             cumulative_return_pct=cumulative_return_pct,
         )
 
+        await self._db.update_position_prices(portfolio_name, prices)
         await self._db.upsert_portfolio(portfolio_name, portfolio.cash, total_value)
 
         log.info(
