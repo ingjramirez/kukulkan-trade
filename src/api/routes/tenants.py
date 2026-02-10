@@ -1,4 +1,4 @@
-"""Tenant management API — admin-only CRUD + connectivity tests."""
+"""Tenant management API — admin CRUD + tenant self-service."""
 
 from __future__ import annotations
 
@@ -7,8 +7,13 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from src.api.deps import get_db, require_admin
-from src.api.schemas import TenantCreateRequest, TenantReadResponse, TenantUpdateRequest
+from src.api.deps import get_current_user, get_db, require_admin
+from src.api.schemas import (
+    TenantCreateRequest,
+    TenantReadResponse,
+    TenantSelfUpdateRequest,
+    TenantUpdateRequest,
+)
 from src.storage.database import Database
 from src.storage.models import TenantRow
 from src.utils.crypto import decrypt_value, encrypt_value, mask_credential
@@ -51,6 +56,62 @@ def _tenant_to_response(tenant: TenantRow) -> TenantReadResponse:
         created_at=tenant.created_at,
         updated_at=tenant.updated_at,
     )
+
+
+# ── Tenant self-service (must be before /{tenant_id} routes) ─────────────
+
+
+@router.get("/me", response_model=TenantReadResponse)
+async def get_my_tenant(
+    db: Database = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> TenantReadResponse:
+    """Get the current tenant user's own tenant info."""
+    tenant_id = user.get("tenant_id")
+    if tenant_id is None:
+        raise HTTPException(status_code=403, detail="Not a tenant user")
+    tenant = await db.get_tenant(tenant_id)
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    return _tenant_to_response(tenant)
+
+
+@router.patch("/me", response_model=TenantReadResponse)
+async def update_my_tenant(
+    body: TenantSelfUpdateRequest,
+    db: Database = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> TenantReadResponse:
+    """Update the current tenant user's own ticker customizations."""
+    tenant_id = user.get("tenant_id")
+    if tenant_id is None:
+        raise HTTPException(status_code=403, detail="Not a tenant user")
+    tenant = await db.get_tenant(tenant_id)
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    updates: dict = {}
+    if body.ticker_whitelist is not None:
+        updates["ticker_whitelist"] = (
+            json.dumps(body.ticker_whitelist) if body.ticker_whitelist else None
+        )
+    if body.ticker_additions is not None:
+        updates["ticker_additions"] = (
+            json.dumps(body.ticker_additions) if body.ticker_additions else None
+        )
+    if body.ticker_exclusions is not None:
+        updates["ticker_exclusions"] = (
+            json.dumps(body.ticker_exclusions) if body.ticker_exclusions else None
+        )
+
+    if not updates:
+        return _tenant_to_response(tenant)
+
+    updated = await db.update_tenant(tenant_id, updates)
+    return _tenant_to_response(updated)
+
+
+# ── Admin CRUD ───────────────────────────────────────────────────────────
 
 
 @router.post("", response_model=TenantReadResponse, status_code=201)
@@ -143,10 +204,10 @@ async def update_tenant(
         raise HTTPException(status_code=404, detail="Tenant not found")
 
     # Portfolio config fields require Alpaca + Telegram to be configured
+    # (ticker lists are preferences, not trading ops — allowed without creds)
     _portfolio_fields = {
         "run_portfolio_a", "run_portfolio_b", "portfolio_a_cash",
-        "portfolio_b_cash", "strategy_mode", "ticker_whitelist",
-        "ticker_additions", "ticker_exclusions",
+        "portfolio_b_cash", "strategy_mode",
     }
     has_portfolio_update = any(
         getattr(body, f) is not None for f in _portfolio_fields

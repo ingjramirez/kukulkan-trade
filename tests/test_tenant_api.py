@@ -179,6 +179,39 @@ class TestUpdateTenant:
         assert r.status_code == 404
 
 
+    async def test_update_tickers_without_credentials(self, client, auth_headers):
+        """Ticker customization should work without Alpaca/Telegram credentials."""
+        create = await client.post(
+            "/api/tenants",
+            json={"name": "NoCreds", "username": "nocreds", "password": "pass123"},
+            headers=auth_headers,
+        )
+        tid = create.json()["id"]
+        r = await client.patch(
+            f"/api/tenants/{tid}",
+            json={"ticker_additions": ["INTL", "COIN"]},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+        assert r.json()["ticker_additions"] == ["INTL", "COIN"]
+
+    async def test_update_portfolio_config_requires_credentials(self, client, auth_headers):
+        """Portfolio trading config (strategy_mode, etc.) still requires credentials."""
+        create = await client.post(
+            "/api/tenants",
+            json={"name": "NoCreds2", "username": "nocreds2", "password": "pass456"},
+            headers=auth_headers,
+        )
+        tid = create.json()["id"]
+        r = await client.patch(
+            f"/api/tenants/{tid}",
+            json={"strategy_mode": "aggressive"},
+            headers=auth_headers,
+        )
+        assert r.status_code == 422
+        assert "credentials" in r.json()["detail"].lower()
+
+
 class TestDeactivateTenant:
     async def test_deactivate(self, client, auth_headers):
         create = await client.post(
@@ -203,6 +236,94 @@ class TestDeactivateTenant:
     async def test_deactivate_nonexistent(self, client, auth_headers):
         r = await client.delete("/api/tenants/nope", headers=auth_headers)
         assert r.status_code == 404
+
+
+class TestTenantSelfService:
+    """Tests for /api/tenants/me — tenant user self-service."""
+
+    async def _create_tenant_and_get_headers(
+        self, client: AsyncClient, auth_headers: dict,
+    ) -> tuple[str, dict]:
+        """Create a tenant with login creds and return (tenant_id, tenant_headers)."""
+        r = await client.post(
+            "/api/tenants",
+            json={"name": "SelfUser", "username": "selfuser", "password": "pass123"},
+            headers=auth_headers,
+        )
+        tid = r.json()["id"]
+        tenant_token = create_access_token("selfuser", tenant_id=tid)
+        return tid, {"Authorization": f"Bearer {tenant_token}"}
+
+    async def test_get_me(self, client, auth_headers):
+        tid, tenant_headers = await self._create_tenant_and_get_headers(
+            client, auth_headers,
+        )
+        r = await client.get("/api/tenants/me", headers=tenant_headers)
+        assert r.status_code == 200
+        assert r.json()["id"] == tid
+        assert r.json()["name"] == "SelfUser"
+
+    async def test_get_me_admin_rejected(self, client, auth_headers):
+        """Admin users (no tenant_id) should get 403 on /me."""
+        r = await client.get("/api/tenants/me", headers=auth_headers)
+        assert r.status_code == 403
+
+    async def test_patch_me_ticker_additions(self, client, auth_headers):
+        _, tenant_headers = await self._create_tenant_and_get_headers(
+            client, auth_headers,
+        )
+        r = await client.patch(
+            "/api/tenants/me",
+            json={"ticker_additions": ["INTL", "COIN"]},
+            headers=tenant_headers,
+        )
+        assert r.status_code == 200
+        assert r.json()["ticker_additions"] == ["INTL", "COIN"]
+
+    async def test_patch_me_ticker_exclusions(self, client, auth_headers):
+        _, tenant_headers = await self._create_tenant_and_get_headers(
+            client, auth_headers,
+        )
+        r = await client.patch(
+            "/api/tenants/me",
+            json={"ticker_exclusions": ["AAPL", "MSFT"]},
+            headers=tenant_headers,
+        )
+        assert r.status_code == 200
+        assert r.json()["ticker_exclusions"] == ["AAPL", "MSFT"]
+
+    async def test_patch_me_no_admin_fields(self, client, auth_headers):
+        """Tenant users cannot set admin-level fields via /me."""
+        _, tenant_headers = await self._create_tenant_and_get_headers(
+            client, auth_headers,
+        )
+        # strategy_mode is not in TenantSelfUpdateRequest — Pydantic ignores it
+        r = await client.patch(
+            "/api/tenants/me",
+            json={"strategy_mode": "aggressive", "ticker_additions": ["INTL"]},
+            headers=tenant_headers,
+        )
+        assert r.status_code == 200
+        # strategy_mode should remain default (conservative), not changed
+        assert r.json()["strategy_mode"] == "conservative"
+        assert r.json()["ticker_additions"] == ["INTL"]
+
+    async def test_patch_me_admin_rejected(self, client, auth_headers):
+        """Admin users (no tenant_id) should get 403 on PATCH /me."""
+        r = await client.patch(
+            "/api/tenants/me",
+            json={"ticker_additions": ["INTL"]},
+            headers=auth_headers,
+        )
+        assert r.status_code == 403
+
+    async def test_patch_me_unauthenticated(self, client):
+        """No token should get 401."""
+        r = await client.patch(
+            "/api/tenants/me",
+            json={"ticker_additions": ["INTL"]},
+        )
+        assert r.status_code == 401
 
 
 class TestCredentialMasking:

@@ -140,6 +140,13 @@ class TenantUpdateRequest(BaseModel):
     password: str | None = None
 
 
+class TenantSelfUpdateRequest(BaseModel):
+    """Fields a tenant user can update on their own account."""
+    ticker_whitelist: list[str] | None = None
+    ticker_additions: list[str] | None = None
+    ticker_exclusions: list[str] | None = None
+
+
 class TenantReadResponse(BaseModel):
     id: str
     name: str
