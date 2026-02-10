@@ -154,6 +154,11 @@ class TenantUpdateRequest(BaseModel):
 
 class TenantSelfUpdateRequest(BaseModel):
     """Fields a tenant user can update on their own account."""
+    alpaca_api_key: str | None = None
+    alpaca_api_secret: str | None = None
+    alpaca_base_url: str | None = None
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
     ticker_whitelist: list[str] | None = None
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None

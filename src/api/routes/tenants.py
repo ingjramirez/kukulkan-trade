@@ -82,7 +82,7 @@ async def update_my_tenant(
     db: Database = Depends(get_db),
     user: dict = Depends(get_current_user),
 ) -> TenantReadResponse:
-    """Update the current tenant user's own ticker customizations."""
+    """Update the current tenant user's own credentials and ticker customizations."""
     tenant_id = user.get("tenant_id")
     if tenant_id is None:
         raise HTTPException(status_code=403, detail="Not a tenant user")
@@ -91,6 +91,16 @@ async def update_my_tenant(
         raise HTTPException(status_code=404, detail="Tenant not found")
 
     updates: dict = {}
+    if body.alpaca_api_key is not None:
+        updates["alpaca_api_key_enc"] = encrypt_value(body.alpaca_api_key)
+    if body.alpaca_api_secret is not None:
+        updates["alpaca_api_secret_enc"] = encrypt_value(body.alpaca_api_secret)
+    if body.alpaca_base_url is not None:
+        updates["alpaca_base_url"] = body.alpaca_base_url
+    if body.telegram_bot_token is not None:
+        updates["telegram_bot_token_enc"] = encrypt_value(body.telegram_bot_token)
+    if body.telegram_chat_id is not None:
+        updates["telegram_chat_id_enc"] = encrypt_value(body.telegram_chat_id)
     if body.ticker_whitelist is not None:
         updates["ticker_whitelist"] = (
             json.dumps(body.ticker_whitelist) if body.ticker_whitelist else None
@@ -107,8 +117,71 @@ async def update_my_tenant(
     if not updates:
         return _tenant_to_response(tenant)
 
+    # Invalidate cached clients when credentials change
+    if any(k.endswith("_enc") for k in updates):
+        from src.execution.client_factory import AlpacaClientFactory
+        from src.notifications.telegram_factory import TelegramFactory
+        AlpacaClientFactory.invalidate(tenant_id)
+        TelegramFactory.invalidate(tenant_id)
+
     updated = await db.update_tenant(tenant_id, updates)
     return _tenant_to_response(updated)
+
+
+@router.post("/me/test-alpaca")
+async def test_my_alpaca(
+    db: Database = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Test the current tenant user's own Alpaca connection."""
+    tenant_id = user.get("tenant_id")
+    if tenant_id is None:
+        raise HTTPException(status_code=403, detail="Not a tenant user")
+    tenant = await db.get_tenant(tenant_id)
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    if not tenant.alpaca_api_key_enc or not tenant.alpaca_api_secret_enc:
+        return {"success": False, "error": "Alpaca credentials not configured"}
+
+    try:
+        import asyncio
+
+        from src.execution.client_factory import AlpacaClientFactory
+        client = AlpacaClientFactory.get_trading_client(tenant)
+        account = await asyncio.to_thread(client.get_account)
+        return {"success": True, "equity": float(account.equity)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/me/test-telegram")
+async def test_my_telegram(
+    db: Database = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Send a test message via the current tenant user's own Telegram bot."""
+    tenant_id = user.get("tenant_id")
+    if tenant_id is None:
+        raise HTTPException(status_code=403, detail="Not a tenant user")
+    tenant = await db.get_tenant(tenant_id)
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    if not tenant.telegram_bot_token_enc or not tenant.telegram_chat_id_enc:
+        return {"success": False, "error": "Telegram credentials not configured"}
+
+    try:
+        from src.notifications.telegram_factory import TelegramFactory
+        notifier = TelegramFactory.get_notifier(tenant)
+        success = await notifier.send_message(
+            "🐍 Kukulkan test message — connection verified!",
+        )
+        if success:
+            return {"success": True, "message": "Test message sent"}
+        return {"success": False, "error": "Send returned False"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 # ── Admin CRUD ───────────────────────────────────────────────────────────

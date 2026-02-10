@@ -325,6 +325,77 @@ class TestTenantSelfService:
         )
         assert r.status_code == 401
 
+    async def test_patch_me_alpaca_credentials(self, client, auth_headers):
+        """Tenant users can update their own Alpaca credentials via /me."""
+        _, tenant_headers = await self._create_tenant_and_get_headers(
+            client, auth_headers,
+        )
+        # Initially no Alpaca key
+        r = await client.get("/api/tenants/me", headers=tenant_headers)
+        assert r.json()["alpaca_api_key_masked"] is None
+
+        # Update credentials
+        r = await client.patch(
+            "/api/tenants/me",
+            json={
+                "alpaca_api_key": "PKTEST123456",
+                "alpaca_api_secret": "secret789",
+            },
+            headers=tenant_headers,
+        )
+        assert r.status_code == 200
+        assert r.json()["alpaca_api_key_masked"] is not None
+        assert "..." in r.json()["alpaca_api_key_masked"]
+        # Full credential must not appear
+        assert "PKTEST123456" not in str(r.json())
+
+    async def test_patch_me_telegram_credentials(self, client, auth_headers):
+        """Tenant users can update their own Telegram credentials via /me."""
+        _, tenant_headers = await self._create_tenant_and_get_headers(
+            client, auth_headers,
+        )
+        r = await client.patch(
+            "/api/tenants/me",
+            json={
+                "telegram_bot_token": "123456:ABCdef",
+                "telegram_chat_id": "999888777",
+            },
+            headers=tenant_headers,
+        )
+        assert r.status_code == 200
+        assert r.json()["telegram_chat_id_masked"] is not None
+        assert "..." in r.json()["telegram_chat_id_masked"]
+
+    async def test_me_test_alpaca_no_creds(self, client, auth_headers):
+        """Test Alpaca connection fails gracefully when no credentials."""
+        _, tenant_headers = await self._create_tenant_and_get_headers(
+            client, auth_headers,
+        )
+        r = await client.post("/api/tenants/me/test-alpaca", headers=tenant_headers)
+        assert r.status_code == 200
+        assert r.json()["success"] is False
+        assert "not configured" in r.json()["error"]
+
+    async def test_me_test_telegram_no_creds(self, client, auth_headers):
+        """Test Telegram connection fails gracefully when no credentials."""
+        _, tenant_headers = await self._create_tenant_and_get_headers(
+            client, auth_headers,
+        )
+        r = await client.post("/api/tenants/me/test-telegram", headers=tenant_headers)
+        assert r.status_code == 200
+        assert r.json()["success"] is False
+        assert "not configured" in r.json()["error"]
+
+    async def test_me_test_alpaca_admin_rejected(self, client, auth_headers):
+        """Admin users (no tenant_id) should get 403 on /me/test-alpaca."""
+        r = await client.post("/api/tenants/me/test-alpaca", headers=auth_headers)
+        assert r.status_code == 403
+
+    async def test_me_test_telegram_admin_rejected(self, client, auth_headers):
+        """Admin users (no tenant_id) should get 403 on /me/test-telegram."""
+        r = await client.post("/api/tenants/me/test-telegram", headers=auth_headers)
+        assert r.status_code == 403
+
 
 class TestCredentialMasking:
     async def test_credentials_never_exposed(self, client, auth_headers):
