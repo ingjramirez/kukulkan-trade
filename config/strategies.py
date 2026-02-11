@@ -22,7 +22,7 @@ class PortfolioBConfig:
 
     name: str = "AI Full Autonomy"
     allocation_usd: float = 66_000.0
-    model: str = "claude-sonnet-4-5-20250929"
+    model: str = "claude-opus-4-6"
     max_positions: int = 10
     max_single_position_pct: float = 0.30  # no single position > 30%
     rebalance_frequency: str = "daily"
