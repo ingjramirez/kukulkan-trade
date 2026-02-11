@@ -14,9 +14,9 @@ from src.api.routes.account import router as account_router
 from src.api.routes.decisions import router as decisions_router
 from src.api.routes.momentum import router as momentum_router
 from src.api.routes.portfolios import router as portfolios_router
+from src.api.routes.run import router as run_router
 from src.api.routes.snapshots import router as snapshots_router
 from src.api.routes.tenants import router as tenants_router
-from src.api.routes.run import router as run_router
 from src.api.routes.trades import router as trades_router
 from src.api.routes.universe import router as universe_router
 from src.storage.database import Database
