@@ -225,6 +225,32 @@ async def test_tenant_scoped_report(db, mock_notifier):
     assert "XLK" in report or "1 this week" in report
 
 
+async def test_report_skips_disabled_portfolio_a(seeded_db, mock_notifier):
+    """WeeklyReporter with run_portfolio_a=False skips Portfolio A section."""
+    reporter = WeeklyReporter(
+        seeded_db, mock_notifier, run_portfolio_a=False, run_portfolio_b=True,
+    )
+    report = await reporter.generate_and_send(date(2026, 2, 6))
+
+    assert "Portfolio B" in report
+    assert "Portfolio A" not in report
+
+
+async def test_report_skips_disabled_portfolio_b(seeded_db, mock_notifier):
+    """WeeklyReporter with run_portfolio_b=False skips Portfolio B section."""
+    reporter = WeeklyReporter(
+        seeded_db, mock_notifier, run_portfolio_a=True, run_portfolio_b=False,
+    )
+    report = await reporter.generate_and_send(date(2026, 2, 6))
+
+    assert "Portfolio A" in report
+    # Portfolio B section header should not appear
+    # (B trades and drawdowns are also skipped)
+    lines = report.split("\n")
+    portfolio_b_lines = [ln for ln in lines if ln.strip().startswith("Portfolio B")]
+    assert len(portfolio_b_lines) == 0
+
+
 async def test_tenant_isolation_in_reports(db, mock_notifier):
     """Data from one tenant does not leak into another tenant's report."""
     async with db.session() as s:

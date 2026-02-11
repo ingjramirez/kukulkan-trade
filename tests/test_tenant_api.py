@@ -293,19 +293,19 @@ class TestTenantSelfService:
         assert r.json()["ticker_exclusions"] == ["AAPL", "MSFT"]
 
     async def test_patch_me_no_admin_fields(self, client, auth_headers):
-        """Tenant users cannot set admin-level fields via /me."""
+        """Tenant users cannot set admin-level fields like is_active via /me."""
         _, tenant_headers = await self._create_tenant_and_get_headers(
             client, auth_headers,
         )
-        # strategy_mode is not in TenantSelfUpdateRequest — Pydantic ignores it
+        # is_active is not in TenantSelfUpdateRequest — Pydantic ignores it
         r = await client.patch(
             "/api/tenants/me",
-            json={"strategy_mode": "aggressive", "ticker_additions": ["INTL"]},
+            json={"is_active": False, "ticker_additions": ["INTL"]},
             headers=tenant_headers,
         )
         assert r.status_code == 200
-        # strategy_mode should remain default (conservative), not changed
-        assert r.json()["strategy_mode"] == "conservative"
+        # is_active should remain True, not changed
+        assert r.json()["is_active"] is True
         assert r.json()["ticker_additions"] == ["INTL"]
 
     async def test_patch_me_admin_rejected(self, client, auth_headers):
@@ -421,3 +421,149 @@ class TestCredentialMasking:
         # Masked versions should be present
         assert "..." in data["alpaca_api_key_masked"]
         assert "..." in data["telegram_chat_id_masked"]
+
+
+class TestPendingRebalance:
+    """Tests for pending_rebalance flag on portfolio toggle changes."""
+
+    async def test_admin_toggle_sets_pending_rebalance(self, client, auth_headers):
+        """Changing portfolio toggles via admin PATCH sets pending_rebalance=True."""
+        create = await client.post(
+            "/api/tenants",
+            json={
+                "name": "Rebalance",
+                "alpaca_api_key": "k",
+                "alpaca_api_secret": "s",
+                "telegram_bot_token": "t",
+                "telegram_chat_id": "c",
+                "run_portfolio_a": False,
+                "run_portfolio_b": True,
+            },
+            headers=auth_headers,
+        )
+        tid = create.json()["id"]
+        assert create.json()["pending_rebalance"] is False
+
+        r = await client.patch(
+            f"/api/tenants/{tid}",
+            json={"run_portfolio_a": True},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+        assert r.json()["pending_rebalance"] is True
+
+    async def test_no_toggle_change_no_pending_rebalance(self, client, auth_headers):
+        """Updating non-toggle fields does NOT set pending_rebalance."""
+        create = await client.post(
+            "/api/tenants",
+            json={
+                "name": "NoRebal",
+                "alpaca_api_key": "k",
+                "alpaca_api_secret": "s",
+                "telegram_bot_token": "t",
+                "telegram_chat_id": "c",
+            },
+            headers=auth_headers,
+        )
+        tid = create.json()["id"]
+        r = await client.patch(
+            f"/api/tenants/{tid}",
+            json={"name": "Renamed"},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+        assert r.json()["pending_rebalance"] is False
+
+    async def test_same_toggle_value_no_pending_rebalance(self, client, auth_headers):
+        """Setting toggle to the same value does NOT trigger pending_rebalance."""
+        create = await client.post(
+            "/api/tenants",
+            json={
+                "name": "Same",
+                "alpaca_api_key": "k",
+                "alpaca_api_secret": "s",
+                "telegram_bot_token": "t",
+                "telegram_chat_id": "c",
+                "run_portfolio_b": True,
+            },
+            headers=auth_headers,
+        )
+        tid = create.json()["id"]
+        r = await client.patch(
+            f"/api/tenants/{tid}",
+            json={"run_portfolio_b": True},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+        assert r.json()["pending_rebalance"] is False
+
+
+class TestSelfServicePortfolioConfig:
+    """Tests for self-service portfolio toggle and strategy mode."""
+
+    async def _create_tenant_with_creds(
+        self, client: AsyncClient, auth_headers: dict,
+    ) -> tuple[str, dict]:
+        """Create a tenant with full creds and return (tenant_id, tenant_headers)."""
+        r = await client.post(
+            "/api/tenants",
+            json={
+                "name": "FullCreds",
+                "username": "fullcreds",
+                "password": "pass123",
+                "alpaca_api_key": "k",
+                "alpaca_api_secret": "s",
+                "telegram_bot_token": "t",
+                "telegram_chat_id": "c",
+            },
+            headers=auth_headers,
+        )
+        tid = r.json()["id"]
+        tenant_token = create_access_token("fullcreds", tenant_id=tid)
+        return tid, {"Authorization": f"Bearer {tenant_token}"}
+
+    async def test_self_service_toggle_portfolios(self, client, auth_headers):
+        """Tenant can toggle portfolios via PATCH /me when credentials are set."""
+        _, tenant_headers = await self._create_tenant_with_creds(client, auth_headers)
+        r = await client.patch(
+            "/api/tenants/me",
+            json={"run_portfolio_a": True, "run_portfolio_b": False},
+            headers=tenant_headers,
+        )
+        assert r.status_code == 200
+        assert r.json()["run_portfolio_a"] is True
+        assert r.json()["run_portfolio_b"] is False
+        assert r.json()["pending_rebalance"] is True
+
+    async def test_self_service_strategy_mode(self, client, auth_headers):
+        """Tenant can change strategy_mode via PATCH /me when credentials are set."""
+        _, tenant_headers = await self._create_tenant_with_creds(client, auth_headers)
+        r = await client.patch(
+            "/api/tenants/me",
+            json={"strategy_mode": "aggressive"},
+            headers=tenant_headers,
+        )
+        assert r.status_code == 200
+        assert r.json()["strategy_mode"] == "aggressive"
+
+    async def test_self_service_portfolio_config_requires_credentials(
+        self, client, auth_headers,
+    ):
+        """Self-service portfolio config requires Alpaca+Telegram credentials."""
+        # Create tenant with NO credentials
+        r = await client.post(
+            "/api/tenants",
+            json={"name": "NoCreds", "username": "nocreds3", "password": "pass123"},
+            headers=auth_headers,
+        )
+        tid = r.json()["id"]
+        tenant_token = create_access_token("nocreds3", tenant_id=tid)
+        tenant_headers = {"Authorization": f"Bearer {tenant_token}"}
+
+        r = await client.patch(
+            "/api/tenants/me",
+            json={"strategy_mode": "aggressive"},
+            headers=tenant_headers,
+        )
+        assert r.status_code == 422
+        assert "credentials" in r.json()["detail"].lower()

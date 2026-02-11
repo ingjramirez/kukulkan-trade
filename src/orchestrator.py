@@ -53,6 +53,23 @@ log = structlog.get_logger()
 _INTER_TENANT_DELAY_SECONDS = 2.0
 
 
+def _active_portfolio_names(
+    run_a: bool, run_b: bool, tenant_id: str,
+) -> list[str]:
+    """Return list of enabled portfolio names.
+
+    Falls back to both if tenant_id is 'default' (legacy behavior).
+    """
+    if tenant_id == "default":
+        return ["A", "B"]
+    active: list[str] = []
+    if run_a:
+        active.append("A")
+    if run_b:
+        active.append("B")
+    return active
+
+
 class Orchestrator:
     """Runs the complete daily trading pipeline."""
 
@@ -352,11 +369,26 @@ class Orchestrator:
         summary["tickers_fetched"] = len(data)
         log.info("market_data_ready", tickers=len(data), rows=len(closes))
 
+        # Step 2.3: Handle pending portfolio rebalance
+        if tenant_id != "default":
+            try:
+                new_alloc = await self._handle_rebalance(
+                    tenant_id, closes, run_portfolio_a, run_portfolio_b,
+                )
+                if new_alloc is not None:
+                    alloc = new_alloc
+                    summary["rebalanced"] = True
+            except Exception as e:
+                log.error("rebalance_failed", error=str(e), tenant_id=tenant_id)
+                summary["errors"].append(f"Rebalance failed: {e}")
+
         # Step 2.5: Missed day recovery
         try:
             recovered = await self.recovery_check(
                 today, closes, tenant_id=tenant_id,
                 allocations=alloc,
+                run_portfolio_a=run_portfolio_a,
+                run_portfolio_b=run_portfolio_b,
             )
             if recovered:
                 summary["recovered_days"] = recovered
@@ -538,14 +570,17 @@ class Orchestrator:
         else:
             summary["trades_executed"] = 0
 
-        # Step 8: Take snapshots
+        # Step 8: Take snapshots (only for enabled portfolios)
         log.info("step_8_taking_snapshots")
         latest_prices = {
             t: float(closes[t].iloc[-1])
             for t in closes.columns
             if not pd.isna(closes[t].iloc[-1])
         }
-        for portfolio_name in ("A", "B"):
+        snapshot_portfolios = _active_portfolio_names(
+            run_portfolio_a, run_portfolio_b, tenant_id,
+        )
+        for portfolio_name in snapshot_portfolios:
             try:
                 await self._executor.take_snapshot(
                     portfolio_name, today, latest_prices,
@@ -566,6 +601,8 @@ class Orchestrator:
             tenant_id=tenant_id,
             strategy_mode=active_strategy,
             allocations=alloc,
+            run_portfolio_a=run_portfolio_a,
+            run_portfolio_b=run_portfolio_b,
         )
 
         log.info(
@@ -931,6 +968,144 @@ class Orchestrator:
             portfolio_b_pct=allocations.portfolio_b_pct,
         )
 
+    async def _handle_rebalance(
+        self,
+        tenant_id: str,
+        closes: pd.DataFrame,
+        run_portfolio_a: bool,
+        run_portfolio_b: bool,
+    ) -> TenantAllocations | None:
+        """Handle pending portfolio rebalance: liquidate and redistribute.
+
+        Called in run_daily() after market data fetch. If the tenant has
+        pending_rebalance=True, liquidate the appropriate positions and
+        redistribute cash according to the new toggle state.
+
+        Returns:
+            New TenantAllocations if rebalance occurred, None otherwise.
+        """
+        tenant = await self._db.get_tenant(tenant_id)
+        if tenant is None or not tenant.pending_rebalance:
+            return None
+
+        log.info(
+            "rebalance_start",
+            tenant_id=tenant_id,
+            run_a=run_portfolio_a,
+            run_b=run_portfolio_b,
+        )
+
+        # Determine which portfolios to liquidate
+        portfolios_to_liquidate: list[str] = []
+        if run_portfolio_a and run_portfolio_b:
+            # Both enabled (fresh start) — liquidate everything
+            portfolios_to_liquidate = ["A", "B"]
+        elif run_portfolio_a and not run_portfolio_b:
+            # Only A enabled — liquidate B
+            portfolios_to_liquidate = ["B"]
+        elif not run_portfolio_a and run_portfolio_b:
+            # Only B enabled — liquidate A
+            portfolios_to_liquidate = ["A"]
+        else:
+            # Both disabled — liquidate everything
+            portfolios_to_liquidate = ["A", "B"]
+
+        # Build latest prices from closes
+        latest_prices: dict[str, float] = {}
+        for t in closes.columns:
+            if not pd.isna(closes[t].iloc[-1]):
+                latest_prices[t] = float(closes[t].iloc[-1])
+
+        # Generate SELL trades for positions in portfolios to liquidate
+        from src.storage.models import OrderSide, PortfolioName, TradeSchema
+        sell_trades: list[TradeSchema] = []
+        for pname in portfolios_to_liquidate:
+            positions = await self._db.get_positions(pname, tenant_id=tenant_id)
+            for pos in positions:
+                if pos.shares <= 0:
+                    continue
+                price = latest_prices.get(pos.ticker, pos.avg_price)
+                sell_trades.append(TradeSchema(
+                    portfolio=PortfolioName(pname),
+                    ticker=pos.ticker,
+                    side=OrderSide.SELL,
+                    shares=pos.shares,
+                    price=price,
+                    reason="Portfolio rebalance: liquidation",
+                ))
+
+        # Execute sells
+        if sell_trades:
+            await self._executor.execute_trades(sell_trades)
+            log.info("rebalance_liquidation_complete", trades=len(sell_trades))
+
+        # Calculate total available cash across both portfolios
+        total_cash = 0.0
+        for pname in ("A", "B"):
+            portfolio = await self._db.get_portfolio(pname, tenant_id=tenant_id)
+            if portfolio:
+                total_cash += portfolio.cash
+
+        # Redistribute cash
+        a_pct = tenant.portfolio_a_pct or 33.33
+        b_pct = tenant.portfolio_b_pct or 66.67
+
+        if run_portfolio_a and run_portfolio_b:
+            a_cash = total_cash * a_pct / 100
+            b_cash = total_cash * b_pct / 100
+        elif run_portfolio_a:
+            a_cash = total_cash
+            b_cash = 0.0
+        elif run_portfolio_b:
+            a_cash = 0.0
+            b_cash = total_cash
+        else:
+            a_cash = 0.0
+            b_cash = 0.0
+
+        # Update portfolio rows
+        await self._db.upsert_portfolio("A", cash=a_cash, total_value=a_cash, tenant_id=tenant_id)
+        await self._db.upsert_portfolio("B", cash=b_cash, total_value=b_cash, tenant_id=tenant_id)
+
+        # Update tenant record: clear flag + update cash + initial_equity
+        await self._db.update_tenant(tenant_id, {
+            "pending_rebalance": False,
+            "portfolio_a_cash": a_cash,
+            "portfolio_b_cash": b_cash,
+            "initial_equity": total_cash if total_cash > 0 else tenant.initial_equity,
+        })
+
+        # Notify via Telegram
+        if self._notifier_available():
+            try:
+                liquidated_str = ", ".join(portfolios_to_liquidate)
+                await self._notifier.send_message(
+                    f"Portfolio rebalance complete.\n"
+                    f"Liquidated: Portfolio {liquidated_str} "
+                    f"({len(sell_trades)} trades)\n"
+                    f"New allocation: A=${a_cash:,.0f} | B=${b_cash:,.0f}\n"
+                    f"Total: ${total_cash:,.0f}"
+                )
+            except Exception:
+                pass
+
+        log.info(
+            "rebalance_complete",
+            tenant_id=tenant_id,
+            liquidated=portfolios_to_liquidate,
+            sell_trades=len(sell_trades),
+            a_cash=round(a_cash, 2),
+            b_cash=round(b_cash, 2),
+            total=round(total_cash, 2),
+        )
+
+        from src.utils.allocations import resolve_allocations
+        return resolve_allocations(
+            initial_equity=total_cash if total_cash > 0 else (tenant.initial_equity or 0),
+            portfolio_a_pct=a_pct,
+            portfolio_b_pct=b_pct,
+        )
+
     async def _request_model_approval(self, complexity) -> str:
         """Send approval request via Telegram and wait for response.
 
@@ -1001,6 +1176,8 @@ class Orchestrator:
         self, today: date, closes: pd.DataFrame,
         tenant_id: str = "default",
         allocations: TenantAllocations | None = None,
+        run_portfolio_a: bool = True,
+        run_portfolio_b: bool = True,
     ) -> list[str]:
         """Detect missed trading days and backfill snapshots.
 
@@ -1013,6 +1190,8 @@ class Orchestrator:
             closes: Full historical closes DataFrame.
             tenant_id: Tenant UUID for data isolation.
             allocations: Tenant allocations for initial value reference.
+            run_portfolio_a: Whether Portfolio A is enabled.
+            run_portfolio_b: Whether Portfolio B is enabled.
 
         Returns:
             List of recovered date strings (ISO format).
@@ -1021,10 +1200,15 @@ class Orchestrator:
 
         recovered_dates: list[str] = []
 
-        for pname, initial in [
-            ("A", alloc.portfolio_a_cash),
-            ("B", alloc.portfolio_b_cash),
-        ]:
+        recovery_portfolios = _active_portfolio_names(
+            run_portfolio_a, run_portfolio_b, tenant_id,
+        )
+        all_portfolio_initials = {
+            "A": alloc.portfolio_a_cash,
+            "B": alloc.portfolio_b_cash,
+        }
+        for pname in recovery_portfolios:
+            initial = all_portfolio_initials[pname]
             snapshots = await self._db.get_snapshots(pname, tenant_id=tenant_id)
             if not snapshots:
                 continue
@@ -1131,14 +1315,19 @@ class Orchestrator:
         tenant_id: str = "default",
         strategy_mode: str | None = None,
         allocations: TenantAllocations | None = None,
+        run_portfolio_a: bool = True,
+        run_portfolio_b: bool = True,
     ) -> None:
         """Send daily brief and trade confirmation via Telegram."""
         alloc = allocations or DEFAULT_ALLOCATIONS
         active_strategy = strategy_mode or settings.agent.strategy_mode
         try:
-            # Build portfolio summaries from snapshots
+            # Build portfolio summaries from snapshots (only enabled portfolios)
             portfolio_summaries = {}
-            for name in ("A", "B"):
+            notify_portfolios = _active_portfolio_names(
+                run_portfolio_a, run_portfolio_b, tenant_id,
+            )
+            for name in notify_portfolios:
                 portfolio = await self._db.get_portfolio(name, tenant_id=tenant_id)
                 snapshots = await self._db.get_snapshots(name, tenant_id=tenant_id)
                 today_snap = next(
@@ -1157,17 +1346,20 @@ class Orchestrator:
                     "daily_return_pct": today_snap.daily_return_pct if today_snap else None,
                 }
 
-            # Add strategy-specific fields
-            positions_a = await self._db.get_positions("A", tenant_id=tenant_id)
-            if positions_a:
-                top = max(positions_a, key=lambda p: p.shares * p.avg_price)
-                portfolio_summaries["A"]["top_ticker"] = top.ticker
-            else:
-                portfolio_summaries["A"]["top_ticker"] = "cash"
-            portfolio_summaries["A"]["reason"] = summary.get("a_reason", "")
-            portfolio_summaries["B"]["reasoning"] = (
-                summary.get("b_reasoning", "") or "No changes recommended"
-            )
+            # Add strategy-specific fields for enabled portfolios
+            _empty_summary: dict = {"total_value": 0, "cash": 0, "daily_return_pct": None}
+            if "A" in portfolio_summaries:
+                positions_a = await self._db.get_positions("A", tenant_id=tenant_id)
+                if positions_a:
+                    top = max(positions_a, key=lambda p: p.shares * p.avg_price)
+                    portfolio_summaries["A"]["top_ticker"] = top.ticker
+                else:
+                    portfolio_summaries["A"]["top_ticker"] = "cash"
+                portfolio_summaries["A"]["reason"] = summary.get("a_reason", "")
+            if "B" in portfolio_summaries:
+                portfolio_summaries["B"]["reasoning"] = (
+                    summary.get("b_reasoning", "") or "No changes recommended"
+                )
 
             from src.storage.models import TradeSchema
             proposed = [t for t in proposed_trades if isinstance(t, TradeSchema)]
@@ -1175,12 +1367,14 @@ class Orchestrator:
             await self._notifier.send_daily_brief(
                 brief_date=today,
                 regime=regime_result.regime.value if regime_result else None,
-                portfolio_a=portfolio_summaries["A"],
-                portfolio_b=portfolio_summaries["B"],
+                portfolio_a=portfolio_summaries.get("A", _empty_summary),
+                portfolio_b=portfolio_summaries.get("B", _empty_summary),
                 proposed_trades=proposed,
                 commentary="",
                 session=session,
                 strategy_mode=active_strategy,
+                run_portfolio_a=run_portfolio_a,
+                run_portfolio_b=run_portfolio_b,
             )
 
             # Only send trade confirmation for actually filled trades

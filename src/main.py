@@ -200,6 +200,8 @@ async def run_scheduled() -> None:
                         reporter = WeeklyReporter(
                             db, tenant_notifier, tenant_id=tenant.id,
                             allocations=tenant_alloc,
+                            run_portfolio_a=tenant.run_portfolio_a,
+                            run_portfolio_b=tenant.run_portfolio_b,
                         )
                         await reporter.generate_and_send(today)
                     except Exception as e:

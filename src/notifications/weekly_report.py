@@ -18,11 +18,15 @@ class WeeklyReporter:
         self, db: Database, notifier: TelegramNotifier,
         tenant_id: str = "default",
         allocations: TenantAllocations | None = None,
+        run_portfolio_a: bool = True,
+        run_portfolio_b: bool = True,
     ) -> None:
         self._db = db
         self._notifier = notifier
         self._tenant_id = tenant_id
         self._alloc = allocations or DEFAULT_ALLOCATIONS
+        self._run_portfolio_a = run_portfolio_a
+        self._run_portfolio_b = run_portfolio_b
 
     async def generate_and_send(self, report_date: date | None = None) -> str:
         """Generate weekly report and send via Telegram.
@@ -51,8 +55,9 @@ class WeeklyReporter:
         )
         sections.append("")
 
-        # Portfolio summaries
-        for portfolio_name in ("A", "B"):
+        # Portfolio summaries (only enabled portfolios)
+        active = self._active_portfolios()
+        for portfolio_name in active:
             section = await self._portfolio_summary(
                 portfolio_name, week_start, report_date,
             )
@@ -143,6 +148,15 @@ class WeeklyReporter:
             f"  Snapshots: {len(week_snapshots)} days"
         )
 
+    def _active_portfolios(self) -> list[str]:
+        """Return list of enabled portfolio names."""
+        active: list[str] = []
+        if self._run_portfolio_a:
+            active.append("A")
+        if self._run_portfolio_b:
+            active.append("B")
+        return active or ["A", "B"]  # fallback: show both if none set
+
     async def _trades_summary(
         self, week_start: date, week_end: date,
     ) -> str:
@@ -150,7 +164,7 @@ class WeeklyReporter:
         lines = ["\nTrades of the Week"]
 
         all_trades = []
-        for pname in ("A", "B"):
+        for pname in self._active_portfolios():
             trades = await self._db.get_trades(pname, tenant_id=self._tenant_id)
             week_trades = [
                 t for t in trades
@@ -218,7 +232,7 @@ class WeeklyReporter:
         """Current drawdown from peak for each portfolio."""
         lines = ["\nDrawdown Status"]
 
-        for pname in ("A", "B"):
+        for pname in self._active_portfolios():
             snapshots = await self._db.get_snapshots(pname, tenant_id=self._tenant_id)
             if not snapshots:
                 continue

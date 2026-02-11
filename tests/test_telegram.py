@@ -208,6 +208,47 @@ class TestFormatDailyBrief:
         assert "Proposed Trades (1)" in msg
         assert "No Trades Today" not in msg
 
+    def test_portfolio_a_disabled_skips_section(self) -> None:
+        """When run_portfolio_a=False, Portfolio A section is skipped."""
+        msg = format_daily_brief(
+            brief_date=date(2026, 2, 5),
+            regime="BULL",
+            portfolio_a={"total_value": 33000, "daily_return_pct": 1.0},
+            portfolio_b={
+                "total_value": 66000, "daily_return_pct": -0.2,
+                "reasoning": "Holding",
+            },
+            proposed_trades=[],
+            run_portfolio_a=False,
+            run_portfolio_b=True,
+        )
+        assert "Portfolio A" not in msg
+        assert "Portfolio B" in msg
+        # Combined should only include B
+        assert "$66,000" in msg
+
+    def test_portfolio_b_disabled_skips_section(self) -> None:
+        """When run_portfolio_b=False, Portfolio B section is skipped."""
+        msg = format_daily_brief(
+            brief_date=date(2026, 2, 5),
+            regime="BULL",
+            portfolio_a={
+                "total_value": 33000, "daily_return_pct": 1.0,
+                "top_ticker": "QQQ",
+            },
+            portfolio_b={
+                "total_value": 66000, "daily_return_pct": -0.2,
+                "reasoning": "Holding",
+            },
+            proposed_trades=[],
+            run_portfolio_a=True,
+            run_portfolio_b=False,
+        )
+        assert "Portfolio A" in msg
+        assert "Portfolio B" not in msg
+        # Combined should only include A
+        assert "$33,000" in msg
+
 
 # ── Trade Confirmation Formatting ────────────────────────────────────────────
 

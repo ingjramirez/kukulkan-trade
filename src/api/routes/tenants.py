@@ -58,6 +58,7 @@ def _tenant_to_response(tenant: TenantRow) -> TenantReadResponse:
         ticker_exclusions=(
             json.loads(tenant.ticker_exclusions) if tenant.ticker_exclusions else None
         ),
+        pending_rebalance=bool(tenant.pending_rebalance),
         dashboard_user=tenant.dashboard_user,
         created_at=tenant.created_at,
         updated_at=tenant.updated_at,
@@ -119,6 +120,43 @@ async def update_my_tenant(
         updates["ticker_exclusions"] = (
             json.dumps(body.ticker_exclusions) if body.ticker_exclusions else None
         )
+
+    # Portfolio config fields require credentials (same guard as admin endpoint)
+    _portfolio_fields = {"run_portfolio_a", "run_portfolio_b", "strategy_mode"}
+    has_portfolio_update = any(
+        getattr(body, f) is not None for f in _portfolio_fields
+    )
+    if has_portfolio_update:
+        has_alpaca = bool(
+            (body.alpaca_api_key or tenant.alpaca_api_key_enc)
+            and (body.alpaca_api_secret or tenant.alpaca_api_secret_enc)
+        )
+        has_telegram = bool(
+            (body.telegram_bot_token or tenant.telegram_bot_token_enc)
+            and (body.telegram_chat_id or tenant.telegram_chat_id_enc)
+        )
+        if not (has_alpaca and has_telegram):
+            raise HTTPException(
+                status_code=422,
+                detail="Alpaca and Telegram credentials must be configured "
+                       "before setting portfolio configuration",
+            )
+
+    if body.strategy_mode is not None:
+        updates["strategy_mode"] = body.strategy_mode
+    if body.run_portfolio_a is not None:
+        updates["run_portfolio_a"] = body.run_portfolio_a
+    if body.run_portfolio_b is not None:
+        updates["run_portfolio_b"] = body.run_portfolio_b
+
+    # Detect portfolio toggle changes → set pending_rebalance
+    toggle_changed = False
+    if body.run_portfolio_a is not None and body.run_portfolio_a != tenant.run_portfolio_a:
+        toggle_changed = True
+    if body.run_portfolio_b is not None and body.run_portfolio_b != tenant.run_portfolio_b:
+        toggle_changed = True
+    if toggle_changed:
+        updates["pending_rebalance"] = True
 
     if not updates:
         return _tenant_to_response(tenant)
@@ -366,6 +404,15 @@ async def update_tenant(
         updates["ticker_exclusions"] = (
             json.dumps(body.ticker_exclusions) if body.ticker_exclusions else None
         )
+
+    # Detect portfolio toggle changes → set pending_rebalance
+    toggle_changed = False
+    if body.run_portfolio_a is not None and body.run_portfolio_a != tenant.run_portfolio_a:
+        toggle_changed = True
+    if body.run_portfolio_b is not None and body.run_portfolio_b != tenant.run_portfolio_b:
+        toggle_changed = True
+    if toggle_changed:
+        updates["pending_rebalance"] = True
 
     if not updates:
         return _tenant_to_response(tenant)

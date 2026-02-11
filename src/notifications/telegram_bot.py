@@ -106,6 +106,8 @@ class TelegramNotifier:
         commentary: str = "",
         session: str = "",
         strategy_mode: str = "conservative",
+        run_portfolio_a: bool = True,
+        run_portfolio_b: bool = True,
     ) -> bool:
         """Send the formatted daily brief.
 
@@ -118,6 +120,8 @@ class TelegramNotifier:
             commentary: AI-generated market commentary.
             session: Run label (e.g. "Morning", "Midday", "Closing").
             strategy_mode: Active strategy persona.
+            run_portfolio_a: Whether Portfolio A is enabled.
+            run_portfolio_b: Whether Portfolio B is enabled.
 
         Returns:
             True if sent successfully.
@@ -131,6 +135,8 @@ class TelegramNotifier:
             commentary=commentary,
             session=session,
             strategy_mode=strategy_mode,
+            run_portfolio_a=run_portfolio_a,
+            run_portfolio_b=run_portfolio_b,
         )
         return await self.send_message(msg)
 
@@ -374,6 +380,8 @@ def format_daily_brief(
     commentary: str = "",
     session: str = "",
     strategy_mode: str = "conservative",
+    run_portfolio_a: bool = True,
+    run_portfolio_b: bool = True,
 ) -> str:
     """Format the full daily brief as HTML.
 
@@ -386,6 +394,8 @@ def format_daily_brief(
         commentary: AI commentary text.
         session: Run label (e.g. "Morning", "Midday", "Closing").
         strategy_mode: Active strategy persona.
+        run_portfolio_a: Whether Portfolio A is enabled.
+        run_portfolio_b: Whether Portfolio B is enabled.
 
     Returns:
         HTML-formatted message string.
@@ -410,31 +420,34 @@ def format_daily_brief(
         "",
     ]
 
-    # Portfolio A
-    a_ret = portfolio_a.get("daily_return_pct")
-    a_ret_str = f"{a_ret:+.2f}%" if a_ret is not None else "N/A"
-    lines.extend([
-        "<b>Portfolio A</b> (Momentum)",
-        f"  Value: ${portfolio_a.get('total_value', 0):,.0f} ({a_ret_str})",
-        f"  Holding: {portfolio_a.get('top_ticker', 'cash')}",
-        "",
-    ])
+    # Portfolio A (only if enabled)
+    if run_portfolio_a:
+        a_ret = portfolio_a.get("daily_return_pct")
+        a_ret_str = f"{a_ret:+.2f}%" if a_ret is not None else "N/A"
+        lines.extend([
+            "<b>Portfolio A</b> (Momentum)",
+            f"  Value: ${portfolio_a.get('total_value', 0):,.0f} ({a_ret_str})",
+            f"  Holding: {portfolio_a.get('top_ticker', 'cash')}",
+            "",
+        ])
 
-    # Portfolio B
-    b_ret = portfolio_b.get("daily_return_pct")
-    b_ret_str = f"{b_ret:+.2f}%" if b_ret is not None else "N/A"
-    lines.extend([
-        "<b>Portfolio B</b> (AI Autonomy)",
-        f"  Value: ${portfolio_b.get('total_value', 0):,.0f} ({b_ret_str})",
-        f"  AI: {_escape_html(portfolio_b.get('reasoning', 'N/A')[:150])}",
-        "",
-    ])
+    # Portfolio B (only if enabled)
+    if run_portfolio_b:
+        b_ret = portfolio_b.get("daily_return_pct")
+        b_ret_str = f"{b_ret:+.2f}%" if b_ret is not None else "N/A"
+        lines.extend([
+            "<b>Portfolio B</b> (AI Autonomy)",
+            f"  Value: ${portfolio_b.get('total_value', 0):,.0f} ({b_ret_str})",
+            f"  AI: {_escape_html(portfolio_b.get('reasoning', 'N/A')[:150])}",
+            "",
+        ])
 
-    # Total
-    total = (
-        portfolio_a.get("total_value", 0)
-        + portfolio_b.get("total_value", 0)
-    )
+    # Total (only sum active portfolios)
+    total = 0.0
+    if run_portfolio_a:
+        total += portfolio_a.get("total_value", 0)
+    if run_portfolio_b:
+        total += portfolio_b.get("total_value", 0)
     initial = 100_000.0  # Alpaca paper account starting balance
     total_ret = ((total - initial) / initial) * 100 if initial > 0 else 0
     lines.extend([

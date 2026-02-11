@@ -163,6 +163,11 @@ class TenantSelfUpdateRequest(BaseModel):
     alpaca_base_url: str | None = None
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
+    strategy_mode: str | None = Field(
+        default=None, pattern=r"^(conservative|standard|aggressive)$",
+    )
+    run_portfolio_a: bool | None = None
+    run_portfolio_b: bool | None = None
     ticker_whitelist: list[str] | None = None
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None
@@ -183,6 +188,7 @@ class TenantReadResponse(BaseModel):
     initial_equity: float | None = None
     portfolio_a_pct: float
     portfolio_b_pct: float
+    pending_rebalance: bool = False
     ticker_whitelist: list[str] | None = None
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None

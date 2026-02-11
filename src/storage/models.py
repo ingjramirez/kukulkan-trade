@@ -295,6 +295,9 @@ class TenantRow(Base):
     portfolio_a_pct = Column(Float, nullable=False, default=33.33)
     portfolio_b_pct = Column(Float, nullable=False, default=66.67)
 
+    # Rebalance flag (set by API on toggle change, cleared by orchestrator)
+    pending_rebalance = Column(Boolean, nullable=False, default=False)
+
     # Ticker customization (JSON arrays, nullable = use defaults)
     ticker_whitelist = Column(Text, nullable=True)   # JSON: ["AAPL","TSLA"]
     ticker_additions = Column(Text, nullable=True)   # JSON: ["COIN","MSTR"]
@@ -441,6 +444,7 @@ class TenantRead(BaseModel):
     initial_equity: float | None = None
     portfolio_a_pct: float
     portfolio_b_pct: float
+    pending_rebalance: bool = False
     ticker_whitelist: list[str] | None = None
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None
