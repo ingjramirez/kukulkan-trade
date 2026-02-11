@@ -6,6 +6,7 @@ import structlog
 
 from src.notifications.telegram_bot import TelegramNotifier
 from src.storage.database import Database
+from src.utils.allocations import DEFAULT_ALLOCATIONS, TenantAllocations
 
 log = structlog.get_logger()
 
@@ -16,10 +17,12 @@ class WeeklyReporter:
     def __init__(
         self, db: Database, notifier: TelegramNotifier,
         tenant_id: str = "default",
+        allocations: TenantAllocations | None = None,
     ) -> None:
         self._db = db
         self._notifier = notifier
         self._tenant_id = tenant_id
+        self._alloc = allocations or DEFAULT_ALLOCATIONS
 
     async def generate_and_send(self, report_date: date | None = None) -> str:
         """Generate weekly report and send via Telegram.
@@ -225,7 +228,7 @@ class WeeklyReporter:
             current = values[-1]
             drawdown = ((peak - current) / peak) * 100
 
-            initial = 33_000.0 if pname == "A" else 66_000.0
+            initial = self._alloc.for_portfolio(pname)
             total_return = ((current - initial) / initial) * 100
 
             lines.append(

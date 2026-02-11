@@ -25,6 +25,7 @@ from src.storage.models import (
     TradeSchema,
 )
 from src.strategies.portfolio_a import MomentumStrategy
+from src.utils.allocations import DEFAULT_ALLOCATIONS
 
 log = structlog.get_logger()
 
@@ -342,7 +343,7 @@ class BacktestRunner:
         portfolio = await self._db.get_portfolio("A")
         positions = await self._db.get_positions("A")
         position_map = {p.ticker: p.shares for p in positions}
-        cash = portfolio.cash if portfolio else 33_000.0
+        cash = portfolio.cash if portfolio else DEFAULT_ALLOCATIONS.portfolio_a_cash
 
         trades = strategy.generate_trades(closes, position_map, cash)
 
@@ -363,8 +364,8 @@ class BacktestRunner:
         portfolio = await self._db.get_portfolio("B")
         positions = await self._db.get_positions("B")
         position_map = {p.ticker: p.shares for p in positions}
-        cash = portfolio.cash if portfolio else 66_000.0
-        total_value = portfolio.total_value if portfolio else 66_000.0
+        cash = portfolio.cash if portfolio else DEFAULT_ALLOCATIONS.portfolio_b_cash
+        total_value = portfolio.total_value if portfolio else DEFAULT_ALLOCATIONS.portfolio_b_cash
 
         return mock.generate_trades(closes, position_map, cash, total_value)
 
@@ -391,8 +392,8 @@ class BacktestRunner:
         portfolio = await self._db.get_portfolio("B")
         positions = await self._db.get_positions("B")
         position_map = {p.ticker: p.shares for p in positions}
-        cash = portfolio.cash if portfolio else 66_000.0
-        total_value = portfolio.total_value if portfolio else 66_000.0
+        cash = portfolio.cash if portfolio else DEFAULT_ALLOCATIONS.portfolio_b_cash
+        total_value = portfolio.total_value if portfolio else DEFAULT_ALLOCATIONS.portfolio_b_cash
 
         positions_for_agent = [
             {
@@ -490,7 +491,7 @@ class BacktestRunner:
                     if dd > max_dd:
                         max_dd = dd
 
-                initial = 33_000.0 if pname == "A" else 66_000.0
+                initial = DEFAULT_ALLOCATIONS.for_portfolio(pname)
                 summary[f"portfolio_{pname}"] = {
                     "total_return_pct": round(total_return, 2),
                     "max_drawdown_pct": round(max_dd, 2),
@@ -498,7 +499,7 @@ class BacktestRunner:
                     "snapshots": len(snapshots),
                 }
             else:
-                initial = 33_000.0 if pname == "A" else 66_000.0
+                initial = DEFAULT_ALLOCATIONS.for_portfolio(pname)
                 summary[f"portfolio_{pname}"] = {
                     "total_return_pct": 0,
                     "max_drawdown_pct": 0,

@@ -290,6 +290,11 @@ class TenantRow(Base):
     portfolio_a_cash = Column(Float, nullable=False, default=33_000.0)
     portfolio_b_cash = Column(Float, nullable=False, default=66_000.0)
 
+    # Equity-based allocation (captured from Alpaca on first run)
+    initial_equity = Column(Float, nullable=True)
+    portfolio_a_pct = Column(Float, nullable=False, default=33.33)
+    portfolio_b_pct = Column(Float, nullable=False, default=66.67)
+
     # Ticker customization (JSON arrays, nullable = use defaults)
     ticker_whitelist = Column(Text, nullable=True)   # JSON: ["AAPL","TSLA"]
     ticker_additions = Column(Text, nullable=True)   # JSON: ["COIN","MSTR"]
@@ -384,6 +389,8 @@ class TenantCreate(BaseModel):
     run_portfolio_b: bool = True
     portfolio_a_cash: float = Field(default=33_000.0, gt=0)
     portfolio_b_cash: float = Field(default=66_000.0, gt=0)
+    portfolio_a_pct: float = Field(default=33.33, gt=0, le=100)
+    portfolio_b_pct: float = Field(default=66.67, gt=0, le=100)
     ticker_whitelist: list[str] | None = None
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None
@@ -407,6 +414,8 @@ class TenantUpdate(BaseModel):
     run_portfolio_b: bool | None = None
     portfolio_a_cash: float | None = Field(default=None, gt=0)
     portfolio_b_cash: float | None = Field(default=None, gt=0)
+    portfolio_a_pct: float | None = Field(default=None, gt=0, le=100)
+    portfolio_b_pct: float | None = Field(default=None, gt=0, le=100)
     ticker_whitelist: list[str] | None = None
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None
@@ -429,6 +438,9 @@ class TenantRead(BaseModel):
     run_portfolio_b: bool
     portfolio_a_cash: float
     portfolio_b_cash: float
+    initial_equity: float | None = None
+    portfolio_a_pct: float
+    portfolio_b_pct: float
     ticker_whitelist: list[str] | None = None
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None

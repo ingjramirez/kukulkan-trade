@@ -8,9 +8,9 @@ from datetime import date
 
 import structlog
 
-from config.strategies import PORTFOLIO_A, PORTFOLIO_B
 from src.storage.database import Database
 from src.storage.models import TradeSchema
+from src.utils.allocations import DEFAULT_ALLOCATIONS, TenantAllocations
 
 log = structlog.get_logger()
 
@@ -21,13 +21,23 @@ class PaperTrader:
     def __init__(self, db: Database) -> None:
         self._db = db
 
-    async def initialize_portfolios(self) -> None:
+    async def initialize_portfolios(
+        self,
+        allocations: TenantAllocations | None = None,
+        tenant_id: str = "default",
+    ) -> None:
         """Create A and B portfolios with starting cash if they don't exist."""
-        for name, alloc in [("A", PORTFOLIO_A.allocation_usd), ("B", PORTFOLIO_B.allocation_usd)]:
-            existing = await self._db.get_portfolio(name)
+        alloc = allocations or DEFAULT_ALLOCATIONS
+        for name, cash in [
+            ("A", alloc.portfolio_a_cash),
+            ("B", alloc.portfolio_b_cash),
+        ]:
+            existing = await self._db.get_portfolio(name, tenant_id=tenant_id)
             if existing is None:
-                await self._db.upsert_portfolio(name, cash=alloc, total_value=alloc)
-                log.info("portfolio_initialized", portfolio=name, cash=alloc)
+                await self._db.upsert_portfolio(
+                    name, cash=cash, total_value=cash, tenant_id=tenant_id,
+                )
+                log.info("portfolio_initialized", portfolio=name, cash=cash)
 
     async def execute_trades(self, trades: list[TradeSchema]) -> list[TradeSchema]:
         """Execute a batch of trade signals.
@@ -158,6 +168,8 @@ class PaperTrader:
         portfolio_name: str,
         snapshot_date: date,
         prices: dict[str, float],
+        allocations: TenantAllocations | None = None,
+        tenant_id: str = "default",
     ) -> None:
         """Record end-of-day portfolio snapshot.
 
@@ -165,26 +177,31 @@ class PaperTrader:
             portfolio_name: A or B.
             snapshot_date: Date of the snapshot.
             prices: Dict of ticker -> current price.
+            allocations: Tenant allocations for initial value reference.
+            tenant_id: Tenant UUID for data isolation.
         """
-        portfolio = await self._db.get_portfolio(portfolio_name)
+        alloc = allocations or DEFAULT_ALLOCATIONS
+
+        portfolio = await self._db.get_portfolio(
+            portfolio_name, tenant_id=tenant_id,
+        )
         if portfolio is None:
             return
 
-        positions = await self._db.get_positions(portfolio_name)
+        positions = await self._db.get_positions(
+            portfolio_name, tenant_id=tenant_id,
+        )
         positions_value = sum(
             p.shares * prices.get(p.ticker, p.avg_price) for p in positions
         )
         total_value = portfolio.cash + positions_value
 
-        # Portfolio-specific initial value
-        initial_value = (
-            PORTFOLIO_A.allocation_usd
-            if portfolio_name == "A"
-            else PORTFOLIO_B.allocation_usd
-        )
+        initial_value = alloc.for_portfolio(portfolio_name)
 
         # Calculate daily return
-        snapshots = await self._db.get_snapshots(portfolio_name)
+        snapshots = await self._db.get_snapshots(
+            portfolio_name, tenant_id=tenant_id,
+        )
         daily_return_pct = None
         cumulative_return_pct = None
         if snapshots:
@@ -203,13 +220,18 @@ class PaperTrader:
             positions_value=positions_value,
             daily_return_pct=daily_return_pct,
             cumulative_return_pct=cumulative_return_pct,
+            tenant_id=tenant_id,
         )
 
         # Update position current prices
-        await self._db.update_position_prices(portfolio_name, prices)
+        await self._db.update_position_prices(
+            portfolio_name, prices, tenant_id=tenant_id,
+        )
 
         # Update portfolio total value
-        await self._db.upsert_portfolio(portfolio_name, portfolio.cash, total_value)
+        await self._db.upsert_portfolio(
+            portfolio_name, portfolio.cash, total_value, tenant_id=tenant_id,
+        )
 
         log.info(
             "snapshot_taken",

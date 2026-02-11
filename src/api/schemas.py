@@ -123,6 +123,8 @@ class TenantCreateRequest(BaseModel):
     run_portfolio_b: bool = True
     portfolio_a_cash: float = Field(default=33_000.0, gt=0)
     portfolio_b_cash: float = Field(default=66_000.0, gt=0)
+    portfolio_a_pct: float = Field(default=33.33, gt=0, le=100)
+    portfolio_b_pct: float = Field(default=66.67, gt=0, le=100)
     ticker_whitelist: list[str] | None = None
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None
@@ -144,6 +146,8 @@ class TenantUpdateRequest(BaseModel):
     run_portfolio_b: bool | None = None
     portfolio_a_cash: float | None = Field(default=None, gt=0)
     portfolio_b_cash: float | None = Field(default=None, gt=0)
+    portfolio_a_pct: float | None = Field(default=None, gt=0, le=100)
+    portfolio_b_pct: float | None = Field(default=None, gt=0, le=100)
     ticker_whitelist: list[str] | None = None
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None
@@ -176,6 +180,9 @@ class TenantReadResponse(BaseModel):
     run_portfolio_b: bool
     portfolio_a_cash: float
     portfolio_b_cash: float
+    initial_equity: float | None = None
+    portfolio_a_pct: float
+    portfolio_b_pct: float
     ticker_whitelist: list[str] | None = None
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None

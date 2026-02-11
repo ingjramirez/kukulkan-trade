@@ -97,6 +97,8 @@ class TestAddTenant:
             portfolio_b_only=True,
             portfolio_a_cash=33000.0,
             portfolio_b_cash=66000.0,
+            portfolio_a_pct=33.33,
+            portfolio_b_pct=66.67,
             add_tickers="COIN,MSTR",
             remove_tickers=None,
             username=None,

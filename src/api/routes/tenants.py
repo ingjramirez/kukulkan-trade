@@ -46,6 +46,9 @@ def _tenant_to_response(tenant: TenantRow) -> TenantReadResponse:
         run_portfolio_b=tenant.run_portfolio_b,
         portfolio_a_cash=tenant.portfolio_a_cash,
         portfolio_b_cash=tenant.portfolio_b_cash,
+        initial_equity=tenant.initial_equity,
+        portfolio_a_pct=tenant.portfolio_a_pct,
+        portfolio_b_pct=tenant.portfolio_b_pct,
         ticker_whitelist=(
             json.loads(tenant.ticker_whitelist) if tenant.ticker_whitelist else None
         ),
@@ -230,6 +233,8 @@ async def create_tenant(
         run_portfolio_b=body.run_portfolio_b,
         portfolio_a_cash=body.portfolio_a_cash,
         portfolio_b_cash=body.portfolio_b_cash,
+        portfolio_a_pct=body.portfolio_a_pct,
+        portfolio_b_pct=body.portfolio_b_pct,
         ticker_whitelist=(
             json.dumps(body.ticker_whitelist) if body.ticker_whitelist else None
         ),
@@ -332,6 +337,10 @@ async def update_tenant(
         updates["portfolio_a_cash"] = body.portfolio_a_cash
     if body.portfolio_b_cash is not None:
         updates["portfolio_b_cash"] = body.portfolio_b_cash
+    if body.portfolio_a_pct is not None:
+        updates["portfolio_a_pct"] = body.portfolio_a_pct
+    if body.portfolio_b_pct is not None:
+        updates["portfolio_b_pct"] = body.portfolio_b_pct
     if body.is_active is not None:
         updates["is_active"] = body.is_active
     if body.username is not None:

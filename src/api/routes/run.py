@@ -93,6 +93,9 @@ async def _run_pipeline(db: Database, tenant_id: str) -> None:
         client = AlpacaClientFactory.get_trading_client(tenant)
         executor = AlpacaExecutor(db, client)
 
+        from src.utils.allocations import resolve_from_tenant
+        alloc = resolve_from_tenant(tenant)
+
         orchestrator = Orchestrator(db, notifier=notifier, executor=executor)
         await orchestrator.run_daily(
             tenant_id=tenant_id,
@@ -100,6 +103,7 @@ async def _run_pipeline(db: Database, tenant_id: str) -> None:
             strategy_mode=tenant.strategy_mode,
             run_portfolio_a=tenant.run_portfolio_a,
             run_portfolio_b=tenant.run_portfolio_b,
+            allocations=alloc,
         )
         log.info("manual_run_complete", tenant_id=tenant_id)
     except Exception as e:

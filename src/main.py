@@ -194,9 +194,12 @@ async def run_scheduled() -> None:
                         )
                         continue
                     try:
+                        from src.utils.allocations import resolve_from_tenant
                         tenant_notifier = TelegramFactory.get_notifier(tenant)
+                        tenant_alloc = resolve_from_tenant(tenant)
                         reporter = WeeklyReporter(
                             db, tenant_notifier, tenant_id=tenant.id,
+                            allocations=tenant_alloc,
                         )
                         await reporter.generate_and_send(today)
                     except Exception as e:

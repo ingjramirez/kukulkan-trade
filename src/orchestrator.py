@@ -38,6 +38,12 @@ from src.storage.database import Database
 from src.storage.models import TenantRow
 from src.strategies.portfolio_a import MomentumStrategy
 from src.strategies.portfolio_b import AIAutonomyStrategy
+from src.utils.allocations import (
+    DEFAULT_ALLOCATIONS,
+    DEPOSIT_THRESHOLD,
+    TenantAllocations,
+    resolve_from_tenant,
+)
 from src.utils.market_calendar import is_market_open, trading_days_between
 
 log = structlog.get_logger()
@@ -187,6 +193,29 @@ class Orchestrator:
         from src.execution.alpaca_executor import AlpacaExecutor
         executor = AlpacaExecutor(self._db, client)
 
+        # Capture initial equity on first run
+        if tenant.initial_equity is None:
+            equity = await self._capture_alpaca_equity(executor)
+            if equity is not None:
+                tenant.initial_equity = equity
+                tenant.portfolio_a_cash = equity * tenant.portfolio_a_pct / 100
+                tenant.portfolio_b_cash = equity * tenant.portfolio_b_pct / 100
+                await self._db.update_tenant(tenant.id, {
+                    "initial_equity": equity,
+                    "portfolio_a_cash": tenant.portfolio_a_cash,
+                    "portfolio_b_cash": tenant.portfolio_b_cash,
+                })
+                log.info(
+                    "initial_equity_captured",
+                    tenant_id=tenant.id,
+                    equity=equity,
+                    a_cash=tenant.portfolio_a_cash,
+                    b_cash=tenant.portfolio_b_cash,
+                )
+
+        # Resolve allocations from tenant config
+        alloc = resolve_from_tenant(tenant)
+
         # Build tenant-scoped orchestrator state
         saved_executor = self._executor
         saved_notifier = self._notifier
@@ -202,6 +231,7 @@ class Orchestrator:
                 strategy_mode=tenant.strategy_mode,
                 run_portfolio_a=tenant.run_portfolio_a,
                 run_portfolio_b=tenant.run_portfolio_b,
+                allocations=alloc,
             )
             summary["tenant_id"] = tenant.id
             summary["tenant_name"] = tenant.name
@@ -217,6 +247,7 @@ class Orchestrator:
         strategy_mode: str | None = None,
         run_portfolio_a: bool = True,
         run_portfolio_b: bool = True,
+        allocations: TenantAllocations | None = None,
     ) -> dict:
         """Execute the full daily pipeline.
 
@@ -244,6 +275,7 @@ class Orchestrator:
         """
         today = today or date.today()
         active_strategy = strategy_mode or settings.agent.strategy_mode
+        alloc = allocations or DEFAULT_ALLOCATIONS
         summary: dict = {"date": today.isoformat(), "trades": {}, "errors": []}
 
         # Guard: skip if market is closed (holidays, weekends)
@@ -268,7 +300,9 @@ class Orchestrator:
         )
 
         # Step 1: Initialize portfolios
-        await self._executor.initialize_portfolios()
+        await self._executor.initialize_portfolios(
+            allocations=alloc, tenant_id=tenant_id,
+        )
 
         # Step 1.1: Sync positions with broker (if supported)
         if hasattr(self._executor, "sync_positions"):
@@ -276,6 +310,12 @@ class Orchestrator:
                 await self._executor.sync_positions()
             except Exception as e:
                 log.warning("position_sync_failed", error=str(e))
+
+        # Step 1.2: Detect deposits (compare Alpaca equity to tracked totals)
+        try:
+            alloc = await self._detect_deposits(alloc, tenant_id)
+        except Exception as e:
+            log.warning("deposit_detection_failed", error=str(e))
 
         # Step 1.5: Expire old dynamic tickers + build universe
         await self._ticker_discovery.expire_old(today)
@@ -310,6 +350,7 @@ class Orchestrator:
         try:
             recovered = await self.recovery_check(
                 today, closes, tenant_id=tenant_id,
+                allocations=alloc,
             )
             if recovered:
                 summary["recovered_days"] = recovered
@@ -367,6 +408,7 @@ class Orchestrator:
             try:
                 trades_a, a_reason = await self._run_portfolio_a(
                     closes, today, tenant_id=tenant_id,
+                    allocations=alloc,
                 )
                 summary["trades"]["A"] = len(trades_a)
                 summary["a_reason"] = a_reason
@@ -441,6 +483,7 @@ class Orchestrator:
                     regime_result=regime_result,
                     tenant_id=tenant_id,
                     strategy_mode=active_strategy,
+                    allocations=alloc,
                 )
                 summary["trades"]["B"] = len(trades_b)
                 summary["b_reasoning"] = b_reasoning
@@ -457,7 +500,7 @@ class Orchestrator:
             portfolio = await self._db.get_portfolio(pname, tenant_id=tenant_id)
             positions = await self._db.get_positions(pname, tenant_id=tenant_id)
             position_map = {p.ticker: p.shares for p in positions}
-            pval = portfolio.total_value if portfolio else (33_000.0 if pname == "A" else 66_000.0)
+            pval = portfolio.total_value if portfolio else alloc.for_portfolio(pname)
             pcash = portfolio.cash if portfolio else pval
 
             latest_prices = {
@@ -497,7 +540,10 @@ class Orchestrator:
         }
         for portfolio_name in ("A", "B"):
             try:
-                await self._executor.take_snapshot(portfolio_name, today, latest_prices)
+                await self._executor.take_snapshot(
+                    portfolio_name, today, latest_prices,
+                    allocations=alloc, tenant_id=tenant_id,
+                )
             except Exception as e:
                 log.error("snapshot_failed", portfolio=portfolio_name, error=str(e))
 
@@ -512,6 +558,7 @@ class Orchestrator:
             regime_result=regime_result,
             tenant_id=tenant_id,
             strategy_mode=active_strategy,
+            allocations=alloc,
         )
 
         log.info(
@@ -528,14 +575,16 @@ class Orchestrator:
     async def _run_portfolio_a(
         self, closes: pd.DataFrame, today: date,
         tenant_id: str = "default",
+        allocations: TenantAllocations | None = None,
     ) -> tuple[list, str]:
         """Run Portfolio A momentum strategy and return trades with reason."""
+        alloc = allocations or DEFAULT_ALLOCATIONS
         portfolio = await self._db.get_portfolio("A", tenant_id=tenant_id)
         positions = await self._db.get_positions("A", tenant_id=tenant_id)
         position_map = {p.ticker: p.shares for p in positions}
-        cash = portfolio.cash if portfolio else 33_000.0
+        cash = portfolio.cash if portfolio else alloc.portfolio_a_cash
 
-        total_value = portfolio.total_value if portfolio else 33_000.0
+        total_value = portfolio.total_value if portfolio else alloc.portfolio_a_cash
         trades = self._strategy_a.generate_trades(
             closes, position_map, cash, portfolio_value=total_value,
         )
@@ -563,14 +612,16 @@ class Orchestrator:
         regime_result: RegimeResult | None = None,
         tenant_id: str = "default",
         strategy_mode: str | None = None,
+        allocations: TenantAllocations | None = None,
     ):
         """Run Portfolio B AI strategy with complexity-based model routing."""
+        alloc = allocations or DEFAULT_ALLOCATIONS
         active_strategy = strategy_mode or settings.agent.strategy_mode
         portfolio = await self._db.get_portfolio("B", tenant_id=tenant_id)
         positions = await self._db.get_positions("B", tenant_id=tenant_id)
         position_map = {p.ticker: p.shares for p in positions}
-        cash = portfolio.cash if portfolio else 66_000.0
-        total_value = portfolio.total_value if portfolio else 66_000.0
+        cash = portfolio.cash if portfolio else alloc.portfolio_b_cash
+        total_value = portfolio.total_value if portfolio else alloc.portfolio_b_cash
 
         # Build positions list for agent context
         positions_for_agent = [
@@ -653,7 +704,7 @@ class Orchestrator:
         try:
             spy_closes = closes["SPY"] if "SPY" in closes.columns else None
             stats = await self._performance_tracker.get_portfolio_stats(
-                self._db, "B", PORTFOLIO_B.allocation_usd,
+                self._db, "B", alloc.portfolio_b_cash,
                 spy_closes=spy_closes,
             )
             if stats.days_tracked > 0:
@@ -763,6 +814,109 @@ class Orchestrator:
         """Check if Telegram notifier is configured."""
         return bool(self._notifier._token and self._notifier._chat_id)
 
+    @staticmethod
+    async def _capture_alpaca_equity(executor) -> float | None:
+        """Fetch account equity from Alpaca executor.
+
+        Returns:
+            Equity as float, or None if the executor is not Alpaca-based.
+        """
+        if not hasattr(executor, "_client"):
+            return None
+        try:
+            account = await asyncio.to_thread(executor._client.get_account)
+            return float(account.equity)
+        except Exception as e:
+            log.warning("equity_capture_failed", error=str(e))
+            return None
+
+    async def _detect_deposits(
+        self,
+        allocations: TenantAllocations,
+        tenant_id: str,
+    ) -> TenantAllocations:
+        """Compare Alpaca equity to tracked portfolio totals.
+
+        If the delta exceeds DEPOSIT_THRESHOLD, treat it as a deposit:
+        increase initial_equity and split the deposit into portfolio cash
+        proportionally.
+
+        Returns:
+            Updated TenantAllocations (or the original if no deposit).
+        """
+        if not hasattr(self._executor, "_client"):
+            return allocations
+
+        try:
+            account = await asyncio.to_thread(self._executor._client.get_account)
+            broker_equity = float(account.equity)
+        except Exception as e:
+            log.warning("deposit_detection_equity_fetch_failed", error=str(e))
+            return allocations
+
+        # Sum tracked portfolio totals
+        tracked_total = 0.0
+        for pname in ("A", "B"):
+            portfolio = await self._db.get_portfolio(pname, tenant_id=tenant_id)
+            if portfolio:
+                tracked_total += portfolio.total_value
+
+        delta = broker_equity - tracked_total
+        if delta <= DEPOSIT_THRESHOLD:
+            return allocations
+
+        # Deposit detected — update initial equity and split by pct
+        new_equity = allocations.initial_equity + delta
+        new_a_cash = new_equity * allocations.portfolio_a_pct / 100
+        new_b_cash = new_equity * allocations.portfolio_b_pct / 100
+
+        # Distribute deposit cash into portfolios
+        a_deposit = delta * allocations.portfolio_a_pct / 100
+        b_deposit = delta * allocations.portfolio_b_pct / 100
+
+        for pname, deposit_amount in [("A", a_deposit), ("B", b_deposit)]:
+            portfolio = await self._db.get_portfolio(pname, tenant_id=tenant_id)
+            if portfolio:
+                await self._db.upsert_portfolio(
+                    pname,
+                    cash=portfolio.cash + deposit_amount,
+                    total_value=portfolio.total_value + deposit_amount,
+                    tenant_id=tenant_id,
+                )
+
+        # Update tenant record
+        if tenant_id != "default":
+            await self._db.update_tenant(tenant_id, {
+                "initial_equity": new_equity,
+                "portfolio_a_cash": new_a_cash,
+                "portfolio_b_cash": new_b_cash,
+            })
+
+        log.info(
+            "deposit_detected",
+            delta=round(delta, 2),
+            new_equity=round(new_equity, 2),
+            tenant_id=tenant_id,
+        )
+
+        # Notify via Telegram
+        if self._notifier_available():
+            try:
+                await self._notifier.send_message(
+                    f"Deposit detected: +${delta:,.2f}\n"
+                    f"New baseline: ${new_equity:,.2f}\n"
+                    f"Portfolio A: ${new_a_cash:,.2f} | B: ${new_b_cash:,.2f}"
+                )
+            except Exception:
+                pass
+
+        from src.utils.allocations import resolve_allocations
+        return resolve_allocations(
+            initial_equity=new_equity,
+            portfolio_a_pct=allocations.portfolio_a_pct,
+            portfolio_b_pct=allocations.portfolio_b_pct,
+        )
+
     async def _request_model_approval(self, complexity) -> str:
         """Send approval request via Telegram and wait for response.
 
@@ -832,6 +986,7 @@ class Orchestrator:
     async def recovery_check(
         self, today: date, closes: pd.DataFrame,
         tenant_id: str = "default",
+        allocations: TenantAllocations | None = None,
     ) -> list[str]:
         """Detect missed trading days and backfill snapshots.
 
@@ -843,17 +998,18 @@ class Orchestrator:
             today: Current trading date.
             closes: Full historical closes DataFrame.
             tenant_id: Tenant UUID for data isolation.
+            allocations: Tenant allocations for initial value reference.
 
         Returns:
             List of recovered date strings (ISO format).
         """
-        from config.strategies import PORTFOLIO_A, PORTFOLIO_B
+        alloc = allocations or DEFAULT_ALLOCATIONS
 
         recovered_dates: list[str] = []
 
         for pname, initial in [
-            ("A", PORTFOLIO_A.allocation_usd),
-            ("B", PORTFOLIO_B.allocation_usd),
+            ("A", alloc.portfolio_a_cash),
+            ("B", alloc.portfolio_b_cash),
         ]:
             snapshots = await self._db.get_snapshots(pname, tenant_id=tenant_id)
             if not snapshots:
@@ -960,8 +1116,10 @@ class Orchestrator:
         regime_result: RegimeResult | None = None,
         tenant_id: str = "default",
         strategy_mode: str | None = None,
+        allocations: TenantAllocations | None = None,
     ) -> None:
         """Send daily brief and trade confirmation via Telegram."""
+        alloc = allocations or DEFAULT_ALLOCATIONS
         active_strategy = strategy_mode or settings.agent.strategy_mode
         try:
             # Build portfolio summaries from snapshots
@@ -972,7 +1130,7 @@ class Orchestrator:
                 today_snap = next(
                     (s for s in snapshots if s.date == today), None
                 )
-                default_value = 33_000.0 if name == "A" else 66_000.0
+                default_value = alloc.for_portfolio(name)
                 portfolio_summaries[name] = {
                     "total_value": (
                         today_snap.total_value if today_snap

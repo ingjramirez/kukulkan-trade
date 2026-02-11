@@ -52,6 +52,8 @@ async def add_tenant(args: argparse.Namespace) -> None:
             run_portfolio_b=True,
             portfolio_a_cash=args.portfolio_a_cash,
             portfolio_b_cash=args.portfolio_b_cash,
+            portfolio_a_pct=args.portfolio_a_pct,
+            portfolio_b_pct=args.portfolio_b_pct,
             ticker_additions=(
                 json.dumps(args.add_tickers.split(","))
                 if args.add_tickers else None
@@ -234,6 +236,8 @@ def main() -> None:
     add_p.add_argument("--portfolio-b-only", action="store_true")
     add_p.add_argument("--portfolio-a-cash", type=float, default=33000.0)
     add_p.add_argument("--portfolio-b-cash", type=float, default=66000.0)
+    add_p.add_argument("--portfolio-a-pct", type=float, default=33.33)
+    add_p.add_argument("--portfolio-b-pct", type=float, default=66.67)
     add_p.add_argument("--add-tickers", help="Comma-separated tickers to add")
     add_p.add_argument("--remove-tickers", help="Comma-separated tickers to remove")
     add_p.add_argument("--username", help="Dashboard login username")
