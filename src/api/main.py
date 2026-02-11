@@ -16,6 +16,7 @@ from src.api.routes.momentum import router as momentum_router
 from src.api.routes.portfolios import router as portfolios_router
 from src.api.routes.snapshots import router as snapshots_router
 from src.api.routes.tenants import router as tenants_router
+from src.api.routes.run import router as run_router
 from src.api.routes.trades import router as trades_router
 from src.api.routes.universe import router as universe_router
 from src.storage.database import Database
@@ -59,6 +60,7 @@ app.include_router(momentum_router)
 app.include_router(decisions_router)
 app.include_router(tenants_router)
 app.include_router(universe_router)
+app.include_router(run_router)
 
 
 @app.exception_handler(Exception)
