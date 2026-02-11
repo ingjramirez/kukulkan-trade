@@ -29,6 +29,7 @@ def filter_interesting_tickers(
     closes: pd.DataFrame,
     current_positions: list[str],
     top_movers: int = 15,
+    universe: list[str] | None = None,
 ) -> list[str]:
     """Select the most actionable tickers to send to Claude.
 
@@ -41,11 +42,13 @@ def filter_interesting_tickers(
         closes: DataFrame of close prices.
         current_positions: Tickers currently held.
         top_movers: Number of top movers to include.
+        universe: Custom ticker universe (defaults to PORTFOLIO_B_UNIVERSE).
 
     Returns:
         Deduplicated list of ~15-25 interesting tickers.
     """
-    tickers = [t for t in PORTFOLIO_B_UNIVERSE if t in closes.columns]
+    base_universe = universe if universe is not None else PORTFOLIO_B_UNIVERSE
+    tickers = [t for t in base_universe if t in closes.columns]
     if len(closes) < 2:
         return tickers
 
@@ -100,6 +103,7 @@ class AIAutonomyStrategy:
         vix: float | None = None,
         news_context: str = "",
         system_prompt: str | None = None,
+        universe: list[str] | None = None,
     ) -> dict:
         """Prepare all data needed for the Claude agent call.
 
@@ -117,13 +121,16 @@ class AIAutonomyStrategy:
             yield_curve: 10Y-2Y spread.
             vix: Current VIX.
             news_context: News headlines string.
+            universe: Custom ticker universe for filtering.
 
         Returns:
             Dict of kwargs ready to pass to agent.analyze().
         """
         # Filter to interesting tickers for compact format
         held_tickers = [p["ticker"] for p in positions if p.get("ticker")]
-        interesting = filter_interesting_tickers(closes, held_tickers)
+        interesting = filter_interesting_tickers(
+            closes, held_tickers, universe=universe,
+        )
 
         # Build price dict (last 5 days) — kept for backward compat
         prices: dict[str, list[float]] = {}
@@ -176,6 +183,7 @@ class AIAutonomyStrategy:
         current_positions: dict[str, float],
         latest_prices: pd.Series,
         extra_tickers: list[str] | None = None,
+        universe: list[str] | None = None,
     ) -> list[TradeSchema]:
         """Convert Claude's trade proposals into validated TradeSchema objects.
 
@@ -189,6 +197,8 @@ class AIAutonomyStrategy:
             total_value: Current total portfolio value.
             current_positions: Dict of ticker -> shares held.
             latest_prices: Most recent prices.
+            extra_tickers: Additional tickers to accept (e.g. discovered tickers).
+            universe: Custom ticker universe (defaults to PORTFOLIO_B_UNIVERSE).
 
         Returns:
             List of validated TradeSchema objects.
@@ -199,7 +209,8 @@ class AIAutonomyStrategy:
             return []
 
         trades: list[TradeSchema] = []
-        valid_tickers = set(PORTFOLIO_B_UNIVERSE)
+        base_universe = universe if universe is not None else PORTFOLIO_B_UNIVERSE
+        valid_tickers = set(base_universe)
         if extra_tickers:
             valid_tickers.update(extra_tickers)
 

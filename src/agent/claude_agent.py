@@ -19,25 +19,34 @@ from src.agent.strategy_directives import SESSION_DIRECTIVES, STRATEGY_MAP
 
 log = structlog.get_logger()
 
-_DEFAULT_SYSTEM_PROMPT = """You are Kukulkan, an AI portfolio manager for an \
-educational paper trading bot.
-You manage Portfolio B ($66,000 virtual allocation) with full autonomy \
-over a universe of ~55 tickers including sector ETFs, thematic ETFs, \
-inverse ETFs, commodities, individual stocks, and a Bitcoin proxy.
+def _build_base_prompt(
+    portfolio_allocation: float = 66_000.0,
+    universe_size: int = 55,
+) -> str:
+    """Build the base system prompt with dynamic allocation and universe size."""
+    return (
+        f"You are Kukulkan, an AI portfolio manager for an "
+        f"educational paper trading bot.\n"
+        f"You manage Portfolio B (${portfolio_allocation:,.0f} virtual allocation) "
+        f"with full autonomy "
+        f"over a universe of ~{universe_size} tickers including sector ETFs, "
+        f"thematic ETFs, "
+        f"inverse ETFs, commodities, individual stocks, and a Bitcoin proxy.\n\n"
+        f"Your goals:\n"
+        f"1. Maximize risk-adjusted returns over the medium term (weeks to months)\n"
+        f"2. Demonstrate thoughtful portfolio construction with clear reasoning\n"
+        f"3. Consider macro regime, sector rotation, momentum, valuation, and sentiment\n"
+        f"4. Manage risk through diversification and position sizing\n\n"
+        f"Constraints:\n"
+        f"- Maximum 10 positions at any time\n"
+        f"- No single position > 30% of portfolio value\n"
+        f"- You must output valid JSON in the specified format\n\n"
+        f"Be contrarian when the data supports it. Avoid herding into crowded trades.\n"
+        f"Think in terms of risk/reward asymmetry, not just direction."
+    )
 
-Your goals:
-1. Maximize risk-adjusted returns over the medium term (weeks to months)
-2. Demonstrate thoughtful portfolio construction with clear reasoning
-3. Consider macro regime, sector rotation, momentum, valuation, and sentiment
-4. Manage risk through diversification and position sizing
 
-Constraints:
-- Maximum 10 positions at any time
-- No single position > 30% of portfolio value
-- You must output valid JSON in the specified format
-
-Be contrarian when the data supports it. Avoid herding into crowded trades.
-Think in terms of risk/reward asymmetry, not just direction."""
+_DEFAULT_SYSTEM_PROMPT = _build_base_prompt()
 
 # Keep backward-compatible alias
 SYSTEM_PROMPT = _DEFAULT_SYSTEM_PROMPT
@@ -49,6 +58,8 @@ def build_system_prompt(
     strategy_mode: str = "conservative",
     session: str = "",
     regime_summary: str | None = None,
+    portfolio_allocation: float | None = None,
+    universe_size: int | None = None,
 ) -> str:
     """Build an enhanced system prompt with performance context and memory.
 
@@ -60,11 +71,19 @@ def build_system_prompt(
         strategy_mode: One of "conservative", "standard", "aggressive".
         session: Current session name ("Morning", "Midday", "Closing", or "").
         regime_summary: One-line regime description from RegimeClassifier.
+        portfolio_allocation: Dollar allocation for Portfolio B (dynamic per tenant).
+        universe_size: Number of tickers in the tenant's universe.
 
     Returns:
         Full system prompt string.
     """
-    prompt = _DEFAULT_SYSTEM_PROMPT
+    if portfolio_allocation is not None or universe_size is not None:
+        prompt = _build_base_prompt(
+            portfolio_allocation=portfolio_allocation or 66_000.0,
+            universe_size=universe_size or 55,
+        )
+    else:
+        prompt = _DEFAULT_SYSTEM_PROMPT
 
     prompt += """
 

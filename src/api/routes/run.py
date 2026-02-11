@@ -94,7 +94,9 @@ async def _run_pipeline(db: Database, tenant_id: str) -> None:
         executor = AlpacaExecutor(db, client)
 
         from src.utils.allocations import resolve_from_tenant
+        from src.utils.tenant_universe import get_tenant_universe
         alloc = resolve_from_tenant(tenant)
+        tenant_b_universe = get_tenant_universe(tenant, "B")
 
         orchestrator = Orchestrator(db, notifier=notifier, executor=executor)
         await orchestrator.run_daily(
@@ -104,6 +106,7 @@ async def _run_pipeline(db: Database, tenant_id: str) -> None:
             run_portfolio_a=tenant.run_portfolio_a,
             run_portfolio_b=tenant.run_portfolio_b,
             allocations=alloc,
+            portfolio_b_universe=tenant_b_universe,
         )
         log.info("manual_run_complete", tenant_id=tenant_id)
     except Exception as e:

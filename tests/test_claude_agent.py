@@ -284,6 +284,22 @@ class TestAgentResponseToTrades:
         # Same as high: 15% of $66K = $9,900 / $200 = 49 shares
         assert trades[0].shares == 49.0
 
+    def test_custom_universe_validates_tickers(self) -> None:
+        """Custom universe restricts valid tickers for trade validation."""
+        response = {
+            "trades": [
+                {"ticker": "XLK", "side": "BUY", "weight": 0.15, "reason": "ok"},
+                {"ticker": "AAPL", "side": "BUY", "weight": 0.10, "reason": "excluded"},
+            ],
+        }
+        # Only XLK and GLD in custom universe — AAPL should be rejected
+        trades = self.strategy.agent_response_to_trades(
+            response, total_value=66_000.0, current_positions={},
+            latest_prices=self.prices, universe=["XLK", "GLD"],
+        )
+        assert len(trades) == 1
+        assert trades[0].ticker == "XLK"
+
 
 # ── Decision persistence test ────────────────────────────────────────────────
 
@@ -425,6 +441,24 @@ class TestFilterInterestingTickers:
         # With only 1 day, can't compute % change — just returns all tickers
         assert isinstance(result, list)
 
+    def test_custom_universe(self) -> None:
+        """Custom universe restricts which tickers are considered."""
+        closes = _make_closes(["XLK", "XLF", "GLD", "QQQ", "AAPL"], days=50)
+        # Only consider XLK and GLD — others should be excluded
+        result = filter_interesting_tickers(
+            closes, [], universe=["XLK", "GLD"],
+        )
+        for t in result:
+            assert t in ["XLK", "GLD"]
+
+    def test_custom_universe_includes_holdings(self) -> None:
+        """Holdings are included even if in a custom universe."""
+        closes = _make_closes(["XLK", "XLF", "GLD"], days=50)
+        result = filter_interesting_tickers(
+            closes, ["XLF"], universe=["XLK", "XLF", "GLD"],
+        )
+        assert "XLF" in result
+
 
 # ── Decision persistence test ────────────────────────────────────────────────
 
@@ -500,6 +534,8 @@ class TestBuildSystemPrompt:
         assert "Decision Framework" in prompt
         assert "Hard Rules" in prompt
         assert "Track Record" not in prompt
+        assert "$66,000" in prompt  # default allocation
+        assert "~55 tickers" in prompt  # default universe size
 
     def test_with_performance_stats(self) -> None:
         """With perf stats, appends track record section."""
@@ -507,6 +543,26 @@ class TestBuildSystemPrompt:
         prompt = build_system_prompt(performance_stats=perf)
         assert "Track Record" in prompt
         assert "$69,300.00" in prompt
+
+    def test_custom_allocation(self) -> None:
+        """Custom portfolio allocation replaces default $66K in prompt."""
+        prompt = build_system_prompt(portfolio_allocation=100_000.0)
+        assert "$100,000" in prompt
+        assert "$66,000" not in prompt
+
+    def test_custom_universe_size(self) -> None:
+        """Custom universe size replaces default ~55 in prompt."""
+        prompt = build_system_prompt(universe_size=42)
+        assert "~42 tickers" in prompt
+        assert "~55 tickers" not in prompt
+
+    def test_custom_allocation_and_universe(self) -> None:
+        """Both allocation and universe size can be customized."""
+        prompt = build_system_prompt(
+            portfolio_allocation=50_000.0, universe_size=30,
+        )
+        assert "$50,000" in prompt
+        assert "~30 tickers" in prompt
 
     def test_system_prompt_passed_to_api(self) -> None:
         """Custom system prompt reaches the API call."""

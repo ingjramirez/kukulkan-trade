@@ -45,6 +45,7 @@ from src.utils.allocations import (
     resolve_from_tenant,
 )
 from src.utils.market_calendar import is_market_open, trading_days_between
+from src.utils.tenant_universe import get_tenant_universe
 
 log = structlog.get_logger()
 
@@ -216,6 +217,9 @@ class Orchestrator:
         # Resolve allocations from tenant config
         alloc = resolve_from_tenant(tenant)
 
+        # Resolve tenant-specific ticker universe
+        tenant_b_universe = get_tenant_universe(tenant, "B")
+
         # Build tenant-scoped orchestrator state
         saved_executor = self._executor
         saved_notifier = self._notifier
@@ -232,6 +236,7 @@ class Orchestrator:
                 run_portfolio_a=tenant.run_portfolio_a,
                 run_portfolio_b=tenant.run_portfolio_b,
                 allocations=alloc,
+                portfolio_b_universe=tenant_b_universe,
             )
             summary["tenant_id"] = tenant.id
             summary["tenant_name"] = tenant.name
@@ -248,6 +253,7 @@ class Orchestrator:
         run_portfolio_a: bool = True,
         run_portfolio_b: bool = True,
         allocations: TenantAllocations | None = None,
+        portfolio_b_universe: list[str] | None = None,
     ) -> dict:
         """Execute the full daily pipeline.
 
@@ -484,6 +490,7 @@ class Orchestrator:
                     tenant_id=tenant_id,
                     strategy_mode=active_strategy,
                     allocations=alloc,
+                    portfolio_b_universe=portfolio_b_universe,
                 )
                 summary["trades"]["B"] = len(trades_b)
                 summary["b_reasoning"] = b_reasoning
@@ -613,6 +620,7 @@ class Orchestrator:
         tenant_id: str = "default",
         strategy_mode: str | None = None,
         allocations: TenantAllocations | None = None,
+        portfolio_b_universe: list[str] | None = None,
     ):
         """Run Portfolio B AI strategy with complexity-based model routing."""
         alloc = allocations or DEFAULT_ALLOCATIONS
@@ -732,6 +740,10 @@ class Orchestrator:
             strategy_mode=active_strategy,
             session=session,
             regime_summary=regime_result.summary if regime_result else None,
+            portfolio_allocation=alloc.portfolio_b_cash,
+            universe_size=(
+                len(portfolio_b_universe) if portfolio_b_universe else None
+            ),
         )
 
         # ── Prepare context and call agent ───────────────────────────────
@@ -747,6 +759,7 @@ class Orchestrator:
             vix=vix,
             news_context=news_context,
             system_prompt=dynamic_prompt,
+            universe=portfolio_b_universe,
         )
         context["model_override"] = model_override
 
@@ -760,6 +773,7 @@ class Orchestrator:
             current_positions=position_map,
             latest_prices=closes.iloc[-1],
             extra_tickers=dynamic_tickers,
+            universe=portfolio_b_universe,
         )
 
         # Save decision
