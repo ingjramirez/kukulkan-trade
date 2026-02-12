@@ -39,13 +39,16 @@ class PaperTrader:
                 )
                 log.info("portfolio_initialized", portfolio=name, cash=cash)
 
-    async def execute_trades(self, trades: list[TradeSchema]) -> list[TradeSchema]:
+    async def execute_trades(
+        self, trades: list[TradeSchema], tenant_id: str = "default",
+    ) -> list[TradeSchema]:
         """Execute a batch of trade signals.
 
         Processes sells before buys to free up cash.
 
         Args:
             trades: List of validated TradeSchema objects.
+            tenant_id: Tenant UUID for data isolation.
 
         Returns:
             List of successfully executed trades.
@@ -56,7 +59,7 @@ class PaperTrader:
         executed: list[TradeSchema] = []
 
         for trade in sells + buys:
-            success = await self._execute_single(trade)
+            success = await self._execute_single(trade, tenant_id=tenant_id)
             if success:
                 executed.append(trade)
 
@@ -68,22 +71,25 @@ class PaperTrader:
         )
         return executed
 
-    async def _execute_single(self, trade: TradeSchema) -> bool:
+    async def _execute_single(
+        self, trade: TradeSchema, tenant_id: str = "default",
+    ) -> bool:
         """Execute a single trade, updating positions and cash.
 
         Args:
             trade: Validated trade signal.
+            tenant_id: Tenant UUID for data isolation.
 
         Returns:
             True if executed successfully, False if rejected.
         """
         portfolio_name = trade.portfolio.value
-        portfolio = await self._db.get_portfolio(portfolio_name)
+        portfolio = await self._db.get_portfolio(portfolio_name, tenant_id=tenant_id)
         if portfolio is None:
             log.error("portfolio_not_found", portfolio=portfolio_name)
             return False
 
-        positions = await self._db.get_positions(portfolio_name)
+        positions = await self._db.get_positions(portfolio_name, tenant_id=tenant_id)
         position_map = {p.ticker: p for p in positions}
 
         if trade.side.value == "BUY":
@@ -104,11 +110,13 @@ class PaperTrader:
                 total_cost = (existing.shares * existing.avg_price) + cost
                 new_avg = total_cost / total_shares
                 await self._db.upsert_position(
-                    portfolio_name, trade.ticker, total_shares, new_avg
+                    portfolio_name, trade.ticker, total_shares, new_avg,
+                    tenant_id=tenant_id,
                 )
             else:
                 await self._db.upsert_position(
-                    portfolio_name, trade.ticker, trade.shares, trade.price
+                    portfolio_name, trade.ticker, trade.shares, trade.price,
+                    tenant_id=tenant_id,
                 )
 
             # Deduct cash
@@ -116,6 +124,7 @@ class PaperTrader:
                 portfolio_name,
                 cash=portfolio.cash - cost,
                 total_value=portfolio.total_value,  # will be recalculated
+                tenant_id=tenant_id,
             )
 
         elif trade.side.value == "SELL":
@@ -132,7 +141,8 @@ class PaperTrader:
 
             remaining = existing.shares - trade.shares
             await self._db.upsert_position(
-                portfolio_name, trade.ticker, remaining, existing.avg_price
+                portfolio_name, trade.ticker, remaining, existing.avg_price,
+                tenant_id=tenant_id,
             )
 
             # Add proceeds to cash
@@ -141,6 +151,7 @@ class PaperTrader:
                 portfolio_name,
                 cash=portfolio.cash + proceeds,
                 total_value=portfolio.total_value,
+                tenant_id=tenant_id,
             )
 
         # Log the trade
@@ -151,6 +162,7 @@ class PaperTrader:
             shares=trade.shares,
             price=trade.price,
             reason=trade.reason,
+            tenant_id=tenant_id,
         )
 
         log.info(

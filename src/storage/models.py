@@ -254,6 +254,55 @@ class WeeklyReportRow(Base):
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
+class TrailingStopRow(Base):
+    """Active trailing stop for a position."""
+
+    __tablename__ = "trailing_stops"
+    __table_args__ = (UniqueConstraint("tenant_id", "portfolio", "ticker"),)
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(String(36), nullable=False, default="default")
+    portfolio = Column(String(1), nullable=False)
+    ticker = Column(String(10), nullable=False)
+    entry_price = Column(Float, nullable=False)
+    peak_price = Column(Float, nullable=False)
+    trail_pct = Column(Float, nullable=False)       # 0.05 = 5%
+    stop_price = Column(Float, nullable=False)       # peak * (1 - trail_pct)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
+class EarningsCalendarRow(Base):
+    """Cached upcoming earnings dates from yfinance."""
+
+    __tablename__ = "earnings_calendar"
+    __table_args__ = (UniqueConstraint("ticker", "earnings_date"),)
+
+    id = Column(Integer, primary_key=True)
+    ticker = Column(String(10), nullable=False)
+    earnings_date = Column(Date, nullable=False)
+    source = Column(String(20), default="yfinance")
+    fetched_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
+class WatchlistRow(Base):
+    """AI-managed watchlist for Portfolio B."""
+
+    __tablename__ = "watchlist"
+    __table_args__ = (UniqueConstraint("tenant_id", "ticker"),)
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(String(36), nullable=False, default="default")
+    portfolio = Column(String(1), nullable=False, default="B")
+    ticker = Column(String(10), nullable=False)
+    reason = Column(Text)
+    conviction = Column(String(10), nullable=False, default="medium")
+    target_entry = Column(Float, nullable=True)
+    added_date = Column(Date, nullable=False)
+    expires_at = Column(Date, nullable=False)
+
+
 class TenantRow(Base):
     """Multi-tenant configuration: credentials, strategy, and universe."""
 

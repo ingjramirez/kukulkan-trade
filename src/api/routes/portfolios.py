@@ -1,4 +1,4 @@
-"""Portfolio endpoints — list, detail, and positions."""
+"""Portfolio endpoints — list, detail, positions, trailing stops, and watchlist."""
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -72,4 +72,46 @@ async def get_positions(
             market_value=p.market_value,
         )
         for p in positions
+    ]
+
+
+@router.get("/{name}/trailing-stops")
+async def get_trailing_stops(
+    name: str,
+    tenant_id: str = Depends(get_authorized_tenant_id),
+    db: Database = Depends(get_db),
+) -> list[dict]:
+    """Get active trailing stops for a portfolio."""
+    stops = await db.get_active_trailing_stops(tenant_id, name)
+    return [
+        {
+            "ticker": s.ticker,
+            "entry_price": s.entry_price,
+            "peak_price": s.peak_price,
+            "trail_pct": s.trail_pct,
+            "stop_price": s.stop_price,
+            "is_active": s.is_active,
+        }
+        for s in stops
+    ]
+
+
+@router.get("/{name}/watchlist")
+async def get_watchlist(
+    name: str,
+    tenant_id: str = Depends(get_authorized_tenant_id),
+    db: Database = Depends(get_db),
+) -> list[dict]:
+    """Get watchlist items for a portfolio."""
+    items = await db.get_watchlist(tenant_id, name)
+    return [
+        {
+            "ticker": w.ticker,
+            "reason": w.reason,
+            "conviction": w.conviction,
+            "target_entry": w.target_entry,
+            "added_date": str(w.added_date),
+            "expires_at": str(w.expires_at),
+        }
+        for w in items
     ]

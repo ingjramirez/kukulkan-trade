@@ -14,12 +14,15 @@ from src.storage.models import (
     Base,
     DailySnapshotRow,
     DiscoveredTickerRow,
+    EarningsCalendarRow,
     MarketDataRow,
     MomentumRankingRow,
     PortfolioRow,
     PositionRow,
     TenantRow,
     TradeRow,
+    TrailingStopRow,
+    WatchlistRow,
 )
 
 log = structlog.get_logger()
@@ -547,6 +550,278 @@ class Database:
             "weekly_summary": await self.get_agent_memories("weekly_summary", tenant_id),
             "agent_note": await self.get_agent_memories("agent_note", tenant_id),
         }
+
+    # ── Trailing Stops ─────────────────────────────────────────────
+
+    async def create_trailing_stop(
+        self,
+        tenant_id: str,
+        portfolio: str,
+        ticker: str,
+        entry_price: float,
+        trail_pct: float,
+    ) -> TrailingStopRow:
+        """Create or replace a trailing stop for a position."""
+        peak_price = entry_price
+        stop_price = peak_price * (1 - trail_pct)
+        now = datetime.now(timezone.utc)
+        async with self.session() as s:
+            # Delete existing stop for same tenant/portfolio/ticker (unique constraint)
+            existing = (
+                await s.execute(
+                    select(TrailingStopRow).where(
+                        TrailingStopRow.tenant_id == tenant_id,
+                        TrailingStopRow.portfolio == portfolio,
+                        TrailingStopRow.ticker == ticker,
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing:
+                await s.delete(existing)
+                await s.flush()
+
+            row = TrailingStopRow(
+                tenant_id=tenant_id,
+                portfolio=portfolio,
+                ticker=ticker,
+                entry_price=entry_price,
+                peak_price=peak_price,
+                trail_pct=trail_pct,
+                stop_price=stop_price,
+                is_active=True,
+                created_at=now,
+                updated_at=now,
+            )
+            s.add(row)
+            await s.commit()
+            await s.refresh(row)
+        return row
+
+    async def get_active_trailing_stops(
+        self, tenant_id: str, portfolio: str | None = None,
+    ) -> list[TrailingStopRow]:
+        """Get all active trailing stops, optionally filtered by portfolio."""
+        async with self.session() as s:
+            stmt = select(TrailingStopRow).where(
+                TrailingStopRow.tenant_id == tenant_id,
+                TrailingStopRow.is_active.is_(True),
+            )
+            if portfolio:
+                stmt = stmt.where(TrailingStopRow.portfolio == portfolio)
+            result = await s.execute(stmt)
+            return list(result.scalars().all())
+
+    async def update_trailing_stop(
+        self,
+        stop_id: int,
+        *,
+        peak_price: float | None = None,
+        stop_price: float | None = None,
+        is_active: bool | None = None,
+    ) -> None:
+        """Update a trailing stop's peak, stop_price, or active status."""
+        async with self.session() as s:
+            row = (
+                await s.execute(
+                    select(TrailingStopRow).where(TrailingStopRow.id == stop_id)
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                return
+            if peak_price is not None:
+                row.peak_price = peak_price
+            if stop_price is not None:
+                row.stop_price = stop_price
+            if is_active is not None:
+                row.is_active = is_active
+            row.updated_at = datetime.now(timezone.utc)
+            await s.commit()
+
+    async def deactivate_trailing_stop(self, stop_id: int) -> None:
+        """Deactivate a single trailing stop."""
+        await self.update_trailing_stop(stop_id, is_active=False)
+
+    async def deactivate_trailing_stops_for_ticker(
+        self, tenant_id: str, portfolio: str, ticker: str,
+    ) -> None:
+        """Deactivate all trailing stops for a tenant/portfolio/ticker."""
+        async with self.session() as s:
+            result = await s.execute(
+                select(TrailingStopRow).where(
+                    TrailingStopRow.tenant_id == tenant_id,
+                    TrailingStopRow.portfolio == portfolio,
+                    TrailingStopRow.ticker == ticker,
+                    TrailingStopRow.is_active.is_(True),
+                )
+            )
+            for row in result.scalars().all():
+                row.is_active = False
+                row.updated_at = datetime.now(timezone.utc)
+            await s.commit()
+
+    # ── Earnings Calendar ────────────────────────────────────────
+
+    async def upsert_earnings(
+        self, ticker: str, earnings_date: date, source: str = "yfinance",
+    ) -> None:
+        """Insert or update an earnings date for a ticker."""
+        async with self.session() as s:
+            existing = (
+                await s.execute(
+                    select(EarningsCalendarRow).where(
+                        EarningsCalendarRow.ticker == ticker,
+                        EarningsCalendarRow.earnings_date == earnings_date,
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing:
+                existing.source = source
+                existing.fetched_at = datetime.now(timezone.utc)
+            else:
+                s.add(EarningsCalendarRow(
+                    ticker=ticker,
+                    earnings_date=earnings_date,
+                    source=source,
+                    fetched_at=datetime.now(timezone.utc),
+                ))
+            await s.commit()
+
+    async def get_upcoming_earnings(
+        self, tickers: list[str], days_ahead: int = 14,
+    ) -> list[EarningsCalendarRow]:
+        """Get earnings within N days for given tickers."""
+        from datetime import timedelta
+        today = date.today()
+        end_date = today + timedelta(days=days_ahead)
+        async with self.session() as s:
+            result = await s.execute(
+                select(EarningsCalendarRow).where(
+                    EarningsCalendarRow.ticker.in_(tickers),
+                    EarningsCalendarRow.earnings_date >= today,
+                    EarningsCalendarRow.earnings_date <= end_date,
+                ).order_by(EarningsCalendarRow.earnings_date)
+            )
+            return list(result.scalars().all())
+
+    async def get_latest_earnings_fetch(self) -> datetime | None:
+        """Get the most recent fetched_at timestamp from earnings_calendar."""
+        async with self.session() as s:
+            from sqlalchemy import func
+            result = await s.execute(
+                select(func.max(EarningsCalendarRow.fetched_at))
+            )
+            return result.scalar_one_or_none()
+
+    async def cleanup_past_earnings(self) -> int:
+        """Delete earnings rows where earnings_date < today. Returns count."""
+        today = date.today()
+        async with self.session() as s:
+            result = await s.execute(
+                select(EarningsCalendarRow).where(
+                    EarningsCalendarRow.earnings_date < today,
+                )
+            )
+            rows = list(result.scalars().all())
+            for row in rows:
+                await s.delete(row)
+            await s.commit()
+            return len(rows)
+
+    # ── Watchlist ─────────────────────────────────────────────────
+
+    async def upsert_watchlist_item(
+        self,
+        tenant_id: str,
+        ticker: str,
+        reason: str,
+        conviction: str = "medium",
+        target_entry: float | None = None,
+        expires_at: date | None = None,
+        portfolio: str = "B",
+    ) -> None:
+        """Create or update a watchlist item."""
+        today = date.today()
+        from datetime import timedelta
+        exp = expires_at or (today + timedelta(days=14))
+        async with self.session() as s:
+            existing = (
+                await s.execute(
+                    select(WatchlistRow).where(
+                        WatchlistRow.tenant_id == tenant_id,
+                        WatchlistRow.ticker == ticker,
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing:
+                existing.reason = reason
+                existing.conviction = conviction
+                existing.target_entry = target_entry
+                existing.expires_at = exp
+                existing.portfolio = portfolio
+            else:
+                s.add(WatchlistRow(
+                    tenant_id=tenant_id,
+                    portfolio=portfolio,
+                    ticker=ticker,
+                    reason=reason,
+                    conviction=conviction,
+                    target_entry=target_entry,
+                    added_date=today,
+                    expires_at=exp,
+                ))
+            await s.commit()
+
+    async def get_watchlist(
+        self, tenant_id: str, portfolio: str = "B",
+    ) -> list[WatchlistRow]:
+        """Get all watchlist items for a tenant/portfolio."""
+        async with self.session() as s:
+            result = await s.execute(
+                select(WatchlistRow).where(
+                    WatchlistRow.tenant_id == tenant_id,
+                    WatchlistRow.portfolio == portfolio,
+                ).order_by(WatchlistRow.added_date.desc())
+            )
+            return list(result.scalars().all())
+
+    async def remove_watchlist_item(
+        self, tenant_id: str, ticker: str,
+    ) -> None:
+        """Remove a watchlist item."""
+        async with self.session() as s:
+            row = (
+                await s.execute(
+                    select(WatchlistRow).where(
+                        WatchlistRow.tenant_id == tenant_id,
+                        WatchlistRow.ticker == ticker,
+                    )
+                )
+            ).scalar_one_or_none()
+            if row:
+                await s.delete(row)
+                await s.commit()
+
+    async def cleanup_expired_watchlist(self, tenant_id: str) -> int:
+        """Delete watchlist items past their expires_at. Returns count."""
+        today = date.today()
+        async with self.session() as s:
+            result = await s.execute(
+                select(WatchlistRow).where(
+                    WatchlistRow.tenant_id == tenant_id,
+                    WatchlistRow.expires_at < today,
+                )
+            )
+            rows = list(result.scalars().all())
+            for row in rows:
+                await s.delete(row)
+            await s.commit()
+            return len(rows)
+
+    async def remove_watchlist_if_traded(
+        self, tenant_id: str, ticker: str,
+    ) -> None:
+        """Auto-remove a ticker from watchlist when it's actually traded."""
+        await self.remove_watchlist_item(tenant_id, ticker)
 
     # ── Tenant CRUD ──────────────────────────────────────────────────
 

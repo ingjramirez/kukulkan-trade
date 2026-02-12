@@ -108,6 +108,7 @@ class TelegramNotifier:
         strategy_mode: str = "conservative",
         run_portfolio_a: bool = True,
         run_portfolio_b: bool = True,
+        trailing_stop_alerts: list[dict] | None = None,
     ) -> bool:
         """Send the formatted daily brief.
 
@@ -137,6 +138,7 @@ class TelegramNotifier:
             strategy_mode=strategy_mode,
             run_portfolio_a=run_portfolio_a,
             run_portfolio_b=run_portfolio_b,
+            trailing_stop_alerts=trailing_stop_alerts or [],
         )
         return await self.send_message(msg)
 
@@ -382,6 +384,7 @@ def format_daily_brief(
     strategy_mode: str = "conservative",
     run_portfolio_a: bool = True,
     run_portfolio_b: bool = True,
+    trailing_stop_alerts: list[dict] | None = None,
 ) -> str:
     """Format the full daily brief as HTML.
 
@@ -473,6 +476,16 @@ def format_daily_brief(
             lines.append(f"  A: {_escape_html(a_reason)}")
         if b_reason:
             lines.append(f"  B: {_escape_html(b_reason[:100])}")
+        lines.append("")
+
+    # Trailing stop alerts (before proposed trades)
+    if trailing_stop_alerts:
+        lines.append(f"<b>Trailing Stops Triggered ({len(trailing_stop_alerts)})</b>")
+        for alert in trailing_stop_alerts:
+            lines.append(f"  {alert['ticker']}: sold @ ${alert['price']:.2f}")
+            lines.append(
+                f"    Entry: ${alert['entry']:.2f} → Peak: ${alert['peak']:.2f}"
+            )
         lines.append("")
 
     # Commentary

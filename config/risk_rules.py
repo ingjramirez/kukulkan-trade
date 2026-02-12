@@ -46,3 +46,11 @@ class RiskRules:
 
 
 RISK_RULES = RiskRules()
+
+# Trailing stop percentages by strategy mode and conviction level.
+# Lower trail = tighter stop = less drawdown tolerance.
+TRAIL_PCT: dict[str, dict[str, float]] = {
+    "conservative": {"high": 0.05, "medium": 0.07, "low": 0.10},
+    "standard":     {"high": 0.07, "medium": 0.10, "low": 0.12},
+    "aggressive":   {"high": 0.10, "medium": 0.12, "low": 0.15},
+}

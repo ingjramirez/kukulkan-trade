@@ -9,11 +9,12 @@ creating per-tenant Alpaca clients and Telegram bots.
 
 import asyncio
 import uuid
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 import structlog
 
+from config.risk_rules import TRAIL_PCT
 from config.settings import settings
 from config.strategies import PORTFOLIO_B
 from config.universe import (
@@ -35,7 +36,7 @@ from src.data.news_fetcher import NewsFetcher
 from src.execution.paper_trader import PaperTrader
 from src.notifications.telegram_bot import TelegramNotifier
 from src.storage.database import Database
-from src.storage.models import TenantRow
+from src.storage.models import OrderSide, PortfolioName, TenantRow, TradeSchema
 from src.strategies.portfolio_a import MomentumStrategy
 from src.strategies.portfolio_b import AIAutonomyStrategy
 from src.utils.allocations import (
@@ -68,6 +69,22 @@ def _active_portfolio_names(
     if run_b:
         active.append("B")
     return active
+
+
+def _get_trail_pct(strategy_mode: str, trade: TradeSchema) -> float:
+    """Look up trailing stop percentage from strategy mode and trade conviction.
+
+    Parses conviction from the trade reason (e.g. "high conviction" or
+    "conviction: medium"). Falls back to "medium".
+    """
+    conviction = "medium"
+    reason_lower = (trade.reason or "").lower()
+    for level in ("high", "low"):
+        if level in reason_lower:
+            conviction = level
+            break
+    strategy_pcts = TRAIL_PCT.get(strategy_mode, TRAIL_PCT["conservative"])
+    return strategy_pcts.get(conviction, strategy_pcts["medium"])
 
 
 class Orchestrator:
@@ -369,6 +386,18 @@ class Orchestrator:
         summary["tickers_fetched"] = len(data)
         log.info("market_data_ready", tickers=len(data), rows=len(closes))
 
+        # Step 2.1: Check trailing stops
+        trailing_stop_sells: list[TradeSchema] = []
+        trailing_stop_alerts: list[dict] = []
+        try:
+            trailing_stop_sells, trailing_stop_alerts = await self._check_trailing_stops(
+                tenant_id, closes, run_portfolio_a, run_portfolio_b,
+            )
+            if trailing_stop_sells:
+                summary["trailing_stops_triggered"] = len(trailing_stop_sells)
+        except Exception as e:
+            log.warning("trailing_stop_check_failed", error=str(e))
+
         # Step 2.3: Handle pending portfolio rebalance
         if tenant_id != "default":
             try:
@@ -503,6 +532,52 @@ class Orchestrator:
             log.warning("news_fetch_failed", error=str(e))
             summary["errors"].append(f"News fetch failed: {e}")
 
+        # Step 5.5: Earnings calendar (Morning session only)
+        earnings_context = ""
+        if session == "Morning":
+            try:
+                from src.data.earnings_calendar import EarningsCalendar
+                earnings_cal = EarningsCalendar()
+                await earnings_cal.refresh_earnings(self._db, list(closes.columns))
+                positions_b = await self._db.get_positions("B", tenant_id=tenant_id)
+                held_tickers = [p.ticker for p in positions_b]
+                all_tickers = list(set(held_tickers + list(closes.columns)))
+                upcoming = await earnings_cal.get_upcoming(
+                    self._db, all_tickers, days_ahead=14,
+                )
+                if upcoming:
+                    e_lines = ["Upcoming Earnings (next 14 days):"]
+                    for row in upcoming:
+                        days_until = (row.earnings_date - today).days
+                        warning = ""
+                        if days_until <= 3:
+                            warning = " — IMMINENT"
+                        elif days_until <= 5 and row.ticker in held_tickers:
+                            warning = " — consider reducing position"
+                        e_lines.append(
+                            f"- {row.ticker}: "
+                            f"{row.earnings_date.strftime('%b %d')} "
+                            f"({days_until}d away){warning}"
+                        )
+                    e_lines.append(
+                        "\nNote: Earnings dates are approximate. "
+                        "Consider reducing positions or tightening stops "
+                        "3-5 days before earnings."
+                    )
+                    earnings_context = "\n".join(e_lines)
+                    summary["earnings_alerts"] = len(upcoming)
+            except Exception as e:
+                log.warning("earnings_fetch_failed", error=str(e))
+
+        # Step 5.6: Clean up expired watchlist (Morning only)
+        if session == "Morning":
+            try:
+                expired_wl = await self._db.cleanup_expired_watchlist(tenant_id)
+                if expired_wl:
+                    log.info("watchlist_expired", count=expired_wl, tenant_id=tenant_id)
+            except Exception as e:
+                log.warning("watchlist_cleanup_failed", error=str(e))
+
         # Step 6: Portfolio B — AI Agent
         log.info("step_6_portfolio_b")
         trades_b: list = []
@@ -523,6 +598,7 @@ class Orchestrator:
                     strategy_mode=active_strategy,
                     allocations=alloc,
                     portfolio_b_universe=portfolio_b_universe,
+                    earnings_context=earnings_context or None,
                 )
                 summary["trades"]["B"] = len(trades_b)
                 summary["b_reasoning"] = b_reasoning
@@ -563,12 +639,46 @@ class Orchestrator:
                     ticker=blocked_trade.ticker,
                     reason=reason,
                 )
+        # Merge trailing stop sells (bypass risk filter — stops ARE the risk mechanism)
+        all_trades.extend(trailing_stop_sells)
+
         executed: list = []
         if all_trades:
-            executed = await self._executor.execute_trades(all_trades)
+            executed = await self._executor.execute_trades(
+                all_trades, tenant_id=tenant_id,
+            )
             summary["trades_executed"] = len(executed)
         else:
             summary["trades_executed"] = 0
+
+        # Step 7.1: Create trailing stops for new buys + auto-remove from watchlist
+        for trade in executed:
+            if trade.side.value == "BUY":
+                trail_pct = _get_trail_pct(active_strategy, trade)
+                try:
+                    await self._db.create_trailing_stop(
+                        tenant_id=tenant_id,
+                        portfolio=trade.portfolio.value,
+                        ticker=trade.ticker,
+                        entry_price=trade.price,
+                        trail_pct=trail_pct,
+                    )
+                except Exception as e:
+                    log.warning("trailing_stop_create_failed", ticker=trade.ticker, error=str(e))
+                try:
+                    await self._db.remove_watchlist_if_traded(tenant_id, trade.ticker)
+                except Exception as e:
+                    log.warning("watchlist_auto_remove_failed", error=str(e))
+
+        # Step 7.2: Deactivate trailing stops for sold positions
+        for trade in executed:
+            if trade.side.value == "SELL":
+                try:
+                    await self._db.deactivate_trailing_stops_for_ticker(
+                        tenant_id, trade.portfolio.value, trade.ticker,
+                    )
+                except Exception as e:
+                    log.warning("trailing_stop_deactivate_failed", error=str(e))
 
         # Step 8: Take snapshots (only for enabled portfolios)
         log.info("step_8_taking_snapshots")
@@ -603,6 +713,7 @@ class Orchestrator:
             allocations=alloc,
             run_portfolio_a=run_portfolio_a,
             run_portfolio_b=run_portfolio_b,
+            trailing_stop_alerts=trailing_stop_alerts,
         )
 
         log.info(
@@ -658,6 +769,7 @@ class Orchestrator:
         strategy_mode: str | None = None,
         allocations: TenantAllocations | None = None,
         portfolio_b_universe: list[str] | None = None,
+        earnings_context: str | None = None,
     ):
         """Run Portfolio B AI strategy with complexity-based model routing."""
         alloc = allocations or DEFAULT_ALLOCATIONS
@@ -771,6 +883,46 @@ class Orchestrator:
             except Exception as e:
                 log.warning("correlation_failed", error=str(e))
 
+        # ── Build trailing stops context for B ─────────────────────────
+        trailing_context: str | None = None
+        try:
+            stops_b = await self._db.get_active_trailing_stops(tenant_id, "B")
+            if stops_b:
+                stop_lines = []
+                for s in stops_b:
+                    current = (
+                        float(closes[s.ticker].iloc[-1])
+                        if s.ticker in closes.columns
+                        else s.peak_price
+                    )
+                    pct_from_stop = ((current - s.stop_price) / current) * 100
+                    stop_lines.append(
+                        f"- {s.ticker}: entry ${s.entry_price:.2f}, "
+                        f"peak ${s.peak_price:.2f}, "
+                        f"stop ${s.stop_price:.2f} ({s.trail_pct*100:.1f}% trail) "
+                        f"— {pct_from_stop:.1f}% from trigger"
+                    )
+                trailing_context = "\n".join(stop_lines)
+        except Exception as e:
+            log.warning("trailing_context_build_failed", error=str(e))
+
+        # ── Build watchlist context for B ─────────────────────────────
+        watchlist_context: str | None = None
+        try:
+            watchlist = await self._db.get_watchlist(tenant_id)
+            if watchlist:
+                wl_lines = []
+                for w in watchlist:
+                    days_left = (w.expires_at - today).days
+                    target = f", target ${w.target_entry:.2f}" if w.target_entry else ""
+                    wl_lines.append(
+                        f"- {w.ticker}: \"{w.reason}\" "
+                        f"({w.conviction} conviction{target}, {days_left}d left)"
+                    )
+                watchlist_context = "\n".join(wl_lines)
+        except Exception as e:
+            log.warning("watchlist_context_build_failed", error=str(e))
+
         dynamic_prompt = build_system_prompt(
             performance_stats=perf_text,
             memory_context=memory_text,
@@ -781,6 +933,9 @@ class Orchestrator:
             universe_size=(
                 len(portfolio_b_universe) if portfolio_b_universe else None
             ),
+            trailing_stops_context=trailing_context,
+            earnings_context=earnings_context,
+            watchlist_context=watchlist_context,
         )
 
         # ── Prepare context and call agent ───────────────────────────────
@@ -832,6 +987,14 @@ class Orchestrator:
         # Process suggested tickers from agent response
         await self._process_suggested_tickers(response, today)
 
+        # Process watchlist updates from agent response
+        try:
+            await self._process_watchlist_updates(
+                response.get("watchlist_updates", []), tenant_id, today,
+            )
+        except Exception as e:
+            log.warning("watchlist_update_failed", error=str(e))
+
         log.info(
             "portfolio_b_complete",
             trades=len(trades),
@@ -841,6 +1004,80 @@ class Orchestrator:
             complexity_score=complexity.score,
         )
         return trades, response.get("reasoning", "")
+
+    async def _check_trailing_stops(
+        self,
+        tenant_id: str,
+        closes: pd.DataFrame,
+        run_portfolio_a: bool,
+        run_portfolio_b: bool,
+    ) -> tuple[list[TradeSchema], list[dict]]:
+        """Check trailing stops, update peaks, and generate sells for triggered stops.
+
+        Returns:
+            Tuple of (sell trades list, alert dicts for notifications).
+        """
+        sells: list[TradeSchema] = []
+        alerts: list[dict] = []
+
+        active_portfolios = _active_portfolio_names(
+            run_portfolio_a, run_portfolio_b, tenant_id,
+        )
+        stops = await self._db.get_active_trailing_stops(tenant_id)
+
+        for stop in stops:
+            if stop.portfolio not in active_portfolios:
+                continue
+            if stop.ticker not in closes.columns:
+                continue
+
+            price = float(closes[stop.ticker].iloc[-1])
+            if pd.isna(price):
+                continue
+
+            # Update peak if price is higher
+            if price > stop.peak_price:
+                new_stop_price = price * (1 - stop.trail_pct)
+                await self._db.update_trailing_stop(
+                    stop.id, peak_price=price, stop_price=new_stop_price,
+                )
+                log.debug(
+                    "trailing_stop_peak_updated",
+                    ticker=stop.ticker,
+                    new_peak=round(price, 2),
+                    new_stop=round(new_stop_price, 2),
+                )
+            elif price <= stop.stop_price:
+                # TRIGGERED — generate full sell
+                positions = await self._db.get_positions(
+                    stop.portfolio, tenant_id=tenant_id,
+                )
+                pos = next((p for p in positions if p.ticker == stop.ticker), None)
+                if pos and pos.shares > 0:
+                    sells.append(TradeSchema(
+                        portfolio=PortfolioName(stop.portfolio),
+                        ticker=stop.ticker,
+                        side=OrderSide.SELL,
+                        shares=pos.shares,
+                        price=price,
+                        reason=f"Trailing stop triggered (stop=${stop.stop_price:.2f})",
+                    ))
+                    alerts.append({
+                        "ticker": stop.ticker,
+                        "price": price,
+                        "entry": stop.entry_price,
+                        "peak": stop.peak_price,
+                    })
+                    await self._db.deactivate_trailing_stop(stop.id)
+                    log.info(
+                        "trailing_stop_triggered",
+                        ticker=stop.ticker,
+                        price=round(price, 2),
+                        stop_price=round(stop.stop_price, 2),
+                        portfolio=stop.portfolio,
+                    )
+
+        return sells, alerts
 
     @staticmethod
     def _format_correlation(corr_data: dict) -> str:
@@ -1036,7 +1273,7 @@ class Orchestrator:
 
         # Execute sells
         if sell_trades:
-            await self._executor.execute_trades(sell_trades)
+            await self._executor.execute_trades(sell_trades, tenant_id=tenant_id)
             log.info("rebalance_liquidation_complete", trades=len(sell_trades))
 
         # Calculate total available cash across both portfolios
@@ -1157,6 +1394,39 @@ class Orchestrator:
                 # No Telegram — auto-reject (requires human approval)
                 await self._db.update_discovered_ticker_status(ticker, "rejected")
                 log.info("ticker_auto_rejected_no_telegram", ticker=ticker)
+
+    async def _process_watchlist_updates(
+        self, updates: list[dict], tenant_id: str, today: date,
+    ) -> None:
+        """Process watchlist add/remove actions from the agent response.
+
+        Args:
+            updates: List of watchlist update dicts from agent.
+            tenant_id: Tenant UUID.
+            today: Current date (for expiry calculation).
+        """
+        if not updates:
+            return
+
+        for update in updates:
+            action = update.get("action", "").lower()
+            ticker = update.get("ticker", "").upper().strip()
+            if not ticker:
+                continue
+
+            if action == "add":
+                await self._db.upsert_watchlist_item(
+                    tenant_id=tenant_id,
+                    ticker=ticker,
+                    reason=update.get("reason", ""),
+                    conviction=update.get("conviction", "medium"),
+                    target_entry=update.get("target_entry"),
+                    expires_at=today + timedelta(days=14),
+                )
+                log.info("watchlist_item_added", ticker=ticker, tenant_id=tenant_id)
+            elif action == "remove":
+                await self._db.remove_watchlist_item(tenant_id, ticker)
+                log.info("watchlist_item_removed", ticker=ticker, tenant_id=tenant_id)
 
     async def _request_ticker_approval(self, row) -> str:
         """Send ticker approval request via Telegram and wait for response.
@@ -1317,6 +1587,7 @@ class Orchestrator:
         allocations: TenantAllocations | None = None,
         run_portfolio_a: bool = True,
         run_portfolio_b: bool = True,
+        trailing_stop_alerts: list[dict] | None = None,
     ) -> None:
         """Send daily brief and trade confirmation via Telegram."""
         alloc = allocations or DEFAULT_ALLOCATIONS
@@ -1375,6 +1646,7 @@ class Orchestrator:
                 strategy_mode=active_strategy,
                 run_portfolio_a=run_portfolio_a,
                 run_portfolio_b=run_portfolio_b,
+                trailing_stop_alerts=trailing_stop_alerts or [],
             )
 
             # Only send trade confirmation for actually filled trades

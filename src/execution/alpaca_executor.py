@@ -73,7 +73,9 @@ class AlpacaExecutor:
                 )
                 log.info("portfolio_initialized_alpaca", portfolio=name, cash=cash)
 
-    async def execute_trades(self, trades: list[TradeSchema]) -> list[TradeSchema]:
+    async def execute_trades(
+        self, trades: list[TradeSchema], tenant_id: str = "default",
+    ) -> list[TradeSchema]:
         """Submit market orders to Alpaca and log fills to DB.
 
         Processes sells before buys to free up cash.
@@ -81,6 +83,7 @@ class AlpacaExecutor:
 
         Args:
             trades: List of validated TradeSchema objects.
+            tenant_id: Tenant UUID (unused — Alpaca handles its own state).
 
         Returns:
             List of successfully executed trades.

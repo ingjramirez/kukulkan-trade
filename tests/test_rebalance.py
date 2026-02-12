@@ -50,7 +50,7 @@ def _make_mock_executor(db: Database, tenant_id: str = "test-tenant"):
     """Create a mock executor that simulates sells with tenant-scoped DB ops."""
     executor = AsyncMock()
 
-    async def _execute_trades(trades: list[TradeSchema]) -> list[TradeSchema]:
+    async def _execute_trades(trades: list[TradeSchema], **kwargs) -> list[TradeSchema]:
         executed = []
         for trade in trades:
             pname = trade.portfolio.value

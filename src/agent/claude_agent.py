@@ -60,6 +60,9 @@ def build_system_prompt(
     regime_summary: str | None = None,
     portfolio_allocation: float | None = None,
     universe_size: int | None = None,
+    trailing_stops_context: str | None = None,
+    earnings_context: str | None = None,
+    watchlist_context: str | None = None,
 ) -> str:
     """Build an enhanced system prompt with performance context and memory.
 
@@ -123,6 +126,18 @@ Hard Rules:
     if memory_context:
         prompt += f"\n\n{memory_context}"
 
+    # 6. Trailing stops context
+    if trailing_stops_context:
+        prompt += f"\n\n## Active Trailing Stops\n{trailing_stops_context}"
+
+    # 7. Earnings context
+    if earnings_context:
+        prompt += f"\n\n## Upcoming Earnings\n{earnings_context}"
+
+    # 8. Watchlist context
+    if watchlist_context:
+        prompt += f"\n\n## Your Watchlist\n{watchlist_context}"
+
     return prompt
 
 ANALYSIS_PROMPT_TEMPLATE = """## Current Date: {date}
@@ -182,6 +197,15 @@ Respond ONLY with valid JSON in this exact format:
       "key": "thesis-tech",
       "content": "XLK showing relative strength vs SPY, tech rotation thesis intact"
     }}
+  ],
+  "watchlist_updates": [
+    {{
+      "action": "add",
+      "ticker": "PLTR",
+      "reason": "AI sector rotation accelerating",
+      "conviction": "medium",
+      "target_entry": 22.50
+    }}
   ]
 }}
 
@@ -205,7 +229,16 @@ Rules for memory_notes:
 - Each note has a "key" (e.g. "thesis-tech") and "content" (max ~50 words).
 - You can overwrite a previous note by reusing the same key.
 - Max 10 notes stored. Use for: theses, lessons, correlations, timing insights.
-- If nothing worth remembering, return an empty array or omit the field."""
+- If nothing worth remembering, return an empty array or omit the field.
+
+Rules for watchlist_updates:
+- "action" must be "add" or "remove"
+- "conviction": "high", "medium", or "low"
+- "target_entry": optional target entry price
+- Added items expire after 14 days if not acted on
+- When you include a watchlist ticker in your trades, it auto-removes from watchlist
+- Max 10 watchlist items. If full, remove lowest conviction before adding.
+- If no changes needed, return an empty array or omit the field."""
 
 
 def build_positions_text(positions: list[dict]) -> str:
