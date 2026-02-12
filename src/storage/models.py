@@ -208,12 +208,14 @@ class NewsLogRow(Base):
 
 
 class DiscoveredTickerRow(Base):
-    """Dynamically discovered tickers for Portfolio B."""
+    """Dynamically discovered tickers for Portfolio B (tenant-scoped)."""
 
     __tablename__ = "discovered_tickers"
+    __table_args__ = (UniqueConstraint("tenant_id", "ticker"),)
 
     id = Column(Integer, primary_key=True)
-    ticker = Column(String(10), nullable=False, unique=True)
+    tenant_id = Column(String(36), nullable=False, default="default")
+    ticker = Column(String(10), nullable=False)
     source = Column(String(20), nullable=False)  # "agent", "news", "screener"
     rationale = Column(Text)
     # proposed/approved/rejected/expired

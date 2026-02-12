@@ -174,10 +174,10 @@ SECTOR_MAP: dict[str, str] = {
 
 
 async def get_dynamic_universe(db: "Database") -> list[str]:
-    """Get the full universe including approved dynamic tickers.
+    """Get the full universe including approved dynamic tickers from all tenants.
 
     Merges the static FULL_UNIVERSE with any approved discovered tickers
-    from the database.
+    from the database (across all tenants — market data is global).
 
     Args:
         db: Database instance for querying discovered tickers.
@@ -185,7 +185,6 @@ async def get_dynamic_universe(db: "Database") -> list[str]:
     Returns:
         Sorted, deduplicated list of all active tickers.
     """
-
-    approved = await db.get_approved_tickers()
+    approved = await db.get_all_approved_tickers_all_tenants()
     dynamic = [r.ticker for r in approved]
     return sorted(set(FULL_UNIVERSE + dynamic + BENCHMARK_TICKERS))

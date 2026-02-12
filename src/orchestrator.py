@@ -251,8 +251,13 @@ class Orchestrator:
         # Resolve allocations from tenant config
         alloc = resolve_from_tenant(tenant)
 
-        # Resolve tenant-specific ticker universe
-        tenant_b_universe = get_tenant_universe(tenant, "B")
+        # Resolve tenant-specific ticker universe (include discovered tickers)
+        discovered = await self._ticker_discovery.get_active_tickers(
+            tenant_id=tenant.id,
+        )
+        tenant_b_universe = get_tenant_universe(
+            tenant, "B", discovered_tickers=discovered,
+        )
 
         # Build tenant-scoped orchestrator state
         saved_executor = self._executor
@@ -358,7 +363,7 @@ class Orchestrator:
             log.warning("deposit_detection_failed", error=str(e))
 
         # Step 1.5: Expire old dynamic tickers + build universe
-        await self._ticker_discovery.expire_old(today)
+        await self._ticker_discovery.expire_old(today, tenant_id=tenant_id)
         dynamic_universe = await get_dynamic_universe(self._db)
 
         # Step 2: Fetch market data
@@ -958,7 +963,9 @@ class Orchestrator:
         response = self._strategy_b._agent.analyze(**context)
 
         # Convert to trades (include dynamic tickers as valid)
-        dynamic_tickers = await self._ticker_discovery.get_active_tickers()
+        dynamic_tickers = await self._ticker_discovery.get_active_tickers(
+            tenant_id=tenant_id,
+        )
         trades = self._strategy_b.agent_response_to_trades(
             response=response,
             total_value=total_value,
@@ -985,7 +992,7 @@ class Orchestrator:
             log.warning("memory_save_failed", error=str(e))
 
         # Process suggested tickers from agent response
-        await self._process_suggested_tickers(response, today)
+        await self._process_suggested_tickers(response, today, tenant_id=tenant_id)
 
         # Process watchlist updates from agent response
         try:
@@ -1357,12 +1364,15 @@ class Orchestrator:
             request_id, PORTFOLIO_B.approval_timeout_seconds
         )
 
-    async def _process_suggested_tickers(self, response: dict, today: date) -> None:
+    async def _process_suggested_tickers(
+        self, response: dict, today: date, tenant_id: str = "default",
+    ) -> None:
         """Validate agent-suggested tickers and send for Telegram approval.
 
         Args:
             response: Agent response dict potentially containing suggested_tickers.
             today: Current date.
+            tenant_id: Tenant UUID for scoping.
         """
         suggestions = response.get("suggested_tickers", [])
         if not suggestions:
@@ -1377,6 +1387,7 @@ class Orchestrator:
             # Propose (validates via yfinance internally)
             row = await self._ticker_discovery.propose_ticker(
                 ticker=ticker, rationale=rationale, source="agent", today=today,
+                tenant_id=tenant_id,
             )
             if row is None:
                 continue
@@ -1385,14 +1396,20 @@ class Orchestrator:
             if self._notifier_available():
                 choice = await self._request_ticker_approval(row)
                 if choice == "approve":
-                    await self._db.update_discovered_ticker_status(ticker, "approved")
-                    log.info("ticker_approved", ticker=ticker)
+                    await self._db.update_discovered_ticker_status(
+                        ticker, "approved", tenant_id=tenant_id,
+                    )
+                    log.info("ticker_approved", ticker=ticker, tenant_id=tenant_id)
                 else:
-                    await self._db.update_discovered_ticker_status(ticker, "rejected")
-                    log.info("ticker_rejected", ticker=ticker)
+                    await self._db.update_discovered_ticker_status(
+                        ticker, "rejected", tenant_id=tenant_id,
+                    )
+                    log.info("ticker_rejected", ticker=ticker, tenant_id=tenant_id)
             else:
                 # No Telegram — auto-reject (requires human approval)
-                await self._db.update_discovered_ticker_status(ticker, "rejected")
+                await self._db.update_discovered_ticker_status(
+                    ticker, "rejected", tenant_id=tenant_id,
+                )
                 log.info("ticker_auto_rejected_no_telegram", ticker=ticker)
 
     async def _process_watchlist_updates(

@@ -12,6 +12,7 @@ from src.api.auth import router as auth_router
 from src.api.rate_limit import RateLimitMiddleware
 from src.api.routes.account import router as account_router
 from src.api.routes.decisions import router as decisions_router
+from src.api.routes.discovered import router as discovered_router
 from src.api.routes.earnings import router as earnings_router
 from src.api.routes.momentum import router as momentum_router
 from src.api.routes.portfolios import router as portfolios_router
@@ -62,6 +63,7 @@ app.include_router(decisions_router)
 app.include_router(tenants_router)
 app.include_router(universe_router)
 app.include_router(earnings_router)
+app.include_router(discovered_router)
 app.include_router(run_router)
 
 

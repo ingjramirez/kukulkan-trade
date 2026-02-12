@@ -19,16 +19,22 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 
-def get_tenant_universe(tenant: "TenantRow", portfolio: str = "B") -> list[str]:
+def get_tenant_universe(
+    tenant: "TenantRow",
+    portfolio: str = "B",
+    discovered_tickers: list[str] | None = None,
+) -> list[str]:
     """Resolve the effective ticker universe for a tenant.
 
     Priority:
     1. If ticker_whitelist is set, use ONLY those tickers (exclusive mode).
-    2. Otherwise, start from the base universe and apply additions/exclusions.
+    2. Otherwise, start from the base universe, merge discovered tickers,
+       then apply additions/exclusions.
 
     Args:
         tenant: TenantRow with ticker customization fields.
         portfolio: "A" or "B" — determines which base universe to start from.
+        discovered_tickers: Approved dynamic tickers for this tenant.
 
     Returns:
         Sorted list of ticker symbols.
@@ -48,6 +54,10 @@ def get_tenant_universe(tenant: "TenantRow", portfolio: str = "B") -> list[str]:
         PORTFOLIO_A_UNIVERSE if portfolio == "A" else PORTFOLIO_B_UNIVERSE
     )
 
+    # Merge discovered tickers before exclusions (exclusions take priority)
+    if discovered_tickers:
+        base |= set(discovered_tickers)
+
     additions = _parse_json_list(tenant.ticker_additions)
     if additions:
         base |= set(additions)
@@ -63,6 +73,7 @@ def get_tenant_universe(tenant: "TenantRow", portfolio: str = "B") -> list[str]:
         tickers=len(base),
         additions=len(additions) if additions else 0,
         exclusions=len(exclusions) if exclusions else 0,
+        discovered=len(discovered_tickers) if discovered_tickers else 0,
     )
     return sorted(base)
 

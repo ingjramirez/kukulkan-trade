@@ -93,10 +93,15 @@ async def _run_pipeline(db: Database, tenant_id: str) -> None:
         client = AlpacaClientFactory.get_trading_client(tenant)
         executor = AlpacaExecutor(db, client)
 
+        from src.agent.ticker_discovery import TickerDiscovery
         from src.utils.allocations import resolve_from_tenant
         from src.utils.tenant_universe import get_tenant_universe
         alloc = resolve_from_tenant(tenant)
-        tenant_b_universe = get_tenant_universe(tenant, "B")
+        discovery = TickerDiscovery(db)
+        discovered = await discovery.get_active_tickers(tenant_id=tenant_id)
+        tenant_b_universe = get_tenant_universe(
+            tenant, "B", discovered_tickers=discovered,
+        )
 
         orchestrator = Orchestrator(db, notifier=notifier, executor=executor)
         await orchestrator.run_daily(

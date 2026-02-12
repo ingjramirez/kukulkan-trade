@@ -345,22 +345,41 @@ class Database:
 
     # ── Discovered Tickers ────────────────────────────────────────────────
 
-    async def get_approved_tickers(self) -> list[DiscoveredTickerRow]:
-        """Get all approved (non-expired) discovered tickers."""
+    async def get_approved_tickers(
+        self, tenant_id: str = "default",
+    ) -> list[DiscoveredTickerRow]:
+        """Get all approved discovered tickers for a tenant."""
         async with self.session() as s:
             result = await s.execute(
                 select(DiscoveredTickerRow).where(
-                    DiscoveredTickerRow.status == "approved"
+                    DiscoveredTickerRow.tenant_id == tenant_id,
+                    DiscoveredTickerRow.status == "approved",
                 )
             )
             return list(result.scalars().all())
 
-    async def get_discovered_ticker(self, ticker: str) -> DiscoveredTickerRow | None:
-        """Get a discovered ticker by symbol."""
+    async def get_all_approved_tickers_all_tenants(self) -> list[DiscoveredTickerRow]:
+        """Get all approved discovered tickers across all tenants.
+
+        Used for global market data fetching (need prices for all tickers).
+        """
         async with self.session() as s:
             result = await s.execute(
                 select(DiscoveredTickerRow).where(
-                    DiscoveredTickerRow.ticker == ticker
+                    DiscoveredTickerRow.status == "approved",
+                )
+            )
+            return list(result.scalars().all())
+
+    async def get_discovered_ticker(
+        self, ticker: str, tenant_id: str = "default",
+    ) -> DiscoveredTickerRow | None:
+        """Get a discovered ticker by symbol and tenant."""
+        async with self.session() as s:
+            result = await s.execute(
+                select(DiscoveredTickerRow).where(
+                    DiscoveredTickerRow.tenant_id == tenant_id,
+                    DiscoveredTickerRow.ticker == ticker,
                 )
             )
             return result.scalar_one_or_none()
@@ -372,14 +391,15 @@ class Database:
             await s.commit()
 
     async def update_discovered_ticker_status(
-        self, ticker: str, status: str
+        self, ticker: str, status: str, tenant_id: str = "default",
     ) -> None:
         """Update the status of a discovered ticker."""
         async with self.session() as s:
             row = (
                 await s.execute(
                     select(DiscoveredTickerRow).where(
-                        DiscoveredTickerRow.ticker == ticker
+                        DiscoveredTickerRow.tenant_id == tenant_id,
+                        DiscoveredTickerRow.ticker == ticker,
                     )
                 )
             ).scalar_one_or_none()
@@ -387,8 +407,10 @@ class Database:
                 row.status = status
                 await s.commit()
 
-    async def expire_old_tickers(self, today: date) -> int:
-        """Mark approved tickers past their expiry date as expired.
+    async def expire_old_tickers(
+        self, today: date, tenant_id: str = "default",
+    ) -> int:
+        """Mark approved tickers past their expiry date as expired for a tenant.
 
         Returns:
             Number of tickers expired.
@@ -396,6 +418,7 @@ class Database:
         async with self.session() as s:
             result = await s.execute(
                 select(DiscoveredTickerRow).where(
+                    DiscoveredTickerRow.tenant_id == tenant_id,
                     DiscoveredTickerRow.status == "approved",
                     DiscoveredTickerRow.expires_at <= today,
                 )
@@ -405,6 +428,28 @@ class Database:
                 row.status = "expired"
             await s.commit()
             return len(expired)
+
+    async def get_all_discovered_tickers(
+        self, tenant_id: str = "default", status: str | None = None,
+    ) -> list[DiscoveredTickerRow]:
+        """Get all discovered tickers for a tenant, optionally filtered by status.
+
+        Args:
+            tenant_id: Tenant UUID.
+            status: Optional status filter (proposed, approved, rejected, expired).
+
+        Returns:
+            List of DiscoveredTickerRow ordered by proposed_at desc.
+        """
+        async with self.session() as s:
+            stmt = select(DiscoveredTickerRow).where(
+                DiscoveredTickerRow.tenant_id == tenant_id,
+            )
+            if status:
+                stmt = stmt.where(DiscoveredTickerRow.status == status)
+            stmt = stmt.order_by(DiscoveredTickerRow.proposed_at.desc())
+            result = await s.execute(stmt)
+            return list(result.scalars().all())
 
     # ── API Query Methods ──────────────────────────────────────────────
 

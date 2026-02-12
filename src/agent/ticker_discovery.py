@@ -124,6 +124,7 @@ class TickerDiscovery:
         rationale: str,
         source: str = "agent",
         today: date | None = None,
+        tenant_id: str = "default",
     ) -> DiscoveredTickerRow | None:
         """Validate and persist a ticker proposal.
 
@@ -132,6 +133,7 @@ class TickerDiscovery:
             rationale: Why this ticker was suggested.
             source: Discovery source ("agent", "news", "screener").
             today: Override date for testing.
+            tenant_id: Tenant UUID for scoping.
 
         Returns:
             The created DiscoveredTickerRow, or None if validation failed or limit reached.
@@ -139,15 +141,15 @@ class TickerDiscovery:
         today = today or date.today()
         ticker = ticker.upper().strip()
 
-        # Check if already discovered (any status)
-        existing = await self._db.get_discovered_ticker(ticker)
+        # Check if already discovered (any status) for this tenant
+        existing = await self._db.get_discovered_ticker(ticker, tenant_id=tenant_id)
         if existing:
             log.info("ticker_already_discovered", ticker=ticker, status=existing.status)
             return None
 
-        # Check dynamic ticker limit
-        approved = await self._db.get_approved_tickers()
-        pending = await self._get_pending_tickers()
+        # Check dynamic ticker limit (per-tenant)
+        approved = await self._db.get_approved_tickers(tenant_id=tenant_id)
+        pending = await self._get_pending_tickers(tenant_id=tenant_id)
         if len(approved) + len(pending) >= MAX_DYNAMIC_TICKERS:
             log.warning("dynamic_ticker_limit_reached", limit=MAX_DYNAMIC_TICKERS)
             return None
@@ -159,6 +161,7 @@ class TickerDiscovery:
             return None
 
         row = DiscoveredTickerRow(
+            tenant_id=tenant_id,
             ticker=ticker,
             source=source,
             rationale=rationale,
@@ -174,38 +177,46 @@ class TickerDiscovery:
             ticker=ticker,
             sector=validation.sector,
             market_cap=f"${validation.market_cap / 1e9:.1f}B",
+            tenant_id=tenant_id,
         )
         return row
 
-    async def get_active_tickers(self) -> list[str]:
-        """Get all approved, non-expired dynamic tickers.
+    async def get_active_tickers(
+        self, tenant_id: str = "default",
+    ) -> list[str]:
+        """Get all approved, non-expired dynamic tickers for a tenant.
 
         Returns:
             List of ticker symbols.
         """
-        approved = await self._db.get_approved_tickers()
+        approved = await self._db.get_approved_tickers(tenant_id=tenant_id)
         return [r.ticker for r in approved]
 
-    async def expire_old(self, today: date | None = None) -> int:
-        """Expire tickers past their expiry date.
+    async def expire_old(
+        self, today: date | None = None, tenant_id: str = "default",
+    ) -> int:
+        """Expire tickers past their expiry date for a tenant.
 
         Returns:
             Number of tickers expired.
         """
         today = today or date.today()
-        count = await self._db.expire_old_tickers(today)
+        count = await self._db.expire_old_tickers(today, tenant_id=tenant_id)
         if count:
-            log.info("tickers_expired", count=count)
+            log.info("tickers_expired", count=count, tenant_id=tenant_id)
         return count
 
-    async def _get_pending_tickers(self) -> list[DiscoveredTickerRow]:
-        """Get tickers with 'proposed' status."""
+    async def _get_pending_tickers(
+        self, tenant_id: str = "default",
+    ) -> list[DiscoveredTickerRow]:
+        """Get tickers with 'proposed' status for a tenant."""
         from sqlalchemy import select
 
         async with self._db.session() as s:
             result = await s.execute(
                 select(DiscoveredTickerRow).where(
-                    DiscoveredTickerRow.status == "proposed"
+                    DiscoveredTickerRow.tenant_id == tenant_id,
+                    DiscoveredTickerRow.status == "proposed",
                 )
             )
             return list(result.scalars().all())
