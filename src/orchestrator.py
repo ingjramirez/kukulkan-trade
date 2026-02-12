@@ -42,6 +42,7 @@ from src.strategies.portfolio_b import AIAutonomyStrategy
 from src.utils.allocations import (
     DEFAULT_ALLOCATIONS,
     DEPOSIT_THRESHOLD,
+    RECONCILE_THRESHOLD,
     TenantAllocations,
     resolve_from_tenant,
 )
@@ -700,11 +701,21 @@ class Orchestrator:
 
         # Step 8: Take snapshots (only for enabled portfolios)
         log.info("step_8_taking_snapshots")
-        latest_prices = {
-            t: float(closes[t].iloc[-1])
-            for t in closes.columns
-            if not pd.isna(closes[t].iloc[-1])
-        }
+        # Prefer Alpaca position prices (broker feed) over yfinance closes
+        latest_prices: dict[str, float] = {}
+        if hasattr(self._executor, "_client"):
+            try:
+                alpaca_positions = await asyncio.to_thread(
+                    self._executor._client.get_all_positions
+                )
+                for pos in alpaca_positions:
+                    latest_prices[pos.symbol] = float(pos.current_price)
+            except Exception as e:
+                log.warning("alpaca_prices_fetch_failed", error=str(e))
+        # Fill missing tickers from yfinance (universe tickers we don't hold)
+        for t in closes.columns:
+            if t not in latest_prices and not pd.isna(closes[t].iloc[-1]):
+                latest_prices[t] = float(closes[t].iloc[-1])
         snapshot_portfolios = _active_portfolio_names(
             run_portfolio_a, run_portfolio_b, tenant_id,
         )
@@ -716,6 +727,16 @@ class Orchestrator:
                 )
             except Exception as e:
                 log.error("snapshot_failed", portfolio=portfolio_name, error=str(e))
+
+        # Step 8.5: Reconcile equity against Alpaca
+        try:
+            drift = await self._reconcile_equity(
+                tenant_id, run_portfolio_a, run_portfolio_b, alloc,
+            )
+            if drift is not None:
+                summary["equity_drift_corrected"] = round(drift, 2)
+        except Exception as e:
+            log.warning("equity_reconciliation_failed", error=str(e))
 
         # Step 9: Send Telegram notifications
         log.info("step_9_sending_notifications")
@@ -1225,6 +1246,85 @@ class Orchestrator:
             portfolio_b_pct=allocations.portfolio_b_pct,
         )
 
+    async def _reconcile_equity(
+        self,
+        tenant_id: str,
+        run_portfolio_a: bool,
+        run_portfolio_b: bool,
+        allocations: TenantAllocations,
+    ) -> float | None:
+        """Reconcile internal portfolio cash against Alpaca broker equity.
+
+        Corrects small pricing/cash drift ($10–$50) that accumulates from
+        fill price differences, rounding, and dividends. Skips when the
+        drift is below RECONCILE_THRESHOLD (noise) or above DEPOSIT_THRESHOLD
+        positive (handled by _detect_deposits).
+
+        Returns:
+            Drift amount corrected, or None if no action was taken.
+        """
+        if not hasattr(self._executor, "_client"):
+            return None
+
+        try:
+            account = await asyncio.to_thread(self._executor._client.get_account)
+            broker_equity = float(account.equity)
+        except Exception as e:
+            log.warning("reconcile_equity_fetch_failed", error=str(e))
+            return None
+
+        # Sum tracked totals for enabled portfolios
+        tracked_total = 0.0
+        enabled = []
+        if run_portfolio_a:
+            enabled.append("A")
+        if run_portfolio_b:
+            enabled.append("B")
+        if not enabled:
+            return None
+
+        for pname in enabled:
+            portfolio = await self._db.get_portfolio(pname, tenant_id=tenant_id)
+            if portfolio:
+                tracked_total += portfolio.total_value
+
+        drift = broker_equity - tracked_total
+
+        if abs(drift) <= RECONCILE_THRESHOLD:
+            return None
+
+        # Positive drift above deposit threshold — let _detect_deposits handle it
+        if drift > DEPOSIT_THRESHOLD:
+            return None
+
+        # Distribute drift proportionally across enabled portfolio cash
+        if len(enabled) == 2:
+            total_pct = allocations.portfolio_a_pct + allocations.portfolio_b_pct
+            splits = {
+                "A": allocations.portfolio_a_pct / total_pct,
+                "B": allocations.portfolio_b_pct / total_pct,
+            }
+        else:
+            splits = {enabled[0]: 1.0}
+
+        for pname, share in splits.items():
+            portfolio = await self._db.get_portfolio(pname, tenant_id=tenant_id)
+            if portfolio:
+                new_cash = portfolio.cash + drift * share
+                new_total = portfolio.total_value + drift * share
+                await self._db.upsert_portfolio(
+                    pname, cash=new_cash, total_value=new_total,
+                    tenant_id=tenant_id,
+                )
+
+        log.info(
+            "equity_reconciled",
+            drift=round(drift, 2),
+            tenant_id=tenant_id,
+            portfolios=enabled,
+        )
+        return drift
+
     async def _handle_rebalance(
         self,
         tenant_id: str,
@@ -1430,6 +1530,9 @@ class Orchestrator:
     ) -> None:
         """Process watchlist add/remove actions from the agent response.
 
+        Skips adding tickers that are already held in Portfolio B —
+        the watchlist is for *candidates*, not current positions.
+
         Args:
             updates: List of watchlist update dicts from agent.
             tenant_id: Tenant UUID.
@@ -1438,6 +1541,10 @@ class Orchestrator:
         if not updates:
             return
 
+        # Build set of currently held tickers to avoid watchlisting them
+        positions_b = await self._db.get_positions("B", tenant_id=tenant_id)
+        held_tickers = {p.ticker for p in positions_b}
+
         for update in updates:
             action = update.get("action", "").lower()
             ticker = update.get("ticker", "").upper().strip()
@@ -1445,6 +1552,13 @@ class Orchestrator:
                 continue
 
             if action == "add":
+                if ticker in held_tickers:
+                    log.info(
+                        "watchlist_skip_already_held",
+                        ticker=ticker,
+                        tenant_id=tenant_id,
+                    )
+                    continue
                 await self._db.upsert_watchlist_item(
                     tenant_id=tenant_id,
                     ticker=ticker,

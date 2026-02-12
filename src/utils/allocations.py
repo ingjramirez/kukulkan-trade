@@ -14,6 +14,9 @@ from src.storage.models import TenantRow
 # Minimum delta (USD) to treat as a deposit rather than rounding noise.
 DEPOSIT_THRESHOLD = 50.0
 
+# Minimum drift (USD) to trigger equity reconciliation against broker.
+RECONCILE_THRESHOLD = 10.0
+
 
 @dataclass(frozen=True)
 class TenantAllocations:

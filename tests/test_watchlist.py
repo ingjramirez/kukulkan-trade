@@ -187,6 +187,28 @@ async def test_process_watchlist_updates_remove(db: Database):
     assert len(items) == 0
 
 
+async def test_process_watchlist_skips_held_ticker(db: Database):
+    """_process_watchlist_updates skips adding tickers already held in B."""
+    from src.notifications.telegram_bot import TelegramNotifier
+    from src.orchestrator import Orchestrator
+
+    # ORCL is already held in Portfolio B
+    await db.upsert_portfolio("B", cash=10000, total_value=20000, tenant_id="t1")
+    await db.upsert_position("B", "ORCL", shares=10, avg_price=148.0, tenant_id="t1")
+
+    orch = Orchestrator(db, notifier=TelegramNotifier("fake", "fake"))
+    updates = [
+        {"action": "add", "ticker": "ORCL", "reason": "Cloud/AI play", "conviction": "medium"},
+        {"action": "add", "ticker": "CRM", "reason": "Oversold", "conviction": "high"},
+    ]
+    await orch._process_watchlist_updates(updates, "t1", date.today())
+
+    items = await db.get_watchlist("t1")
+    # Only CRM added; ORCL skipped because it's held
+    assert len(items) == 1
+    assert items[0].ticker == "CRM"
+
+
 async def test_process_watchlist_updates_empty_is_noop(db: Database):
     """Empty updates list is a no-op."""
     from src.notifications.telegram_bot import TelegramNotifier
