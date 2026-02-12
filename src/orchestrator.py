@@ -1530,9 +1530,6 @@ class Orchestrator:
     ) -> None:
         """Process watchlist add/remove actions from the agent response.
 
-        Skips adding tickers that are already held in Portfolio B —
-        the watchlist is for *candidates*, not current positions.
-
         Args:
             updates: List of watchlist update dicts from agent.
             tenant_id: Tenant UUID.
@@ -1541,10 +1538,6 @@ class Orchestrator:
         if not updates:
             return
 
-        # Build set of currently held tickers to avoid watchlisting them
-        positions_b = await self._db.get_positions("B", tenant_id=tenant_id)
-        held_tickers = {p.ticker for p in positions_b}
-
         for update in updates:
             action = update.get("action", "").lower()
             ticker = update.get("ticker", "").upper().strip()
@@ -1552,13 +1545,6 @@ class Orchestrator:
                 continue
 
             if action == "add":
-                if ticker in held_tickers:
-                    log.info(
-                        "watchlist_skip_already_held",
-                        ticker=ticker,
-                        tenant_id=tenant_id,
-                    )
-                    continue
                 await self._db.upsert_watchlist_item(
                     tenant_id=tenant_id,
                     ticker=ticker,
