@@ -347,3 +347,109 @@ class TestGetNewsContext:
         context = fetcher.get_news_context(["AAPL"])
 
         assert "no recent news" in context
+
+
+# ── Historical Context ──────────────────────────────────────────────────────
+
+
+class TestGetHistoricalContext:
+    def test_returns_historical_headlines(self) -> None:
+        """Basic case: held tickers produce a formatted context block."""
+        vs = _mock_vector_store()
+        fetcher = NewsFetcher(vector_store=vs)
+
+        context = fetcher.get_historical_context(held_tickers=["NVDA"])
+
+        assert "== HISTORICAL CONTEXT ==" in context
+        assert "[NVDA]" in context
+        assert "beats earnings" in context
+
+    def test_deduplicates_against_today(self) -> None:
+        """Headlines overlapping with today's news are skipped."""
+        vs = _mock_vector_store()
+        # ChromaDB returns "NVDA beats earnings expectations"
+        fetcher = NewsFetcher(vector_store=vs)
+
+        context = fetcher.get_historical_context(
+            held_tickers=["NVDA"],
+            today_headlines=["NVDA beats earnings expectations this quarter"],
+        )
+
+        # The overlapping headline should be filtered out
+        assert "beats earnings" not in context
+
+    def test_deduplicates_across_tickers(self) -> None:
+        """Same headline from different ticker queries appears only once."""
+        vs = _mock_vector_store()
+        fetcher = NewsFetcher(vector_store=vs)
+
+        context = fetcher.get_historical_context(
+            held_tickers=["NVDA", "SPY"],
+        )
+
+        # Count occurrences — each title should appear only once
+        lines = [ln for ln in context.split("\n") if ln.strip().startswith("[")]
+        titles = [ln.split("]", 1)[1].strip() for ln in lines]
+        assert len(titles) == len(set(titles))
+
+    def test_caps_at_max_results(self) -> None:
+        """Respects the max_results limit."""
+        vs = _mock_vector_store()
+        # Return many results per search
+        many_docs = [f"Headline {i}" for i in range(10)]
+        many_metas = [{"ticker": "NVDA", "publisher": "Test"} for _ in range(10)]
+        many_dists = [0.1 * i for i in range(10)]
+        vs.search_similar.return_value = {
+            "documents": [many_docs],
+            "metadatas": [many_metas],
+            "distances": [many_dists],
+        }
+        fetcher = NewsFetcher(vector_store=vs)
+
+        context = fetcher.get_historical_context(
+            held_tickers=["NVDA", "AAPL", "MSFT"],
+            max_results=3,
+        )
+
+        lines = [ln for ln in context.split("\n") if ln.strip().startswith("[")]
+        assert len(lines) <= 3
+
+    def test_empty_held_tickers(self) -> None:
+        """Returns empty string for empty held tickers list."""
+        vs = _mock_vector_store()
+        fetcher = NewsFetcher(vector_store=vs)
+
+        context = fetcher.get_historical_context(held_tickers=[])
+
+        assert context == ""
+
+    def test_chromadb_down_graceful(self) -> None:
+        """Returns empty string when ChromaDB raises for all tickers."""
+        vs = _mock_vector_store()
+        vs.search_similar.side_effect = Exception("ChromaDB connection refused")
+        fetcher = NewsFetcher(vector_store=vs)
+
+        context = fetcher.get_historical_context(held_tickers=["NVDA", "AAPL"])
+
+        assert context == ""
+
+    def test_published_at_in_metadata(self) -> None:
+        """Verifies store_articles() includes published_at in ChromaDB metadata."""
+        vs = _mock_vector_store()
+        fetcher = NewsFetcher(vector_store=vs)
+
+        articles = [
+            {
+                "ticker": "AAPL",
+                "title": "AAPL surges",
+                "link": "https://example.com",
+                "publisher": "Reuters",
+                "published": datetime(2026, 2, 10, 14, 30),
+            },
+        ]
+        fetcher.store_articles(articles)
+
+        call_args = vs.add_news.call_args
+        metadata = call_args.kwargs.get("metadata") or call_args[1].get("metadata")
+        assert "published_at" in metadata
+        assert metadata["published_at"] == "2026-02-10T14:30:00"

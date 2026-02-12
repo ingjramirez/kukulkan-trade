@@ -12,6 +12,7 @@ import structlog
 import yfinance as yf
 
 from config.settings import settings
+from src.data.news_compactor import _headlines_overlap
 from src.storage.models import NewsLogRow
 from src.storage.vector_store import VectorStore
 
@@ -95,14 +96,20 @@ class NewsFetcher:
 
             # Store in ChromaDB
             try:
+                meta = {
+                    "ticker": article["ticker"],
+                    "publisher": article.get("publisher", ""),
+                    "link": article.get("link", ""),
+                }
+                pub = article.get("published")
+                if pub is not None:
+                    meta["published_at"] = (
+                        pub.isoformat() if hasattr(pub, "isoformat") else str(pub)
+                    )
                 self.vector_store.add_news(
                     doc_id=doc_id,
                     text=title,
-                    metadata={
-                        "ticker": article["ticker"],
-                        "publisher": article.get("publisher", ""),
-                        "link": article.get("link", ""),
-                    },
+                    metadata=meta,
                 )
             except Exception as e:
                 log.warning("chromadb_store_failed", doc_id=doc_id, error=str(e))
@@ -248,6 +255,70 @@ class NewsFetcher:
             lines.append(f"  [{ticker}] {title}{source_str}")
 
         log.info("targeted_news_context", articles=len(selected))
+        return "\n".join(lines)
+
+    def get_historical_context(
+        self,
+        held_tickers: list[str],
+        today_headlines: list[str] | None = None,
+        n_per_ticker: int = 3,
+        max_results: int = 8,
+    ) -> str:
+        """Query ChromaDB for historical headlines relevant to held positions.
+
+        Searches per held ticker, deduplicates against today's news and across
+        tickers, then returns a formatted context block for the agent prompt.
+
+        Args:
+            held_tickers: Tickers currently held in Portfolio B.
+            today_headlines: Headlines from today's news fetch (for dedup).
+            n_per_ticker: Max ChromaDB results per ticker query.
+            max_results: Global cap on returned headlines (~120 tokens at 8).
+
+        Returns:
+            Formatted block starting with ``== HISTORICAL CONTEXT ==``,
+            or ``""`` if no results or no held tickers.
+        """
+        if not held_tickers:
+            return ""
+
+        today_set = today_headlines or []
+        seen_titles: set[str] = set()
+        selected: list[dict] = []
+
+        for ticker in held_tickers:
+            try:
+                results = self.search_relevant(
+                    f"{ticker} recent developments", n_results=n_per_ticker,
+                )
+                for article in results:
+                    title = article.get("title", "")
+                    if not title:
+                        continue
+                    # Deduplicate against today's headlines
+                    if any(_headlines_overlap(title, h) for h in today_set):
+                        continue
+                    # Deduplicate across tickers
+                    if title in seen_titles:
+                        continue
+                    seen_titles.add(title)
+                    selected.append(article)
+            except Exception as e:
+                log.warning(
+                    "historical_context_ticker_failed",
+                    ticker=ticker, error=str(e),
+                )
+
+        if not selected:
+            return ""
+
+        selected = selected[:max_results]
+        lines = ["\n== HISTORICAL CONTEXT =="]
+        for a in selected:
+            ticker = a.get("ticker", "")
+            title = a.get("title", "")
+            lines.append(f"  [{ticker}] {title}")
+
         return "\n".join(lines)
 
 

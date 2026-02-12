@@ -533,6 +533,19 @@ class Orchestrator:
                 top_movers=movers,
                 universe_tickers=set(dynamic_universe),
             )
+
+            # Step 5.1: Append historical context from ChromaDB
+            try:
+                today_headlines = [a.headline for a in raw_articles] if raw_articles else []
+                historical = self._news_fetcher.get_historical_context(
+                    held_tickers=held_tickers,
+                    today_headlines=today_headlines,
+                )
+                if historical:
+                    news_context = news_context + historical
+            except Exception as e:
+                log.warning("historical_context_failed", error=str(e))
+
         except Exception as e:
             log.warning("news_fetch_failed", error=str(e))
             summary["errors"].append(f"News fetch failed: {e}")
