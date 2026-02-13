@@ -10,7 +10,7 @@ After completing any significant work (features, bug fixes, refactors, config ch
 ## Code Style
 - Python 3.11, type hints on all function signatures
 - Pydantic v2 for validation, structlog for logging
-- `ruff` for linting (line-length=100, target py311)
+- `ruff` for linting and formatting (line-length=120, target py311). Run `ruff format` before committing.
 - pytest-asyncio with `asyncio_mode = "auto"`
 - **Before committing, always run `ruff check` and fix all lint errors** (unused imports F401, unused variables F841, line length E501, import sorting I001). The `scripts/` directory has pre-existing E402 errors that are acceptable (load_dotenv before imports).
 

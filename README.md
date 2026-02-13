@@ -41,7 +41,7 @@ Allocations are percentage-based and dynamic — initial equity is captured from
 
 ## Tech Stack
 
-Python 3.11 | FastAPI | SQLAlchemy + SQLite | ChromaDB | yfinance | `ta` | Anthropic Claude | Alpaca | Telegram | Next.js
+Python 3.11 | FastAPI | SQLAlchemy + aiosqlite | ChromaDB | yfinance | `ta` | Anthropic Claude | Alpaca | Telegram | Next.js
 
 ## Features
 
@@ -55,6 +55,7 @@ Python 3.11 | FastAPI | SQLAlchemy + SQLite | ChromaDB | yfinance | `ta` | Anthr
 - **Portfolio Toggle Lifecycle** — Enable/disable portfolios via API; positions are liquidated and cash is redistributed on next bot run
 - **Multi-Tenant** — Fernet-encrypted credentials, per-tenant data isolation, admin API + self-service, per-tenant ticker customization
 - **Security** — JWT auth (2h expiry + revocation), rate limiting, timing-safe auth, audit logging, IDOR protection
+- **Intraday Data** — 15-minute portfolio snapshots during market hours + Alpaca portfolio history passthrough for high-frequency charts
 - **SQL Migrations** — Automated schema migrations in CI/CD with manual trigger option
 - **70-Ticker Universe** — ETFs + stocks across sectors, fixed income, international, thematic; per-tenant whitelist/additions/exclusions
 
@@ -119,6 +120,8 @@ GET   /api/account               — Alpaca account + positions
 GET   /api/portfolios            — Portfolio summaries (A & B)
 GET   /api/portfolios/{name}     — Portfolio detail with positions
 GET   /api/snapshots             — Daily performance snapshots
+GET   /api/snapshots/intraday   — Intraday portfolio snapshots (15-min)
+GET   /api/account/history      — Alpaca portfolio history (1Min–1D)
 GET   /api/trades                — Trade history
 GET   /api/momentum              — Momentum rankings
 GET   /api/decisions             — AI agent decisions
@@ -217,8 +220,9 @@ kukulkan-trade/
 │   │   ├── auth.py               # JWT auth + tenant login
 │   │   ├── deps.py               # Dependency injection (auth, db)
 │   │   ├── rate_limit.py         # Sliding-window rate limiter
+│   │   ├── alpaca_client.py      # Alpaca account + portfolio history (cached)
 │   │   ├── schemas.py            # Pydantic request/response models
-│   │   └── routes/               # 9 route modules
+│   │   └── routes/               # 10 route modules
 │   ├── backtest/
 │   │   ├── runner.py              # Historical strategy backtesting
 │   │   └── ai_strategy.py        # AI backtest with budget tracking
@@ -250,12 +254,13 @@ kukulkan-trade/
 │   │   ├── crypto.py             # Fernet encryption for credentials
 │   │   ├── market_calendar.py    # NYSE trading calendar
 │   │   └── tenant_universe.py    # Per-tenant ticker resolution
+│   ├── intraday.py                # 15-min intraday snapshot collector
 │   ├── orchestrator.py            # Daily pipeline coordinator
 │   └── main.py                    # Entry point + APScheduler
 ├── migrations/                    # SQL migration files
 ├── scripts/
 │   └── migrate.py                 # Migration runner
-├── tests/                         # 690+ tests
+├── tests/                         # 810+ tests
 ├── deploy/
 │   ├── kukulkan-bot.service       # Bot systemd unit
 │   ├── kukulkan-api.service       # API systemd unit
