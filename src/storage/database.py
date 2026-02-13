@@ -15,6 +15,7 @@ from src.storage.models import (
     DailySnapshotRow,
     DiscoveredTickerRow,
     EarningsCalendarRow,
+    IntradaySnapshotRow,
     MarketDataRow,
     MomentumRankingRow,
     PortfolioRow,
@@ -867,6 +868,74 @@ class Database:
     ) -> None:
         """Auto-remove a ticker from watchlist when it's actually traded."""
         await self.remove_watchlist_item(tenant_id, ticker)
+
+    # ── Intraday Snapshots ─────────────────────────────────────────
+
+    async def save_intraday_snapshot(
+        self,
+        tenant_id: str,
+        portfolio: str,
+        timestamp: datetime,
+        total_value: float,
+        cash: float,
+        positions_value: float,
+    ) -> None:
+        """Save an intraday portfolio snapshot (replaces if exists)."""
+        async with self.session() as s:
+            await s.execute(
+                delete(IntradaySnapshotRow).where(
+                    IntradaySnapshotRow.tenant_id == tenant_id,
+                    IntradaySnapshotRow.portfolio == portfolio,
+                    IntradaySnapshotRow.timestamp == timestamp,
+                )
+            )
+            s.add(IntradaySnapshotRow(
+                tenant_id=tenant_id,
+                portfolio=portfolio,
+                timestamp=timestamp,
+                total_value=total_value,
+                cash=cash,
+                positions_value=positions_value,
+            ))
+            await s.commit()
+
+    async def get_intraday_snapshots(
+        self,
+        tenant_id: str,
+        portfolio: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> list[IntradaySnapshotRow]:
+        """Get intraday snapshots, optionally filtered by portfolio and time range."""
+        async with self.session() as s:
+            stmt = select(IntradaySnapshotRow).where(
+                IntradaySnapshotRow.tenant_id == tenant_id,
+            )
+            if portfolio:
+                stmt = stmt.where(IntradaySnapshotRow.portfolio == portfolio)
+            if since:
+                stmt = stmt.where(IntradaySnapshotRow.timestamp >= since)
+            if until:
+                stmt = stmt.where(IntradaySnapshotRow.timestamp <= until)
+            stmt = stmt.order_by(IntradaySnapshotRow.timestamp)
+            result = await s.execute(stmt)
+            return list(result.scalars().all())
+
+    async def purge_old_intraday_snapshots(self, days: int = 90) -> int:
+        """Delete intraday snapshots older than N days. Returns count deleted."""
+        from datetime import timedelta
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        async with self.session() as s:
+            result = await s.execute(
+                select(IntradaySnapshotRow).where(
+                    IntradaySnapshotRow.timestamp < cutoff,
+                )
+            )
+            rows = list(result.scalars().all())
+            for row in rows:
+                await s.delete(row)
+            await s.commit()
+            return len(rows)
 
     # ── Tenant CRUD ──────────────────────────────────────────────────
 

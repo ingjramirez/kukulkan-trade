@@ -93,6 +93,23 @@ class MomentumRankingResponse(BaseModel):
     rank: int
 
 
+class IntradaySnapshotResponse(BaseModel):
+    portfolio: str
+    timestamp: UTCDatetime
+    total_value: float
+    cash: float
+    positions_value: float
+
+
+class PortfolioHistoryResponse(BaseModel):
+    timestamps: list[int]
+    equity: list[float | None]
+    profit_loss: list[float | None]
+    profit_loss_pct: list[float | None]
+    base_value: float
+    timeframe: str
+
+
 class AgentDecisionResponse(BaseModel):
     id: int
     date: date

@@ -305,6 +305,21 @@ class WatchlistRow(Base):
     expires_at = Column(Date, nullable=False)
 
 
+class IntradaySnapshotRow(Base):
+    """Intraday portfolio snapshot (every 15 min during market hours)."""
+
+    __tablename__ = "intraday_snapshots"
+    __table_args__ = (UniqueConstraint("tenant_id", "portfolio", "timestamp"),)
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(String(36), nullable=False, default="default")
+    portfolio = Column(String(1), nullable=False)
+    timestamp = Column(DateTime, nullable=False)
+    total_value = Column(Float, nullable=False)
+    cash = Column(Float, nullable=False)
+    positions_value = Column(Float, nullable=False)
+
+
 class TenantRow(Base):
     """Multi-tenant configuration: credentials, strategy, and universe."""
 

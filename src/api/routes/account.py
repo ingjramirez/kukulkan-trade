@@ -2,11 +2,11 @@
 
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from src.api.alpaca_client import get_live_account
+from src.api.alpaca_client import get_live_account, get_portfolio_history
 from src.api.deps import get_authorized_tenant_id, get_db
-from src.api.schemas import AccountResponse, PositionResponse
+from src.api.schemas import AccountResponse, PortfolioHistoryResponse, PositionResponse
 from src.storage.database import Database
 
 router = APIRouter(prefix="/api", tags=["account"])
@@ -40,6 +40,62 @@ async def account(
             for p in data["positions"]
         ],
     )
+
+
+@router.get("/account/history", response_model=PortfolioHistoryResponse)
+async def account_history(
+    period: str = Query("1D", pattern=r"^(1D|1W|1M|3M|1A)$"),
+    timeframe: str = Query("5Min", pattern=r"^(1Min|5Min|15Min|1H|1D)$"),
+    extended_hours: bool = Query(False),
+    tenant_id: str = Depends(get_authorized_tenant_id),
+    db: Database = Depends(get_db),
+) -> PortfolioHistoryResponse:
+    data = await _get_portfolio_history(tenant_id, db, period, timeframe, extended_hours)
+    if data is None:
+        raise HTTPException(status_code=503, detail="Alpaca unavailable")
+    return PortfolioHistoryResponse(**data)
+
+
+async def _get_portfolio_history(
+    tenant_id: str,
+    db: Database,
+    period: str,
+    timeframe: str,
+    extended_hours: bool,
+) -> dict | None:
+    """Fetch portfolio history — uses tenant-specific client or global default."""
+    if tenant_id == "default":
+        return await get_portfolio_history(period, timeframe, extended_hours)
+
+    tenant = await db.get_tenant(tenant_id)
+    if tenant is None:
+        return None
+
+    try:
+        from typing import Any
+
+        from src.execution.client_factory import AlpacaClientFactory
+
+        client = AlpacaClientFactory.get_trading_client(tenant)
+        params: dict[str, Any] = {
+            "period": period,
+            "timeframe": timeframe,
+            "extended_hours": str(extended_hours).lower(),
+        }
+        raw = await asyncio.to_thread(
+            client.get, "/v2/account/portfolio/history", params,
+        )
+
+        return {
+            "timestamps": raw.get("timestamp", []),
+            "equity": raw.get("equity", []),
+            "profit_loss": raw.get("profit_loss", []),
+            "profit_loss_pct": raw.get("profit_loss_pct", []),
+            "base_value": float(raw.get("base_value", 0)),
+            "timeframe": timeframe,
+        }
+    except Exception:
+        return None
 
 
 async def _get_account_data(

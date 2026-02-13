@@ -136,6 +136,42 @@ async def run_scheduled() -> None:
             name=f"Kukulkan {session_name}",
         )
 
+    # Intraday snapshots: every 15 min during market hours (Mon-Fri 9:30-16:00 ET)
+    from src.intraday import collect_intraday_snapshot
+
+    async def intraday_snapshot_job():
+        from datetime import date as _date
+        today = _date.today()
+        if not is_market_open(today):
+            return
+        try:
+            tenants = await db.get_active_tenants()
+            for tenant in tenants:
+                if not Orchestrator._tenant_fully_configured(tenant):
+                    continue
+                try:
+                    await collect_intraday_snapshot(db, tenant)
+                except Exception as e:
+                    log.warning(
+                        "intraday_snapshot_tenant_failed",
+                        tenant_id=tenant.id, error=str(e),
+                    )
+            log.debug("intraday_snapshot_job_complete")
+        except Exception as e:
+            log.error("intraday_snapshot_job_failed", error=str(e))
+
+    scheduler.add_job(
+        intraday_snapshot_job,
+        CronTrigger(
+            minute="*/15",
+            hour="9-16",
+            day_of_week="mon-fri",
+            timezone="US/Eastern",
+        ),
+        id="intraday_snapshots",
+        name="Kukulkan Intraday Snapshots",
+    )
+
     # Weekly memory compaction (Sunday 6 PM ET)
     memory_manager = AgentMemoryManager()
     agent = ClaudeAgent()
@@ -228,11 +264,33 @@ async def run_scheduled() -> None:
         name="Kukulkan Weekly Report",
     )
 
+    # Weekly intraday snapshot cleanup (Sunday 7 PM ET)
+    async def intraday_cleanup_job():
+        try:
+            deleted = await db.purge_old_intraday_snapshots(days=90)
+            if deleted:
+                log.info("intraday_cleanup_complete", deleted=deleted)
+        except Exception as e:
+            log.error("intraday_cleanup_failed", error=str(e))
+
+    scheduler.add_job(
+        intraday_cleanup_job,
+        CronTrigger(
+            day_of_week="sun",
+            hour=19,
+            minute=0,
+            timezone="US/Eastern",
+        ),
+        id="intraday_cleanup",
+        name="Kukulkan Intraday Cleanup",
+    )
+
     scheduler.start()
     log.info(
         "scheduler_started",
         schedule="Mon-Fri at 10:00, 12:30, 15:45 ET; "
-        "Fri 17:00 ET report; Sun 18:00 ET compaction",
+        "Intraday every 15min 9-16 ET; "
+        "Fri 17:00 ET report; Sun 18:00 ET compaction; Sun 19:00 ET cleanup",
     )
 
     # Keep running until interrupted
