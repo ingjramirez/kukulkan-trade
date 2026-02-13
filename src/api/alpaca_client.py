@@ -111,31 +111,25 @@ def _fetch_portfolio_history(
 ) -> dict:
     """Sync Alpaca portfolio history call (run in thread)."""
     from alpaca.trading.client import TradingClient
+    from alpaca.trading.requests import GetPortfolioHistoryRequest
 
     client = TradingClient(
         api_key=settings.alpaca.api_key,
         secret_key=settings.alpaca.secret_key,
         paper=settings.alpaca.paper,
     )
-    # Use the raw REST endpoint for portfolio history
-    params: dict[str, Any] = {
-        "period": period,
-        "timeframe": timeframe,
-        "extended_hours": str(extended_hours).lower(),
-    }
-    raw = client.get("/v2/account/portfolio/history", params)
-
-    timestamps = raw.get("timestamp", [])
-    equity = raw.get("equity", [])
-    profit_loss = raw.get("profit_loss", [])
-    profit_loss_pct = raw.get("profit_loss_pct", [])
-    base_value = raw.get("base_value", 0)
+    req = GetPortfolioHistoryRequest(
+        period=period,
+        timeframe=timeframe,
+        extended_hours=extended_hours,
+    )
+    result = client.get_portfolio_history(req)
 
     return {
-        "timestamps": timestamps,
-        "equity": equity,
-        "profit_loss": profit_loss,
-        "profit_loss_pct": profit_loss_pct,
-        "base_value": float(base_value),
-        "timeframe": timeframe,
+        "timestamps": result.timestamp or [],
+        "equity": result.equity or [],
+        "profit_loss": result.profit_loss or [],
+        "profit_loss_pct": result.profit_loss_pct or [],
+        "base_value": float(result.base_value) if result.base_value else 0.0,
+        "timeframe": result.timeframe or timeframe,
     }

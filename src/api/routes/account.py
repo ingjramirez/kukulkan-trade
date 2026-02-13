@@ -72,27 +72,25 @@ async def _get_portfolio_history(
         return None
 
     try:
-        from typing import Any
-
         from src.execution.client_factory import AlpacaClientFactory
 
         client = AlpacaClientFactory.get_trading_client(tenant)
-        params: dict[str, Any] = {
-            "period": period,
-            "timeframe": timeframe,
-            "extended_hours": str(extended_hours).lower(),
-        }
-        raw = await asyncio.to_thread(
-            client.get, "/v2/account/portfolio/history", params,
+
+        from alpaca.trading.requests import GetPortfolioHistoryRequest
+        req = GetPortfolioHistoryRequest(
+            period=period,
+            timeframe=timeframe,
+            extended_hours=extended_hours,
         )
+        result = await asyncio.to_thread(client.get_portfolio_history, req)
 
         return {
-            "timestamps": raw.get("timestamp", []),
-            "equity": raw.get("equity", []),
-            "profit_loss": raw.get("profit_loss", []),
-            "profit_loss_pct": raw.get("profit_loss_pct", []),
-            "base_value": float(raw.get("base_value", 0)),
-            "timeframe": timeframe,
+            "timestamps": result.timestamp or [],
+            "equity": result.equity or [],
+            "profit_loss": result.profit_loss or [],
+            "profit_loss_pct": result.profit_loss_pct or [],
+            "base_value": float(result.base_value) if result.base_value else 0.0,
+            "timeframe": result.timeframe or timeframe,
         }
     except Exception:
         return None
