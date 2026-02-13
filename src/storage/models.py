@@ -320,6 +320,24 @@ class IntradaySnapshotRow(Base):
     positions_value = Column(Float, nullable=False)
 
 
+class ToolCallLogRow(Base):
+    """Log of tool calls during agentic Portfolio B sessions."""
+
+    __tablename__ = "tool_call_logs"
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(String(36), nullable=False, default="default")
+    session_date = Column(Date, nullable=False)
+    session_label = Column(String(20), nullable=True)
+    turn = Column(Integer, nullable=False)
+    tool_name = Column(String(50), nullable=False)
+    tool_input = Column(Text, nullable=True)  # JSON
+    tool_output_preview = Column(Text, nullable=True)  # First 500 chars
+    success = Column(Boolean, nullable=False, default=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
 class TenantRow(Base):
     """Multi-tenant configuration: credentials, strategy, and universe."""
 
@@ -361,6 +379,9 @@ class TenantRow(Base):
 
     # Rebalance flag (set by API on toggle change, cleared by orchestrator)
     pending_rebalance = Column(Boolean, nullable=False, default=False)
+
+    # Agent loop (agentic mode for Portfolio B)
+    use_agent_loop = Column(Boolean, nullable=False, default=False)
 
     # Ticker customization (JSON arrays, nullable = use defaults)
     ticker_whitelist = Column(Text, nullable=True)  # JSON: ["AAPL","TSLA"]
@@ -484,6 +505,7 @@ class TenantUpdate(BaseModel):
     is_active: bool | None = None
     dashboard_user: str | None = None
     dashboard_password: str | None = None
+    use_agent_loop: bool | None = None
 
 
 class TenantRead(BaseModel):
@@ -507,6 +529,7 @@ class TenantRead(BaseModel):
     ticker_whitelist: list[str] | None = None
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None
+    use_agent_loop: bool = False
     dashboard_user: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

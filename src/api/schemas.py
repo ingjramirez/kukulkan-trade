@@ -172,6 +172,7 @@ class TenantUpdateRequest(BaseModel):
     is_active: bool | None = None
     username: str | None = None
     password: str | None = None
+    use_agent_loop: bool | None = None
 
 
 class TenantSelfUpdateRequest(BaseModel):
@@ -191,6 +192,75 @@ class TenantSelfUpdateRequest(BaseModel):
     ticker_whitelist: list[str] | None = None
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None
+    use_agent_loop: bool | None = None
+
+
+# ── Outcome & Track Record Schemas ─────────────────────────────────
+
+
+class TradeOutcomeResponse(BaseModel):
+    ticker: str
+    side: str
+    entry_price: float
+    current_price: float
+    exit_price: float | None = None
+    pnl_pct: float
+    hold_days: int
+    sector: str
+    sector_etf_pct: float | None = None
+    spy_pct: float | None = None
+    alpha_vs_sector: float | None = None
+    alpha_vs_spy: float | None = None
+    conviction: str
+    reasoning: str
+
+
+class CategoryWinRateResponse(BaseModel):
+    category: str
+    value: str
+    total: int
+    wins: int
+    losses: int
+    win_rate_pct: float
+    avg_pnl_pct: float
+    avg_alpha_vs_spy: float | None = None
+
+
+class TrackRecordResponse(BaseModel):
+    total_trades: int
+    wins: int
+    losses: int
+    scratches: int
+    win_rate_pct: float
+    avg_pnl_pct: float
+    avg_alpha_vs_spy: float | None = None
+    by_sector: list[CategoryWinRateResponse] = []
+    by_conviction: list[CategoryWinRateResponse] = []
+    best_sector: str | None = None
+    worst_sector: str | None = None
+
+
+class DecisionQualityResponse(BaseModel):
+    total_decisions: int
+    favorable_1d_pct: float
+    favorable_3d_pct: float
+    favorable_5d_pct: float
+
+
+# ── Tool Call Log Schemas ──────────────────────────────────────────
+
+
+class ToolCallLogResponse(BaseModel):
+    id: int
+    session_date: date
+    session_label: str | None = None
+    turn: int
+    tool_name: str
+    tool_input: str | None = None
+    tool_output_preview: str | None = None
+    success: bool
+    error: str | None = None
+    created_at: UTCDatetime
 
 
 class TenantReadResponse(BaseModel):
@@ -209,6 +279,7 @@ class TenantReadResponse(BaseModel):
     portfolio_a_pct: float
     portfolio_b_pct: float
     pending_rebalance: bool = False
+    use_agent_loop: bool = False
     ticker_whitelist: list[str] | None = None
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None

@@ -64,10 +64,23 @@ def build_system_prompt(
     trailing_stops_context: str | None = None,
     earnings_context: str | None = None,
     watchlist_context: str | None = None,
+    decision_review: str | None = None,
+    track_record: str | None = None,
 ) -> str:
     """Build an enhanced system prompt with performance context and memory.
 
-    Prompt assembly priority: Regime > Session > Strategy > Performance > Memory.
+    Prompt assembly order:
+    1. Base + Decision Framework + Hard Rules
+    2. Regime summary
+    3. Session directive
+    4. Strategy directive
+    5. Performance stats
+    6. Decision Review (outcome feedback)
+    7. Track Record (win rate analysis)
+    8. Memory context
+    9. Trailing stops
+    10. Earnings
+    11. Watchlist
 
     Args:
         performance_stats: Pre-formatted performance text from PerformanceTracker.
@@ -77,6 +90,11 @@ def build_system_prompt(
         regime_summary: One-line regime description from RegimeClassifier.
         portfolio_allocation: Dollar allocation for Portfolio B (dynamic per tenant).
         universe_size: Number of tickers in the tenant's universe.
+        trailing_stops_context: Active trailing stops for B.
+        earnings_context: Upcoming earnings dates.
+        watchlist_context: Current AI watchlist.
+        decision_review: Recent decision outcomes text.
+        track_record: Win rate analysis text.
 
     Returns:
         Full system prompt string.
@@ -123,7 +141,15 @@ Hard Rules:
     if performance_stats:
         prompt += f"\n\n## Your Track Record\n{performance_stats}"
 
-    # 5. Memory context
+    # 5. Decision Review (outcome feedback)
+    if decision_review:
+        prompt += f"\n\n## Recent Decision Outcomes\n{decision_review}"
+
+    # 6. Track Record (win rate analysis)
+    if track_record:
+        prompt += f"\n\n## Win Rate Analysis\n{track_record}"
+
+    # 7. Memory context
     if memory_context:
         prompt += f"\n\n{memory_context}"
 
@@ -414,6 +440,107 @@ def build_recent_trades_text(trades: list[dict]) -> str:
         reason = t.get("reason", "")
         lines.append(f"  {t['side']} {t['shares']:.0f}x {t['ticker']} @ ${t['price']:.2f} — {reason}")
     return "\n".join(lines)
+
+
+def _build_decision_review(outcomes: list) -> str:
+    """Build a concise review of recent trade outcomes for the prompt.
+
+    Shows the last N outcomes with P&L and alpha to help the agent
+    learn from recent decisions.
+
+    Args:
+        outcomes: List of TradeOutcome (from outcome_tracker).
+
+    Returns:
+        Formatted text (~150 tokens).
+    """
+    if not outcomes:
+        return ""
+    lines = []
+    for o in outcomes[-5:]:
+        status = "OPEN" if o.exit_price is None else "CLOSED"
+        alpha_str = f", alpha vs SPY: {o.alpha_vs_spy:+.1f}%" if o.alpha_vs_spy is not None else ""
+        lines.append(
+            f"- {o.ticker} ({o.side}): {o.pnl_pct:+.1f}% in {o.hold_days}d "
+            f"[{status}, {o.conviction} conviction{alpha_str}]"
+        )
+    return "\n".join(lines)
+
+
+def _build_track_record(stats) -> str:
+    """Build track record summary for the prompt.
+
+    Delegates to TrackRecord.format_for_prompt().
+
+    Args:
+        stats: TrackRecordStats from track_record module.
+
+    Returns:
+        Formatted text (~200 tokens).
+    """
+    from src.analysis.track_record import TrackRecord
+
+    return TrackRecord.format_for_prompt(stats)
+
+
+def build_user_message(
+    analysis_date: date,
+    cash: float,
+    total_value: float,
+    positions: list[dict],
+    prices: dict[str, list[float]],
+    tickers: list[str],
+    indicators: dict[str, dict],
+    recent_trades: list[dict],
+    regime: str | None = None,
+    yield_curve: float | None = None,
+    vix: float | None = None,
+    news_context: str = "",
+    interesting_tickers: list[str] | None = None,
+    closes_df: pd.DataFrame | None = None,
+) -> str:
+    """Build the user message for the agent (both single-shot and agentic paths).
+
+    Extracts the message construction from ClaudeAgent.analyze() so both
+    paths can share it.
+
+    Args:
+        analysis_date: Current date.
+        cash: Available cash.
+        total_value: Total portfolio value.
+        positions: Current positions as list of dicts.
+        prices: Dict of ticker -> list of recent close prices.
+        tickers: Ordered list of tickers to show.
+        indicators: Dict of ticker -> indicator values.
+        recent_trades: Recent trade history.
+        regime: Current regime string.
+        yield_curve: 10Y-2Y spread.
+        vix: Current VIX.
+        news_context: Formatted news headlines.
+        interesting_tickers: If provided, use compact format.
+        closes_df: Full closes DataFrame for compact builders.
+
+    Returns:
+        Formatted user message string.
+    """
+    if interesting_tickers is not None and closes_df is not None:
+        price_section = build_compact_price_summary(closes_df, interesting_tickers)
+        indicator_section = build_compact_indicators(closes_df, interesting_tickers)
+    else:
+        price_section = build_price_table(prices, tickers)
+        indicator_section = build_indicators_table(indicators)
+
+    return ANALYSIS_PROMPT_TEMPLATE.format(
+        date=analysis_date.isoformat(),
+        cash=cash,
+        total_value=total_value,
+        positions_text=build_positions_text(positions),
+        price_table=price_section,
+        indicators_table=indicator_section,
+        macro_context=build_macro_context(regime, yield_curve, vix),
+        recent_trades=build_recent_trades_text(recent_trades),
+        news_context=news_context or "  (no recent news available)",
+    )
 
 
 class ClaudeAgent:

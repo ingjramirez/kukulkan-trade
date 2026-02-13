@@ -212,6 +212,30 @@ SECTOR_MAP: dict[str, str] = {
 }
 
 
+# --- Sector → ETF benchmark map (for outcome tracking) ---
+SECTOR_ETF_MAP: dict[str, str] = {
+    "Technology": "XLK",
+    "Financials": "XLF",
+    "Health Care": "XLV",
+    "Energy": "XLE",
+    "Industrials": "XLI",
+    "Consumer Discretionary": "XLY",
+    "Consumer Staples": "XLP",
+    "Utilities": "XLU",
+    "Materials": "XLB",
+    "Real Estate": "XLRE",
+    "Broad Market": "IWM",
+    "International": "EFA",
+    "Fixed Income": "TLT",
+    "Inverse": "SH",
+    "Commodities": "GLD",
+    "Crypto": "IBIT",
+    "Dividend/Value": "SCHD",
+    "Thematic": "ICLN",
+    "Hedge": "VIXY",
+}
+
+
 async def get_dynamic_universe(db: "Database") -> list[str]:
     """Get the full universe including approved dynamic tickers from all tenants.
 

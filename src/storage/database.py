@@ -1,5 +1,6 @@
 """SQLite database setup and CRUD operations."""
 
+import json
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from src.storage.models import (
     PortfolioRow,
     PositionRow,
     TenantRow,
+    ToolCallLogRow,
     TradeRow,
     TrailingStopRow,
     WatchlistRow,
@@ -989,6 +991,71 @@ class Database:
                 await s.delete(row)
             await s.commit()
             return len(rows)
+
+    # ── Tool Call Logs ────────────────────────────────────────────────
+
+    async def save_tool_call_logs(
+        self,
+        logs: list[dict],
+        session_date: date,
+        session_label: str | None = None,
+        tenant_id: str = "default",
+    ) -> None:
+        """Save a batch of tool call log entries.
+
+        Args:
+            logs: List of dicts with turn, tool_name, tool_input, etc.
+            session_date: Date of the agent session.
+            session_label: Session label (e.g. "Morning").
+            tenant_id: Tenant UUID.
+        """
+        if not logs:
+            return
+        async with self.session() as s:
+            for log_entry in logs:
+                # Serialize tool_input dict to JSON string for TEXT column
+                raw_input = log_entry.get("tool_input")
+                input_str = json.dumps(raw_input, default=str) if isinstance(raw_input, dict) else raw_input
+                s.add(
+                    ToolCallLogRow(
+                        tenant_id=tenant_id,
+                        session_date=session_date,
+                        session_label=session_label,
+                        turn=log_entry.get("turn", 0),
+                        tool_name=log_entry.get("tool_name", ""),
+                        tool_input=input_str,
+                        tool_output_preview=log_entry.get("tool_output_preview"),
+                        success=log_entry.get("success", True),
+                        error=log_entry.get("error"),
+                    )
+                )
+            await s.commit()
+
+    async def get_tool_call_logs(
+        self,
+        tenant_id: str = "default",
+        session_date: date | None = None,
+        limit: int = 100,
+    ) -> list[ToolCallLogRow]:
+        """Get tool call logs, optionally filtered by date.
+
+        Args:
+            tenant_id: Tenant UUID.
+            session_date: Optional date filter.
+            limit: Max rows to return.
+
+        Returns:
+            List of ToolCallLogRow ordered by created_at desc.
+        """
+        async with self.session() as s:
+            stmt = select(ToolCallLogRow).where(
+                ToolCallLogRow.tenant_id == tenant_id,
+            )
+            if session_date:
+                stmt = stmt.where(ToolCallLogRow.session_date == session_date)
+            stmt = stmt.order_by(ToolCallLogRow.created_at.desc()).limit(limit)
+            result = await s.execute(stmt)
+            return list(result.scalars().all())
 
     # ── Tenant CRUD ──────────────────────────────────────────────────
 

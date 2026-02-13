@@ -15,6 +15,7 @@ from src.api.routes.decisions import router as decisions_router
 from src.api.routes.discovered import router as discovered_router
 from src.api.routes.earnings import router as earnings_router
 from src.api.routes.momentum import router as momentum_router
+from src.api.routes.outcomes import router as outcomes_router
 from src.api.routes.portfolios import router as portfolios_router
 from src.api.routes.run import router as run_router
 from src.api.routes.snapshots import router as snapshots_router
@@ -64,6 +65,7 @@ app.include_router(tenants_router)
 app.include_router(universe_router)
 app.include_router(earnings_router)
 app.include_router(discovered_router)
+app.include_router(outcomes_router)
 app.include_router(run_router)
 
 

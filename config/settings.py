@@ -46,6 +46,9 @@ class AgentSettings(BaseSettings):
     """AI agent strategy settings."""
 
     strategy_mode: str = "conservative"  # conservative | standard | aggressive
+    agent_tool_model: str = "claude-sonnet-4-5-20250929"
+    agent_max_turns: int = 8
+    agent_session_budget: float = 0.50
 
     model_config = {"env_prefix": "AGENT_", "env_file": ".env", "extra": "ignore"}
 

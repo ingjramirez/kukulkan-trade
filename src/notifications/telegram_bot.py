@@ -109,6 +109,7 @@ class TelegramNotifier:
         run_portfolio_a: bool = True,
         run_portfolio_b: bool = True,
         trailing_stop_alerts: list[dict] | None = None,
+        agent_tool_summary: dict | None = None,
     ) -> bool:
         """Send the formatted daily brief.
 
@@ -139,6 +140,7 @@ class TelegramNotifier:
             run_portfolio_a=run_portfolio_a,
             run_portfolio_b=run_portfolio_b,
             trailing_stop_alerts=trailing_stop_alerts or [],
+            agent_tool_summary=agent_tool_summary,
         )
         return await self.send_message(msg)
 
@@ -389,6 +391,7 @@ def format_daily_brief(
     run_portfolio_a: bool = True,
     run_portfolio_b: bool = True,
     trailing_stop_alerts: list[dict] | None = None,
+    agent_tool_summary: dict | None = None,
 ) -> str:
     """Format the full daily brief as HTML.
 
@@ -449,9 +452,14 @@ def format_daily_brief(
                 "<b>Portfolio B</b> (AI Autonomy)",
                 f"  Value: ${portfolio_b.get('total_value', 0):,.0f} ({b_ret_str})",
                 f"  AI: {_escape_html(portfolio_b.get('reasoning', 'N/A')[:150])}",
-                "",
             ]
         )
+        if agent_tool_summary:
+            tools = agent_tool_summary.get("tools_used", 0)
+            turns = agent_tool_summary.get("turns", 0)
+            cost = agent_tool_summary.get("cost_usd", 0)
+            lines.append(f"  🤖 Investigation: {tools} tools across {turns} turns | ${cost:.2f}")
+        lines.append("")
 
     # Total (only sum active portfolios)
     total = 0.0

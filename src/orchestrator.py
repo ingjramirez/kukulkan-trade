@@ -20,7 +20,12 @@ from config.strategies import PORTFOLIO_B
 from config.universe import (
     get_dynamic_universe,
 )
-from src.agent.claude_agent import build_system_prompt
+from src.agent.claude_agent import (
+    _build_decision_review,
+    _build_track_record,
+    build_system_prompt,
+    build_user_message,
+)
 from src.agent.complexity_detector import ComplexityDetector
 from src.agent.memory import AgentMemoryManager
 from src.agent.ticker_discovery import TickerDiscovery
@@ -635,7 +640,7 @@ class Orchestrator:
             summary["trades"]["B"] = 0
         else:
             try:
-                trades_b, b_reasoning = await self._run_portfolio_b(
+                trades_b, b_reasoning, b_tool_summary = await self._run_portfolio_b(
                     closes,
                     volumes,
                     yield_curve,
@@ -652,6 +657,7 @@ class Orchestrator:
                 )
                 summary["trades"]["B"] = len(trades_b)
                 summary["b_reasoning"] = b_reasoning
+                summary["b_tool_summary"] = b_tool_summary
             except Exception as e:
                 log.error("portfolio_b_failed", error=str(e))
                 summary["errors"].append(f"Portfolio B failed: {e}")
@@ -929,7 +935,7 @@ class Orchestrator:
                 model_override = PORTFOLIO_B.escalation_model
             elif choice == "skip":
                 log.info("portfolio_b_skipped_by_user")
-                return [], ""
+                return [], "", None
             # "sonnet" or timeout → model_override stays None
 
         # ── Build memory context for system prompt ─────────────────────
@@ -1004,6 +1010,22 @@ class Orchestrator:
         except Exception as e:
             log.warning("watchlist_context_build_failed", error=str(e))
 
+        # ── Compute outcome feedback for system prompt ─────────────────
+        decision_review_text: str | None = None
+        track_record_text: str | None = None
+        try:
+            from src.analysis.outcome_tracker import OutcomeTracker
+            from src.analysis.track_record import TrackRecord
+
+            outcome_tracker = OutcomeTracker(self._db)
+            outcomes = await outcome_tracker.get_recent_outcomes(days=30, tenant_id=tenant_id)
+            if outcomes:
+                decision_review_text = _build_decision_review(outcomes[-5:])
+                stats = TrackRecord().compute(outcomes)
+                track_record_text = _build_track_record(stats)
+        except Exception as e:
+            log.warning("outcome_feedback_failed", error=str(e))
+
         dynamic_prompt = build_system_prompt(
             performance_stats=perf_text,
             memory_context=memory_text,
@@ -1015,26 +1037,141 @@ class Orchestrator:
             trailing_stops_context=trailing_context,
             earnings_context=earnings_context,
             watchlist_context=watchlist_context,
+            decision_review=decision_review_text,
+            track_record=track_record_text,
         )
 
-        # ── Prepare context and call agent ───────────────────────────────
-        context = self._strategy_b.prepare_context(
-            closes=closes,
-            volumes=volumes,
-            positions=positions_for_agent,
-            cash=cash,
-            total_value=total_value,
-            recent_trades=recent_trades,
-            regime=regime_str,
-            yield_curve=yield_curve,
-            vix=vix,
-            news_context=news_context,
-            system_prompt=dynamic_prompt,
-            universe=portfolio_b_universe,
-        )
-        context["model_override"] = model_override
+        # ── Check agentic mode ────────────────────────────────────────────
+        tenant = await self._db.get_tenant(tenant_id) if tenant_id != "default" else None
+        use_agent_loop = getattr(tenant, "use_agent_loop", False) if tenant else False
 
-        response = self._strategy_b._agent.analyze(**context)
+        tool_summary: dict | None = None
+
+        if use_agent_loop:
+            # ── Agentic path: tool-use loop ──────────────────────────────
+            log.info("portfolio_b_agentic_mode", tenant_id=tenant_id)
+            from src.agent.agent_runner import AgentRunner
+            from src.agent.tools.actions import ActionState, register_action_tools
+            from src.agent.tools.market import register_market_tools
+            from src.agent.tools.news import register_news_tools
+            from src.agent.tools.portfolio import register_portfolio_tools
+
+            # Build user message (same as single-shot but standalone)
+            context = self._strategy_b.prepare_context(
+                closes=closes,
+                volumes=volumes,
+                positions=positions_for_agent,
+                cash=cash,
+                total_value=total_value,
+                recent_trades=recent_trades,
+                regime=regime_str,
+                yield_curve=yield_curve,
+                vix=vix,
+                news_context=news_context,
+                system_prompt=dynamic_prompt,
+                universe=portfolio_b_universe,
+            )
+            user_message = build_user_message(
+                analysis_date=today,
+                cash=cash,
+                total_value=total_value,
+                positions=positions_for_agent,
+                prices=context.get("prices", {}),
+                tickers=context.get("tickers", []),
+                indicators=context.get("indicators", {}),
+                recent_trades=recent_trades,
+                regime=regime_str,
+                yield_curve=yield_curve,
+                vix=vix,
+                news_context=news_context,
+                interesting_tickers=context.get("interesting_tickers"),
+                closes_df=closes,
+            )
+
+            # Create runner with settings
+            runner = AgentRunner(
+                api_key=settings.anthropic_api_key,
+                model=settings.agent.agent_tool_model,
+                max_turns=settings.agent.agent_max_turns,
+                max_cost_usd=settings.agent.agent_session_budget,
+            )
+
+            # Build current prices dict for portfolio tools
+            current_prices = {t: float(closes[t].iloc[-1]) for t in closes.columns if not pd.isna(closes[t].iloc[-1])}
+
+            # Register all 9 tools
+            action_state = ActionState()
+            register_portfolio_tools(runner.registry, self._db, tenant_id, current_prices)
+            register_market_tools(runner.registry, closes, vix=vix, yield_curve=yield_curve, regime=regime_str)
+            register_news_tools(runner.registry, news_context)
+            register_action_tools(runner.registry, action_state)
+
+            # Run the agentic loop
+            result = await runner.run(
+                system_prompt=dynamic_prompt,
+                user_message=user_message,
+                model_override=model_override,
+            )
+
+            # Merge accumulated actions into response
+            response = result.response
+            accumulated = action_state.get_accumulated_state()
+            if accumulated["trades"] and not response.get("trades"):
+                response["trades"] = accumulated["trades"]
+            if accumulated["watchlist_updates"] and not response.get("watchlist_updates"):
+                response["watchlist_updates"] = accumulated["watchlist_updates"]
+            if accumulated["memory_notes"] and not response.get("memory_notes"):
+                response["memory_notes"] = accumulated["memory_notes"]
+
+            # Build tool summary for notifications
+            tool_summary = {
+                "tools_used": len(result.tool_calls),
+                "turns": result.turns,
+                "cost_usd": round(result.token_tracker.total_cost_usd, 4),
+            }
+
+            # Save tool call logs
+            try:
+                tool_log_entries = [
+                    {
+                        "turn": tc.turn,
+                        "tool_name": tc.tool_name,
+                        "tool_input": tc.tool_input,
+                        "tool_output_preview": tc.tool_output_preview,
+                        "success": tc.success,
+                        "error": tc.error,
+                    }
+                    for tc in result.tool_calls
+                ]
+                await self._db.save_tool_call_logs(tool_log_entries, today, session_label=session, tenant_id=tenant_id)
+            except Exception as e:
+                log.warning("tool_call_log_save_failed", error=str(e))
+
+            log.info(
+                "agent_loop_complete",
+                turns=result.turns,
+                tool_calls=len(result.tool_calls),
+                cost_usd=tool_summary["cost_usd"],
+            )
+        else:
+            # ── Single-shot path (existing) ──────────────────────────────
+            context = self._strategy_b.prepare_context(
+                closes=closes,
+                volumes=volumes,
+                positions=positions_for_agent,
+                cash=cash,
+                total_value=total_value,
+                recent_trades=recent_trades,
+                regime=regime_str,
+                yield_curve=yield_curve,
+                vix=vix,
+                news_context=news_context,
+                system_prompt=dynamic_prompt,
+                universe=portfolio_b_universe,
+            )
+            context["model_override"] = model_override
+
+            response = self._strategy_b._agent.analyze(**context)
 
         # Convert to trades (include dynamic tickers as valid)
         dynamic_tickers = await self._ticker_discovery.get_active_tickers(
@@ -1094,8 +1231,9 @@ class Orchestrator:
             tokens=response.get("_tokens_used", 0),
             model_override=model_override,
             complexity_score=complexity.score,
+            agentic=use_agent_loop,
         )
-        return trades, response.get("reasoning", "")
+        return trades, response.get("reasoning", ""), tool_summary
 
     async def _check_trailing_stops(
         self,
@@ -1892,6 +2030,7 @@ class Orchestrator:
                 run_portfolio_a=run_portfolio_a,
                 run_portfolio_b=run_portfolio_b,
                 trailing_stop_alerts=trailing_stop_alerts or [],
+                agent_tool_summary=summary.get("b_tool_summary"),
             )
 
             # Only send trade confirmation for actually filled trades

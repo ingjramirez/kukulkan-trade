@@ -155,15 +155,19 @@ class AgentMemoryManager:
         db: Database,
         agent,
         tenant_id: str = "default",
+        outcome_summary: str | None = None,
     ) -> None:
         """Compress the past week's decisions into a ~200-token summary.
 
         Fetches recent agent decisions, asks Claude to compress them,
-        and stores as a weekly_summary memory.
+        and stores as a weekly_summary memory. When outcome_summary is
+        provided, it's appended to give Claude real P&L feedback.
 
         Args:
             db: Database instance.
             agent: ClaudeAgent instance for the compression call.
+            tenant_id: Tenant UUID.
+            outcome_summary: Optional trade outcome feedback to include.
         """
         # Fetch last 7 days of short-term memories
         short_term = await db.get_agent_memories("short_term", tenant_id=tenant_id)
@@ -178,12 +182,16 @@ class AgentMemoryManager:
         # Combine short-term memories into context
         decisions_text = "\n".join(f"- [{m.key}] {m.content}" for m in short_term)
 
+        outcome_section = ""
+        if outcome_summary:
+            outcome_section = f"\n\nTrade Outcomes (actual P&L):\n{outcome_summary}\n"
+
         prompt = f"""Compress these trading decisions into a ~200-token summary.
 Focus on: key lessons learned, recurring themes, what worked/didn't, evolving theses.
 Be specific about tickers and outcomes, not generic.
 
 Decisions:
-{decisions_text}
+{decisions_text}{outcome_section}
 
 Write a concise summary paragraph (no headers, no bullets):"""
 
