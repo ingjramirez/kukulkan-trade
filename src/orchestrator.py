@@ -1164,11 +1164,16 @@ class Orchestrator:
         allocations: TenantAllocations,
         tenant_id: str,
     ) -> TenantAllocations:
-        """Compare Alpaca equity to tracked portfolio totals.
+        """Detect real cash deposits via Alpaca account activities API.
 
-        If the delta exceeds DEPOSIT_THRESHOLD, treat it as a deposit:
-        increase initial_equity and split the deposit into portfolio cash
-        proportionally.
+        Queries /v2/account/activities for CSD (Cash Deposit) and JNLC
+        (Journal Credit) entries in the last 5 days.  Only confirmed broker
+        transfers update the baseline — this prevents false positives from
+        overnight price movements that inflate broker equity.
+
+        A secondary equity-gap check guards against double-counting: after
+        the snapshot step syncs tracked totals to broker equity, the gap
+        drops to ~0 on subsequent runs in the same day.
 
         Returns:
             Updated TenantAllocations (or the original if no deposit).
@@ -1176,25 +1181,59 @@ class Orchestrator:
         if not hasattr(self._executor, "_client"):
             return allocations
 
+        # --- Step 1: query Alpaca for actual cash-deposit activities ----
         try:
-            account = await asyncio.to_thread(self._executor._client.get_account)
+            after = (date.today() - timedelta(days=5)).isoformat()
+            raw = await asyncio.to_thread(
+                self._executor._client.get,
+                "/v2/account/activities",
+                {"activity_types": "CSD,JNLC", "after": after},
+            )
+        except Exception as e:
+            log.warning("deposit_detection_fetch_failed", error=str(e))
+            return allocations
+
+        if not raw:
+            return allocations
+
+        activities = raw if isinstance(raw, list) else [raw]
+
+        deposit_sum = 0.0
+        for act in activities:
+            try:
+                amount = float(act.get("net_amount", 0))
+                if amount > 0:
+                    deposit_sum += amount
+            except (ValueError, TypeError, AttributeError):
+                continue
+
+        if deposit_sum <= DEPOSIT_THRESHOLD:
+            return allocations
+
+        # --- Step 2: equity-gap guard against double-counting -----------
+        try:
+            account = await asyncio.to_thread(
+                self._executor._client.get_account,
+            )
             broker_equity = float(account.equity)
         except Exception as e:
             log.warning("deposit_detection_equity_fetch_failed", error=str(e))
             return allocations
 
-        # Sum tracked portfolio totals
         tracked_total = 0.0
         for pname in ("A", "B"):
             portfolio = await self._db.get_portfolio(pname, tenant_id=tenant_id)
             if portfolio:
                 tracked_total += portfolio.total_value
 
-        delta = broker_equity - tracked_total
-        if delta <= DEPOSIT_THRESHOLD:
+        equity_gap = broker_equity - tracked_total
+        if equity_gap <= DEPOSIT_THRESHOLD:
+            # Tracked totals already include the deposit (processed earlier).
             return allocations
 
-        # Deposit detected — update initial equity and split by pct
+        # --- Step 3: confirmed deposit — apply to baseline ---------------
+        delta = deposit_sum
+
         new_equity = allocations.initial_equity + delta
         new_a_cash = new_equity * allocations.portfolio_a_pct / 100
         new_b_cash = new_equity * allocations.portfolio_b_pct / 100

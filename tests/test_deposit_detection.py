@@ -29,27 +29,38 @@ def _make_allocations(
     )
 
 
+def _mock_executor_with_activities(
+    activities: list[dict],
+    equity: str = "101_000.0",
+) -> MagicMock:
+    """Create a mock executor that returns CSD activities and account equity."""
+    mock_client = MagicMock()
+    mock_client.get.return_value = activities
+    mock_account = MagicMock()
+    mock_account.equity = equity
+    mock_client.get_account.return_value = mock_account
+    mock_executor = MagicMock()
+    mock_executor._client = mock_client
+    return mock_executor
+
+
 class TestDetectDeposits:
-    async def test_deposit_detected(self, db: Database) -> None:
-        """Deposit detected when broker equity exceeds tracked totals."""
+    async def test_deposit_detected_via_activities(self, db: Database) -> None:
+        """Real CSD activity triggers deposit detection."""
         orchestrator = Orchestrator(db)
-        # Initialize portfolios with known values
         await db.upsert_portfolio("A", cash=33_330.0, total_value=33_330.0)
         await db.upsert_portfolio("B", cash=66_670.0, total_value=66_670.0)
 
         alloc = _make_allocations(equity=100_000.0)
 
-        # Mock executor with Alpaca client that reports higher equity
-        mock_client = MagicMock()
-        mock_account = MagicMock()
-        mock_account.equity = "101_000.0"  # $1000 deposit
-        mock_client.get_account.return_value = mock_account
-        orchestrator._executor = MagicMock()
-        orchestrator._executor._client = mock_client
+        # CSD activity for $1000, broker equity reflects the deposit + tracked
+        orchestrator._executor = _mock_executor_with_activities(
+            activities=[{"net_amount": "1000.00", "activity_type": "CSD"}],
+            equity="101_000.0",
+        )
 
         new_alloc = await orchestrator._detect_deposits(alloc, "default")
 
-        # Verify equity increased
         assert new_alloc.initial_equity == 101_000.0
         assert new_alloc.portfolio_a_cash == pytest.approx(
             101_000.0 * 33.33 / 100, rel=1e-2,
@@ -62,41 +73,66 @@ class TestDetectDeposits:
         port_a = await db.get_portfolio("A")
         assert port_a.cash > 33_330.0
 
-    async def test_no_deposit_small_delta(self, db: Database) -> None:
-        """No deposit if delta is below threshold."""
+    async def test_no_activities_no_deposit(self, db: Database) -> None:
+        """No CSD activities → no deposit, even if equity delta is large."""
         orchestrator = Orchestrator(db)
         await db.upsert_portfolio("A", cash=33_330.0, total_value=33_330.0)
         await db.upsert_portfolio("B", cash=66_670.0, total_value=66_670.0)
 
         alloc = _make_allocations(equity=100_000.0)
 
+        # No activities but broker equity is $395 higher (price movement)
+        orchestrator._executor = _mock_executor_with_activities(
+            activities=[],
+            equity="100_395.22",
+        )
+
+        new_alloc = await orchestrator._detect_deposits(alloc, "default")
+
+        # Must NOT detect a deposit — this was the original bug
+        assert new_alloc.initial_equity == alloc.initial_equity
+
+    async def test_empty_response_no_deposit(self, db: Database) -> None:
+        """Empty/None API response is handled gracefully."""
+        orchestrator = Orchestrator(db)
+        alloc = _make_allocations()
+
         mock_client = MagicMock()
-        mock_account = MagicMock()
-        # Delta of $10 — below threshold
-        mock_account.equity = "100_010.0"
-        mock_client.get_account.return_value = mock_account
+        mock_client.get.return_value = None
         orchestrator._executor = MagicMock()
         orchestrator._executor._client = mock_client
 
         new_alloc = await orchestrator._detect_deposits(alloc, "default")
+        assert new_alloc is alloc
 
-        # Allocations unchanged
-        assert new_alloc.initial_equity == alloc.initial_equity
-
-    async def test_negative_delta_ignored(self, db: Database) -> None:
-        """Negative delta (portfolio loss) is not treated as deposit."""
+    async def test_small_deposit_below_threshold_ignored(self, db: Database) -> None:
+        """CSD activity below threshold is ignored."""
         orchestrator = Orchestrator(db)
         await db.upsert_portfolio("A", cash=33_330.0, total_value=33_330.0)
         await db.upsert_portfolio("B", cash=66_670.0, total_value=66_670.0)
 
         alloc = _make_allocations(equity=100_000.0)
 
-        mock_client = MagicMock()
-        mock_account = MagicMock()
-        mock_account.equity = "95_000.0"  # Loss, not deposit
-        mock_client.get_account.return_value = mock_account
-        orchestrator._executor = MagicMock()
-        orchestrator._executor._client = mock_client
+        orchestrator._executor = _mock_executor_with_activities(
+            activities=[{"net_amount": "10.00", "activity_type": "CSD"}],
+            equity="100_010.0",
+        )
+
+        new_alloc = await orchestrator._detect_deposits(alloc, "default")
+        assert new_alloc.initial_equity == alloc.initial_equity
+
+    async def test_negative_activity_amount_ignored(self, db: Database) -> None:
+        """Withdrawal activities (negative amounts) are not counted."""
+        orchestrator = Orchestrator(db)
+        await db.upsert_portfolio("A", cash=33_330.0, total_value=33_330.0)
+        await db.upsert_portfolio("B", cash=66_670.0, total_value=66_670.0)
+
+        alloc = _make_allocations(equity=100_000.0)
+
+        orchestrator._executor = _mock_executor_with_activities(
+            activities=[{"net_amount": "-500.00", "activity_type": "CSW"}],
+            equity="99_500.0",
+        )
 
         new_alloc = await orchestrator._detect_deposits(alloc, "default")
         assert new_alloc.initial_equity == alloc.initial_equity
@@ -108,20 +144,100 @@ class TestDetectDeposits:
 
         # PaperTrader has no _client attribute
         new_alloc = await orchestrator._detect_deposits(alloc, "default")
-        assert new_alloc is alloc  # Unchanged
+        assert new_alloc is alloc
 
-    async def test_alpaca_fetch_failure(self, db: Database) -> None:
-        """Graceful fallback when Alpaca equity fetch fails."""
+    async def test_activities_fetch_failure(self, db: Database) -> None:
+        """Graceful fallback when activities API call fails."""
         orchestrator = Orchestrator(db)
         alloc = _make_allocations()
 
         mock_client = MagicMock()
-        mock_client.get_account.side_effect = Exception("Connection error")
+        mock_client.get.side_effect = Exception("Connection error")
         orchestrator._executor = MagicMock()
         orchestrator._executor._client = mock_client
 
         new_alloc = await orchestrator._detect_deposits(alloc, "default")
-        assert new_alloc is alloc  # Unchanged
+        assert new_alloc is alloc
+
+    async def test_equity_fetch_failure_after_activities(self, db: Database) -> None:
+        """Graceful fallback when equity fetch fails after activities found."""
+        orchestrator = Orchestrator(db)
+        alloc = _make_allocations()
+
+        mock_client = MagicMock()
+        mock_client.get.return_value = [
+            {"net_amount": "500.00", "activity_type": "CSD"},
+        ]
+        mock_client.get_account.side_effect = Exception("API error")
+        orchestrator._executor = MagicMock()
+        orchestrator._executor._client = mock_client
+
+        new_alloc = await orchestrator._detect_deposits(alloc, "default")
+        assert new_alloc is alloc
+
+    async def test_equity_gap_prevents_double_counting(self, db: Database) -> None:
+        """If tracked totals already reflect deposit, skip processing."""
+        orchestrator = Orchestrator(db)
+        # Tracked totals already include the deposit (e.g. from a prior run)
+        await db.upsert_portfolio("A", cash=33_663.0, total_value=33_663.0)
+        await db.upsert_portfolio("B", cash=67_337.0, total_value=67_337.0)
+        # tracked = 101,000
+
+        alloc = _make_allocations(equity=101_000.0)
+
+        # Activities show a $1000 deposit, but equity ≈ tracked → already processed
+        orchestrator._executor = _mock_executor_with_activities(
+            activities=[{"net_amount": "1000.00", "activity_type": "CSD"}],
+            equity="101_000.0",  # matches tracked
+        )
+
+        new_alloc = await orchestrator._detect_deposits(alloc, "default")
+        # Should NOT re-process — equity gap ≈ 0
+        assert new_alloc.initial_equity == alloc.initial_equity
+
+    async def test_multiple_activities_summed(self, db: Database) -> None:
+        """Multiple CSD activities in the window are summed."""
+        orchestrator = Orchestrator(db)
+        await db.upsert_portfolio("A", cash=33_330.0, total_value=33_330.0)
+        await db.upsert_portfolio("B", cash=66_670.0, total_value=66_670.0)
+
+        alloc = _make_allocations(equity=100_000.0)
+
+        orchestrator._executor = _mock_executor_with_activities(
+            activities=[
+                {"net_amount": "300.00", "activity_type": "CSD"},
+                {"net_amount": "200.00", "activity_type": "JNLC"},
+            ],
+            equity="100_500.0",
+        )
+
+        new_alloc = await orchestrator._detect_deposits(alloc, "default")
+
+        # $300 + $200 = $500 deposit
+        assert new_alloc.initial_equity == 100_500.0
+
+    async def test_single_dict_response_handled(self, db: Database) -> None:
+        """API returning a single dict (instead of list) is handled."""
+        orchestrator = Orchestrator(db)
+        await db.upsert_portfolio("A", cash=33_330.0, total_value=33_330.0)
+        await db.upsert_portfolio("B", cash=66_670.0, total_value=66_670.0)
+
+        alloc = _make_allocations(equity=100_000.0)
+
+        mock_client = MagicMock()
+        # Single dict instead of list
+        mock_client.get.return_value = {
+            "net_amount": "500.00",
+            "activity_type": "CSD",
+        }
+        mock_account = MagicMock()
+        mock_account.equity = "100_500.0"
+        mock_client.get_account.return_value = mock_account
+        orchestrator._executor = MagicMock()
+        orchestrator._executor._client = mock_client
+
+        new_alloc = await orchestrator._detect_deposits(alloc, "default")
+        assert new_alloc.initial_equity == 100_500.0
 
     async def test_deposit_updates_tenant_record(self, db: Database) -> None:
         """Deposit detection updates the tenant DB record."""
@@ -152,18 +268,61 @@ class TestDetectDeposits:
         orchestrator = Orchestrator(db)
         alloc = _make_allocations(equity=100_000.0)
 
-        mock_client = MagicMock()
-        mock_account = MagicMock()
-        mock_account.equity = "105_000.0"  # $5000 deposit
-        mock_client.get_account.return_value = mock_account
-        orchestrator._executor = MagicMock()
-        orchestrator._executor._client = mock_client
+        orchestrator._executor = _mock_executor_with_activities(
+            activities=[{"net_amount": "5000.00", "activity_type": "CSD"}],
+            equity="105_000.0",
+        )
 
         await orchestrator._detect_deposits(alloc, "t1")
 
-        # Verify tenant record was updated
         updated_tenant = await db.get_tenant("t1")
         assert updated_tenant.initial_equity == 105_000.0
+
+    async def test_malformed_activity_skipped(self, db: Database) -> None:
+        """Activities with bad net_amount are skipped gracefully."""
+        orchestrator = Orchestrator(db)
+        await db.upsert_portfolio("A", cash=33_330.0, total_value=33_330.0)
+        await db.upsert_portfolio("B", cash=66_670.0, total_value=66_670.0)
+
+        alloc = _make_allocations(equity=100_000.0)
+
+        orchestrator._executor = _mock_executor_with_activities(
+            activities=[
+                {"net_amount": "not_a_number", "activity_type": "CSD"},
+                {"net_amount": "500.00", "activity_type": "CSD"},
+            ],
+            equity="100_500.0",
+        )
+
+        new_alloc = await orchestrator._detect_deposits(alloc, "default")
+        # Only the valid $500 is counted
+        assert new_alloc.initial_equity == 100_500.0
+
+    async def test_price_movement_with_no_activities(self, db: Database) -> None:
+        """Reproduces the original bug: overnight price appreciation.
+
+        Positions appreciated $395 overnight. Old code would falsely detect
+        a deposit. New code queries activities and finds none → no deposit.
+        """
+        orchestrator = Orchestrator(db)
+        # Tracked from last night's snapshot
+        await db.upsert_portfolio("A", cash=5_000.0, total_value=33_000.0)
+        await db.upsert_portfolio("B", cash=50_000.0, total_value=66_605.0)
+        # tracked_total = $99,605
+
+        alloc = _make_allocations(equity=100_000.0)
+
+        # Broker reports $100,000 (positions worth more now)
+        orchestrator._executor = _mock_executor_with_activities(
+            activities=[],  # No actual deposit
+            equity="100_000.0",  # $395 higher than tracked
+        )
+
+        new_alloc = await orchestrator._detect_deposits(alloc, "default")
+
+        # MUST NOT inflate the baseline
+        assert new_alloc.initial_equity == 100_000.0
+        assert new_alloc is alloc
 
 
 class TestCaptureAlpacaEquity:
