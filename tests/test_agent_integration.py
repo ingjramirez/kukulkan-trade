@@ -123,6 +123,7 @@ class TestDefaultTenantAgentLoop:
         mock_result.token_tracker.record("claude-sonnet-4-5-20250929", 500, 200, 1)
 
         with (
+            patch.object(orch._strategy_b._agent, "analyze", return_value=_mock_agent_response()),
             patch("src.agent.agent_runner.AgentRunner") as mock_runner_cls,
             patch("src.agent.tools.portfolio.register_portfolio_tools"),
             patch("src.agent.tools.market.register_market_tools"),
@@ -307,6 +308,7 @@ class TestAgentLoopEnabled:
         mock_result.token_tracker.record("claude-sonnet-4-5-20250929", 500, 200, 1)
 
         with (
+            patch.object(orch._strategy_b._agent, "analyze", return_value=_mock_agent_response()),
             patch("src.agent.agent_runner.AgentRunner") as mock_runner_cls,
             patch("src.agent.tools.portfolio.register_portfolio_tools"),
             patch("src.agent.tools.market.register_market_tools"),
@@ -390,6 +392,7 @@ class TestAgentLoopEnabled:
         action_state.memory_notes.append({"key": "test-note", "content": "learned something"})
 
         with (
+            patch.object(orch._strategy_b._agent, "analyze", return_value=_mock_agent_response()),
             patch("src.agent.agent_runner.AgentRunner") as mock_runner_cls,
             patch("src.agent.tools.portfolio.register_portfolio_tools"),
             patch("src.agent.tools.market.register_market_tools"),
@@ -480,6 +483,7 @@ class TestAgentLoopEnabled:
         )
 
         with (
+            patch.object(orch._strategy_b._agent, "analyze", return_value=_mock_agent_response()),
             patch("src.agent.agent_runner.AgentRunner") as mock_runner_cls,
             patch("src.agent.tools.portfolio.register_portfolio_tools"),
             patch("src.agent.tools.market.register_market_tools"),
