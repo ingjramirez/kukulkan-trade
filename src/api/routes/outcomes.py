@@ -42,6 +42,9 @@ async def list_outcomes(
             alpha_vs_spy=o.alpha_vs_spy,
             conviction=o.conviction,
             reasoning=o.reasoning,
+            regime_at_entry=o.regime_at_entry,
+            session_at_entry=o.session_at_entry,
+            verdict=o.verdict,
         )
         for o in outcomes
     ]
@@ -90,6 +93,32 @@ async def get_track_record(
                 avg_alpha_vs_spy=c.avg_alpha_vs_spy,
             )
             for c in stats.by_conviction
+        ],
+        by_regime=[
+            CategoryWinRateResponse(
+                category=r.category,
+                value=r.value,
+                total=r.total,
+                wins=r.wins,
+                losses=r.losses,
+                win_rate_pct=r.win_rate_pct,
+                avg_pnl_pct=r.avg_pnl_pct,
+                avg_alpha_vs_spy=r.avg_alpha_vs_spy,
+            )
+            for r in stats.by_regime
+        ],
+        by_session=[
+            CategoryWinRateResponse(
+                category=s.category,
+                value=s.value,
+                total=s.total,
+                wins=s.wins,
+                losses=s.losses,
+                win_rate_pct=s.win_rate_pct,
+                avg_pnl_pct=s.avg_pnl_pct,
+                avg_alpha_vs_spy=s.avg_alpha_vs_spy,
+            )
+            for s in stats.by_session
         ],
         best_sector=stats.best_sector,
         worst_sector=stats.worst_sector,

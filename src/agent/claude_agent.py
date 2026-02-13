@@ -460,9 +460,10 @@ def _build_decision_review(outcomes: list) -> str:
     for o in outcomes[-5:]:
         status = "OPEN" if o.exit_price is None else "CLOSED"
         alpha_str = f", alpha vs SPY: {o.alpha_vs_spy:+.1f}%" if o.alpha_vs_spy is not None else ""
+        verdict_str = f" → {o.verdict}" if o.verdict else ""
         lines.append(
             f"- {o.ticker} ({o.side}): {o.pnl_pct:+.1f}% in {o.hold_days}d "
-            f"[{status}, {o.conviction} conviction{alpha_str}]"
+            f"[{status}, {o.conviction} conviction{alpha_str}]{verdict_str}"
         )
     return "\n".join(lines)
 

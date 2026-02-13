@@ -1000,7 +1000,7 @@ class Database:
         session_date: date,
         session_label: str | None = None,
         tenant_id: str = "default",
-    ) -> None:
+    ) -> list[int]:
         """Save a batch of tool call log entries.
 
         Args:
@@ -1008,27 +1008,51 @@ class Database:
             session_date: Date of the agent session.
             session_label: Session label (e.g. "Morning").
             tenant_id: Tenant UUID.
+
+        Returns:
+            List of saved row IDs.
         """
         if not logs:
-            return
+            return []
+        rows: list[ToolCallLogRow] = []
         async with self.session() as s:
             for log_entry in logs:
                 # Serialize tool_input dict to JSON string for TEXT column
                 raw_input = log_entry.get("tool_input")
                 input_str = json.dumps(raw_input, default=str) if isinstance(raw_input, dict) else raw_input
-                s.add(
-                    ToolCallLogRow(
-                        tenant_id=tenant_id,
-                        session_date=session_date,
-                        session_label=session_label,
-                        turn=log_entry.get("turn", 0),
-                        tool_name=log_entry.get("tool_name", ""),
-                        tool_input=input_str,
-                        tool_output_preview=log_entry.get("tool_output_preview"),
-                        success=log_entry.get("success", True),
-                        error=log_entry.get("error"),
-                    )
+                row = ToolCallLogRow(
+                    tenant_id=tenant_id,
+                    session_date=session_date,
+                    session_label=session_label,
+                    turn=log_entry.get("turn", 0),
+                    tool_name=log_entry.get("tool_name", ""),
+                    tool_input=input_str,
+                    tool_output_preview=log_entry.get("tool_output_preview"),
+                    success=log_entry.get("success", True),
+                    error=log_entry.get("error"),
                 )
+                s.add(row)
+                rows.append(row)
+            await s.flush()
+            saved_ids = [r.id for r in rows]
+            await s.commit()
+        return saved_ids
+
+    async def update_tool_call_influenced(
+        self,
+        log_ids: list[int],
+    ) -> None:
+        """Mark tool call logs as having influenced the final decision.
+
+        Args:
+            log_ids: List of ToolCallLogRow IDs to mark as influential.
+        """
+        if not log_ids:
+            return
+        async with self.session() as s:
+            result = await s.execute(select(ToolCallLogRow).where(ToolCallLogRow.id.in_(log_ids)))
+            for row in result.scalars().all():
+                row.influenced_decision = True
             await s.commit()
 
     async def get_tool_call_logs(

@@ -139,6 +139,8 @@ class AgentDecisionRow(Base):
     reasoning = Column(Text)
     model_used = Column(String(50))
     tokens_used = Column(Integer)
+    regime = Column(String(30), nullable=True)
+    session_label = Column(String(20), nullable=True)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
@@ -335,6 +337,7 @@ class ToolCallLogRow(Base):
     tool_output_preview = Column(Text, nullable=True)  # First 500 chars
     success = Column(Boolean, nullable=False, default=True)
     error = Column(Text, nullable=True)
+    influenced_decision = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
 

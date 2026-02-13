@@ -38,6 +38,9 @@ class TradeOutcome:
     alpha_vs_spy: float | None
     conviction: str
     reasoning: str
+    regime_at_entry: str | None = None
+    session_at_entry: str | None = None
+    verdict: str | None = None
 
 
 class OutcomeTracker:
@@ -148,11 +151,14 @@ class OutcomeTracker:
                 alpha_vs_spy = pnl_pct - spy_pct
 
             # Extract conviction from decision
-            conviction, reasoning = self._extract_conviction(
+            conviction, reasoning, regime_at_entry, session_at_entry = self._extract_conviction(
                 decision_map,
                 trade_date,
                 ticker,
             )
+
+            rounded_alpha_sector = round(alpha_vs_sector, 2) if alpha_vs_sector is not None else None
+            verdict = self._compute_verdict(rounded_alpha_sector)
 
             outcomes.append(
                 TradeOutcome(
@@ -166,10 +172,13 @@ class OutcomeTracker:
                     sector=sector,
                     sector_etf_pct=round(sector_etf_pct, 2) if sector_etf_pct is not None else None,
                     spy_pct=round(spy_pct, 2) if spy_pct is not None else None,
-                    alpha_vs_sector=round(alpha_vs_sector, 2) if alpha_vs_sector is not None else None,
+                    alpha_vs_sector=rounded_alpha_sector,
                     alpha_vs_spy=round(alpha_vs_spy, 2) if alpha_vs_spy is not None else None,
                     conviction=conviction,
                     reasoning=reasoning,
+                    regime_at_entry=regime_at_entry,
+                    session_at_entry=session_at_entry,
+                    verdict=verdict,
                 )
             )
 
@@ -195,7 +204,10 @@ class OutcomeTracker:
     def _build_decision_map(
         decisions: list,
     ) -> dict[date, dict]:
-        """Build a map of date → {ticker: {conviction, reason}} from decisions."""
+        """Build a map of date → {trades: ticker_map, regime, session_label} from decisions.
+
+        Backward compatible: old format (no "trades" key) is auto-detected.
+        """
         result: dict[date, dict] = {}
         for d in decisions:
             if not d.proposed_trades:
@@ -208,7 +220,11 @@ class OutcomeTracker:
             for t in trades_list:
                 if isinstance(t, dict):
                     ticker_map[t.get("ticker", "")] = t
-            result[d.date] = ticker_map
+            result[d.date] = {
+                "trades": ticker_map,
+                "regime": getattr(d, "regime", None),
+                "session_label": getattr(d, "session_label", None),
+            }
         return result
 
     @staticmethod
@@ -216,25 +232,49 @@ class OutcomeTracker:
         decision_map: dict[date, dict],
         trade_date: date,
         ticker: str,
-    ) -> tuple[str, str]:
-        """Extract conviction and reasoning for a specific trade.
+    ) -> tuple[str, str, str | None, str | None]:
+        """Extract conviction, reasoning, regime, and session for a specific trade.
 
         Returns:
-            Tuple of (conviction, reasoning).
+            Tuple of (conviction, reasoning, regime, session_label).
         """
-        day_decisions = decision_map.get(trade_date, {})
-        trade_info = day_decisions.get(ticker, {})
+        day_data = decision_map.get(trade_date, {})
+        # Backward compat: if no "trades" key, treat as old ticker_map format
+        if "trades" in day_data:
+            ticker_map = day_data["trades"]
+            regime = day_data.get("regime")
+            session_label = day_data.get("session_label")
+        else:
+            ticker_map = day_data
+            regime = None
+            session_label = None
+
+        trade_info = ticker_map.get(ticker, {})
         conviction = "medium"
         reasoning = ""
         if isinstance(trade_info, dict):
-            # Try to extract from the reason field
             reason = trade_info.get("reason", "")
             reasoning = reason
             for level in ("high", "medium", "low"):
                 if level in reason.lower():
                     conviction = level
                     break
-        return conviction, reasoning
+        return conviction, reasoning, regime, session_label
+
+    @staticmethod
+    def _compute_verdict(alpha_vs_sector: float | None) -> str | None:
+        """Compute verdict based on alpha vs sector ETF.
+
+        Returns:
+            "OUTPERFORMED", "UNDERPERFORMED", "MATCHED", or None.
+        """
+        if alpha_vs_sector is None:
+            return None
+        if alpha_vs_sector > 0.5:
+            return "OUTPERFORMED"
+        if alpha_vs_sector < -0.5:
+            return "UNDERPERFORMED"
+        return "MATCHED"
 
     @staticmethod
     async def _fetch_current_prices(tickers: list[str]) -> dict[str, float]:

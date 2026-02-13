@@ -156,18 +156,19 @@ class AgentMemoryManager:
         agent,
         tenant_id: str = "default",
         outcome_summary: str | None = None,
+        track_record_text: str | None = None,
     ) -> None:
-        """Compress the past week's decisions into a ~200-token summary.
+        """Evaluate the past week's trading decisions and compress into a summary.
 
-        Fetches recent agent decisions, asks Claude to compress them,
-        and stores as a weekly_summary memory. When outcome_summary is
-        provided, it's appended to give Claude real P&L feedback.
+        Fetches recent agent decisions, asks Claude to evaluate them with
+        outcome data, and stores as a weekly_summary memory.
 
         Args:
             db: Database instance.
-            agent: ClaudeAgent instance for the compression call.
+            agent: ClaudeAgent instance for the evaluation call.
             tenant_id: Tenant UUID.
             outcome_summary: Optional trade outcome feedback to include.
+            track_record_text: Optional track record stats text.
         """
         # Fetch last 7 days of short-term memories
         short_term = await db.get_agent_memories("short_term", tenant_id=tenant_id)
@@ -186,14 +187,22 @@ class AgentMemoryManager:
         if outcome_summary:
             outcome_section = f"\n\nTrade Outcomes (actual P&L):\n{outcome_summary}\n"
 
-        prompt = f"""Compress these trading decisions into a ~200-token summary.
-Focus on: key lessons learned, recurring themes, what worked/didn't, evolving theses.
-Be specific about tickers and outcomes, not generic.
+        track_record_section = ""
+        if track_record_text:
+            track_record_section = f"\n\nTrack Record:\n{track_record_text}\n"
+
+        prompt = f"""Evaluate your trading decisions from the past week.
 
 Decisions:
-{decisions_text}{outcome_section}
+{decisions_text}{outcome_section}{track_record_section}
 
-Write a concise summary paragraph (no headers, no bullets):"""
+Answer these questions in a ~200-token summary:
+1. Which decisions worked? Why?
+2. Which didn't? What went wrong?
+3. Patterns in your track record (regime, session, sector)?
+4. What should change going forward?
+
+Write a concise evaluation paragraph (no headers, no bullets):"""
 
         try:
             response = agent.client.messages.create(

@@ -251,6 +251,82 @@ async def test_hold_days_calculation(db):
     assert outcomes[0].hold_days == days_ago
 
 
+@pytest.mark.asyncio
+async def test_verdict_computation():
+    """Verify _compute_verdict thresholds."""
+    from src.analysis.outcome_tracker import OutcomeTracker
+
+    assert OutcomeTracker._compute_verdict(1.0) == "OUTPERFORMED"
+    assert OutcomeTracker._compute_verdict(0.6) == "OUTPERFORMED"
+    assert OutcomeTracker._compute_verdict(0.5) == "MATCHED"
+    assert OutcomeTracker._compute_verdict(0.0) == "MATCHED"
+    assert OutcomeTracker._compute_verdict(-0.5) == "MATCHED"
+    assert OutcomeTracker._compute_verdict(-0.6) == "UNDERPERFORMED"
+    assert OutcomeTracker._compute_verdict(-3.0) == "UNDERPERFORMED"
+    assert OutcomeTracker._compute_verdict(None) is None
+
+
+@pytest.mark.asyncio
+async def test_regime_session_extraction():
+    """Regime and session_label are extracted from decisions with new format."""
+    from src.analysis.outcome_tracker import OutcomeTracker
+
+    # New format with "trades" key
+    decision_map = {
+        date(2026, 2, 10): {
+            "trades": {"XLK": {"reason": "high conviction momentum"}},
+            "regime": "BULL",
+            "session_label": "Morning",
+        }
+    }
+    conviction, reasoning, regime, session = OutcomeTracker._extract_conviction(decision_map, date(2026, 2, 10), "XLK")
+    assert conviction == "high"
+    assert regime == "BULL"
+    assert session == "Morning"
+
+
+@pytest.mark.asyncio
+async def test_backward_compat_decision_map():
+    """Old decision format (no 'trades' key) still works."""
+    from src.analysis.outcome_tracker import OutcomeTracker
+
+    # Old format: date → {ticker: trade_info} directly
+    decision_map = {date(2026, 2, 10): {"XLK": {"reason": "medium conviction"}}}
+    conviction, reasoning, regime, session = OutcomeTracker._extract_conviction(decision_map, date(2026, 2, 10), "XLK")
+    assert conviction == "medium"
+    assert regime is None
+    assert session is None
+
+
+@pytest.mark.asyncio
+async def test_decision_review_includes_verdict():
+    """_build_decision_review includes verdict in output."""
+    from src.agent.claude_agent import _build_decision_review
+    from src.analysis.outcome_tracker import TradeOutcome
+
+    outcomes = [
+        TradeOutcome(
+            ticker="XLK",
+            side="BUY",
+            entry_price=100,
+            current_price=110,
+            exit_price=None,
+            pnl_pct=10.0,
+            hold_days=5,
+            sector="Technology",
+            sector_etf_pct=3.0,
+            spy_pct=2.0,
+            alpha_vs_sector=7.0,
+            alpha_vs_spy=8.0,
+            conviction="high",
+            reasoning="test",
+            verdict="OUTPERFORMED",
+        )
+    ]
+    text = _build_decision_review(outcomes)
+    assert "OUTPERFORMED" in text
+
+
 def _mock_download_data(prices: dict[str, float]):
     """Create a minimal DataFrame-like mock for yf.download."""
     import pandas as pd

@@ -314,6 +314,8 @@ class AIAutonomyStrategy:
         response: dict,
         trades: list[TradeSchema],
         tenant_id: str = "default",
+        regime: str | None = None,
+        session_label: str | None = None,
     ) -> None:
         """Persist the agent's decision to the database.
 
@@ -322,6 +324,9 @@ class AIAutonomyStrategy:
             analysis_date: Date of the decision.
             response: Full agent response dict.
             trades: Validated trades list.
+            tenant_id: Tenant UUID.
+            regime: Market regime at time of decision.
+            session_label: Session label (Morning/Midday/Closing).
         """
         trades_json = json.dumps(
             [{"ticker": t.ticker, "side": t.side.value, "shares": t.shares, "price": t.price} for t in trades]
@@ -338,6 +343,8 @@ class AIAutonomyStrategy:
                     reasoning=response.get("reasoning", ""),
                     model_used=response.get("_model", ""),
                     tokens_used=response.get("_tokens_used", 0),
+                    regime=regime,
+                    session_label=session_label,
                 )
             )
             await s.commit()

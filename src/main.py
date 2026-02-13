@@ -181,15 +181,34 @@ async def run_scheduled() -> None:
 
     async def weekly_compaction():
         try:
+            from src.agent.claude_agent import _build_decision_review
+            from src.analysis.outcome_tracker import OutcomeTracker
+            from src.analysis.track_record import TrackRecord
+
             tenants = await db.get_active_tenants()
             if tenants:
                 for tenant in tenants:
                     if Orchestrator._tenant_fully_configured(tenant):
                         try:
+                            # Compute outcome feedback for evaluation
+                            outcome_summary = None
+                            track_record_text = None
+                            try:
+                                tracker = OutcomeTracker(db)
+                                outcomes = await tracker.get_recent_outcomes(days=7, tenant_id=tenant.id)
+                                if outcomes:
+                                    outcome_summary = _build_decision_review(outcomes)
+                                    stats = TrackRecord().compute(outcomes, min_trades=1)
+                                    track_record_text = TrackRecord.format_for_prompt(stats)
+                            except Exception as e:
+                                log.warning("compaction_feedback_failed", tenant_id=tenant.id, error=str(e))
+
                             await memory_manager.run_weekly_compaction(
                                 db,
                                 agent,
                                 tenant_id=tenant.id,
+                                outcome_summary=outcome_summary,
+                                track_record_text=track_record_text,
                             )
                         except Exception as e:
                             log.error(
@@ -198,7 +217,25 @@ async def run_scheduled() -> None:
                                 error=str(e),
                             )
             else:
-                await memory_manager.run_weekly_compaction(db, agent)
+                # Default tenant path
+                outcome_summary = None
+                track_record_text = None
+                try:
+                    tracker = OutcomeTracker(db)
+                    outcomes = await tracker.get_recent_outcomes(days=7, tenant_id="default")
+                    if outcomes:
+                        outcome_summary = _build_decision_review(outcomes)
+                        stats = TrackRecord().compute(outcomes, min_trades=1)
+                        track_record_text = TrackRecord.format_for_prompt(stats)
+                except Exception as e:
+                    log.warning("compaction_feedback_failed_default", error=str(e))
+
+                await memory_manager.run_weekly_compaction(
+                    db,
+                    agent,
+                    outcome_summary=outcome_summary,
+                    track_record_text=track_record_text,
+                )
             await db.delete_expired_memories()
             log.info("weekly_compaction_job_complete")
         except Exception as e:

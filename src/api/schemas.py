@@ -119,6 +119,8 @@ class AgentDecisionResponse(BaseModel):
     reasoning: str | None = None
     model_used: str | None = None
     tokens_used: int | None = None
+    regime: str | None = None
+    session_label: str | None = None
     created_at: UTCDatetime
 
 
@@ -213,6 +215,9 @@ class TradeOutcomeResponse(BaseModel):
     alpha_vs_spy: float | None = None
     conviction: str
     reasoning: str
+    regime_at_entry: str | None = None
+    session_at_entry: str | None = None
+    verdict: str | None = None
 
 
 class CategoryWinRateResponse(BaseModel):
@@ -236,6 +241,8 @@ class TrackRecordResponse(BaseModel):
     avg_alpha_vs_spy: float | None = None
     by_sector: list[CategoryWinRateResponse] = []
     by_conviction: list[CategoryWinRateResponse] = []
+    by_regime: list[CategoryWinRateResponse] = []
+    by_session: list[CategoryWinRateResponse] = []
     best_sector: str | None = None
     worst_sector: str | None = None
 
@@ -260,6 +267,7 @@ class ToolCallLogResponse(BaseModel):
     tool_output_preview: str | None = None
     success: bool
     error: str | None = None
+    influenced_decision: bool = False
     created_at: UTCDatetime
 
 

@@ -37,6 +37,8 @@ async def list_decisions(
                 reasoning=r.reasoning,
                 model_used=r.model_used,
                 tokens_used=r.tokens_used,
+                regime=r.regime,
+                session_label=r.session_label,
                 created_at=r.created_at,
             )
         )
@@ -62,6 +64,7 @@ async def list_tool_logs(
             tool_output_preview=r.tool_output_preview,
             success=r.success,
             error=r.error,
+            influenced_decision=r.influenced_decision,
             created_at=r.created_at,
         )
         for r in rows

@@ -8,6 +8,7 @@ creating per-tenant Alpaca clients and Telegram bots.
 """
 
 import asyncio
+import json
 import uuid
 from datetime import date, timedelta
 
@@ -24,7 +25,6 @@ from src.agent.claude_agent import (
     _build_decision_review,
     _build_track_record,
     build_system_prompt,
-    build_user_message,
 )
 from src.agent.complexity_detector import ComplexityDetector
 from src.agent.memory import AgentMemoryManager
@@ -1042,13 +1042,13 @@ class Orchestrator:
         )
 
         # ── Check agentic mode ────────────────────────────────────────────
-        tenant = await self._db.get_tenant(tenant_id) if tenant_id != "default" else None
+        tenant = await self._db.get_tenant(tenant_id)
         use_agent_loop = getattr(tenant, "use_agent_loop", False) if tenant else False
 
         tool_summary: dict | None = None
 
         if use_agent_loop:
-            # ── Agentic path: tool-use loop ──────────────────────────────
+            # ── Agentic path: two-phase seed → investigate ───────────────
             log.info("portfolio_b_agentic_mode", tenant_id=tenant_id)
             from src.agent.agent_runner import AgentRunner
             from src.agent.tools.actions import ActionState, register_action_tools
@@ -1056,7 +1056,7 @@ class Orchestrator:
             from src.agent.tools.news import register_news_tools
             from src.agent.tools.portfolio import register_portfolio_tools
 
-            # Build user message (same as single-shot but standalone)
+            # Shared context (called once for both phases)
             context = self._strategy_b.prepare_context(
                 closes=closes,
                 volumes=volumes,
@@ -1071,24 +1071,38 @@ class Orchestrator:
                 system_prompt=dynamic_prompt,
                 universe=portfolio_b_universe,
             )
-            user_message = build_user_message(
-                analysis_date=today,
-                cash=cash,
-                total_value=total_value,
-                positions=positions_for_agent,
-                prices=context.get("prices", {}),
-                tickers=context.get("tickers", []),
-                indicators=context.get("indicators", {}),
-                recent_trades=recent_trades,
-                regime=regime_str,
-                yield_curve=yield_curve,
-                vix=vix,
-                news_context=news_context,
-                interesting_tickers=context.get("interesting_tickers"),
-                closes_df=closes,
+
+            # ── Phase 1: Seed (single-shot, complexity-routed model) ────
+            context["model_override"] = model_override
+            seed_response = self._strategy_b._agent.analyze(**context)
+
+            seed_trades = seed_response.get("trades", [])
+            seed_reasoning = seed_response.get("reasoning", "")
+            seed_regime = seed_response.get("regime_assessment", "")
+            seed_risk = seed_response.get("risk_notes", "")
+
+            log.info(
+                "seed_phase_complete",
+                trades=len(seed_trades),
+                reasoning=seed_reasoning[:100],
             )
 
-            # Create runner with settings
+            # ── Phase 2: Investigate (agentic loop, always tool model) ──
+            investigation_message = (
+                f"## Initial Analysis (from senior analyst)\n"
+                f"Regime: {seed_regime}\n"
+                f"Reasoning: {seed_reasoning}\n"
+                f"Proposed Trades: {json.dumps(seed_trades)}\n"
+                f"Risk Notes: {seed_risk}\n\n"
+                f"## Your Task\n"
+                f"Use tools to verify or refine. Submit final trades via propose_trades."
+            )
+
+            investigation_prompt = (
+                dynamic_prompt + "\n\nYou have tools to investigate before finalizing. "
+                "Verify key assumptions. When satisfied, submit trades via propose_trades."
+            )
+
             runner = AgentRunner(
                 api_key=settings.anthropic_api_key,
                 model=settings.agent.agent_tool_model,
@@ -1096,41 +1110,56 @@ class Orchestrator:
                 max_cost_usd=settings.agent.agent_session_budget,
             )
 
-            # Build current prices dict for portfolio tools
             current_prices = {t: float(closes[t].iloc[-1]) for t in closes.columns if not pd.isna(closes[t].iloc[-1])}
 
-            # Register all 9 tools
             action_state = ActionState()
             register_portfolio_tools(runner.registry, self._db, tenant_id, current_prices)
             register_market_tools(runner.registry, closes, vix=vix, yield_curve=yield_curve, regime=regime_str)
             register_news_tools(runner.registry, news_context)
             register_action_tools(runner.registry, action_state)
 
-            # Run the agentic loop
             result = await runner.run(
-                system_prompt=dynamic_prompt,
-                user_message=user_message,
-                model_override=model_override,
+                system_prompt=investigation_prompt,
+                user_message=investigation_message,
             )
 
-            # Merge accumulated actions into response
+            # ── Merge: investigation overrides seed ─────────────────────
             response = result.response
             accumulated = action_state.get_accumulated_state()
-            if accumulated["trades"] and not response.get("trades"):
+
+            # Use investigation trades if any, otherwise fall back to seed
+            if accumulated["trades"]:
                 response["trades"] = accumulated["trades"]
+            elif not response.get("trades"):
+                response["trades"] = seed_trades
+
             if accumulated["watchlist_updates"] and not response.get("watchlist_updates"):
                 response["watchlist_updates"] = accumulated["watchlist_updates"]
             if accumulated["memory_notes"] and not response.get("memory_notes"):
                 response["memory_notes"] = accumulated["memory_notes"]
 
-            # Build tool summary for notifications
+            # Carry forward seed fields if investigation didn't produce them
+            if not response.get("regime_assessment"):
+                response["regime_assessment"] = seed_regime
+            if not response.get("reasoning"):
+                response["reasoning"] = seed_reasoning
+            if not response.get("risk_notes"):
+                response["risk_notes"] = seed_risk
+
+            # Preserve token info from seed for decision logging
+            if "_tokens_used" not in response:
+                response["_tokens_used"] = seed_response.get("_tokens_used", 0)
+            if "_model" not in response:
+                response["_model"] = seed_response.get("_model", "")
+
             tool_summary = {
                 "tools_used": len(result.tool_calls),
                 "turns": result.turns,
                 "cost_usd": round(result.token_tracker.total_cost_usd, 4),
             }
 
-            # Save tool call logs
+            # Save tool call logs (capture IDs for influenced_decision tracking)
+            saved_log_ids: list[int] = []
             try:
                 tool_log_entries = [
                     {
@@ -1143,7 +1172,9 @@ class Orchestrator:
                     }
                     for tc in result.tool_calls
                 ]
-                await self._db.save_tool_call_logs(tool_log_entries, today, session_label=session, tenant_id=tenant_id)
+                saved_log_ids = await self._db.save_tool_call_logs(
+                    tool_log_entries, today, session_label=session, tenant_id=tenant_id
+                )
             except Exception as e:
                 log.warning("tool_call_log_save_failed", error=str(e))
 
@@ -1193,7 +1224,38 @@ class Orchestrator:
             response,
             trades,
             tenant_id=tenant_id,
+            regime=regime_str,
+            session_label=session,
         )
+
+        # Mark influential tool calls (agentic path only)
+        if use_agent_loop and saved_log_ids:
+            try:
+                traded_tickers = {t.ticker for t in trades}
+                always_influential = {
+                    "propose_trades",
+                    "update_watchlist",
+                    "save_memory_note",
+                    "get_current_positions",
+                    "get_portfolio_summary",
+                    "get_market_context",
+                }
+                influenced_ids: list[int] = []
+                for idx, tc in enumerate(result.tool_calls):
+                    if idx >= len(saved_log_ids):
+                        break
+                    if tc.tool_name in always_influential:
+                        influenced_ids.append(saved_log_ids[idx])
+                    elif traded_tickers:
+                        # Check if tool_input mentions any traded ticker
+                        input_str = json.dumps(tc.tool_input) if isinstance(tc.tool_input, dict) else str(tc.tool_input)
+                        if any(ticker in input_str for ticker in traded_tickers):
+                            influenced_ids.append(saved_log_ids[idx])
+                if influenced_ids:
+                    await self._db.update_tool_call_influenced(influenced_ids)
+                    log.info("tool_calls_marked_influential", count=len(influenced_ids))
+            except Exception as e:
+                log.warning("influenced_decision_marking_failed", error=str(e))
 
         # Save agent memory (short-term + notes)
         try:
