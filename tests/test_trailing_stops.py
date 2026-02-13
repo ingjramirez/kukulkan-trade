@@ -22,8 +22,11 @@ async def db():
 async def test_create_trailing_stop(db: Database):
     """create_trailing_stop sets peak=entry and calculates stop_price."""
     stop = await db.create_trailing_stop(
-        tenant_id="t1", portfolio="B", ticker="AAPL",
-        entry_price=150.0, trail_pct=0.05,
+        tenant_id="t1",
+        portfolio="B",
+        ticker="AAPL",
+        entry_price=150.0,
+        trail_pct=0.05,
     )
     assert stop.entry_price == 150.0
     assert stop.peak_price == 150.0
@@ -59,7 +62,9 @@ async def test_update_trailing_stop_peak(db: Database):
     """Updating peak_price also updates stop_price."""
     stop = await db.create_trailing_stop("t1", "B", "AAPL", 150.0, 0.05)
     await db.update_trailing_stop(
-        stop.id, peak_price=180.0, stop_price=180.0 * 0.95,
+        stop.id,
+        peak_price=180.0,
+        stop_price=180.0 * 0.95,
     )
     active = await db.get_active_trailing_stops("t1", "B")
     assert len(active) == 1
@@ -123,8 +128,11 @@ def test_trail_pct_aggressive_low():
 
 def test_get_trail_pct_high_conviction():
     trade = TradeSchema(
-        portfolio=PortfolioName.B, ticker="AAPL",
-        side=OrderSide.BUY, shares=10, price=150.0,
+        portfolio=PortfolioName.B,
+        ticker="AAPL",
+        side=OrderSide.BUY,
+        shares=10,
+        price=150.0,
         reason="high conviction tech play",
     )
     pct = _get_trail_pct("conservative", trade)
@@ -133,8 +141,11 @@ def test_get_trail_pct_high_conviction():
 
 def test_get_trail_pct_low_conviction():
     trade = TradeSchema(
-        portfolio=PortfolioName.B, ticker="AAPL",
-        side=OrderSide.BUY, shares=10, price=150.0,
+        portfolio=PortfolioName.B,
+        ticker="AAPL",
+        side=OrderSide.BUY,
+        shares=10,
+        price=150.0,
         reason="low conviction speculative",
     )
     pct = _get_trail_pct("aggressive", trade)
@@ -143,8 +154,11 @@ def test_get_trail_pct_low_conviction():
 
 def test_get_trail_pct_default_medium():
     trade = TradeSchema(
-        portfolio=PortfolioName.B, ticker="AAPL",
-        side=OrderSide.BUY, shares=10, price=150.0,
+        portfolio=PortfolioName.B,
+        ticker="AAPL",
+        side=OrderSide.BUY,
+        shares=10,
+        price=150.0,
         reason="some reason",
     )
     pct = _get_trail_pct("standard", trade)
@@ -153,8 +167,11 @@ def test_get_trail_pct_default_medium():
 
 def test_get_trail_pct_unknown_strategy_falls_back():
     trade = TradeSchema(
-        portfolio=PortfolioName.B, ticker="AAPL",
-        side=OrderSide.BUY, shares=10, price=150.0,
+        portfolio=PortfolioName.B,
+        ticker="AAPL",
+        side=OrderSide.BUY,
+        shares=10,
+        price=150.0,
         reason="test",
     )
     pct = _get_trail_pct("unknown_strategy", trade)

@@ -37,9 +37,7 @@ def setup_logging() -> None:
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.dev.ConsoleRenderer(),
         ],
-        wrapper_class=structlog.make_filtering_bound_logger(
-            logging.getLevelName(settings.log_level)
-        ),
+        wrapper_class=structlog.make_filtering_bound_logger(logging.getLevelName(settings.log_level)),
     )
 
 
@@ -76,6 +74,7 @@ async def _create_executor(db: Database):
 
     # Default: PaperTrader
     from src.execution.paper_trader import PaperTrader
+
     log.info("using_paper_trader")
     return PaperTrader(db), None
 
@@ -111,12 +110,13 @@ async def run_scheduled() -> None:
 
     # Run 3x daily during market hours (US/Eastern)
     schedules = [
-        ("morning",      10,  0, "Morning"),       # 10:00 AM — 30 min after open
-        ("midday",       12, 30, "Midday"),         # 12:30 PM — midday rebalance
-        ("before_close", 15, 45, "Closing"),        # 3:45 PM  — 15 min before close
+        ("morning", 10, 0, "Morning"),  # 10:00 AM — 30 min after open
+        ("midday", 12, 30, "Midday"),  # 12:30 PM — midday rebalance
+        ("before_close", 15, 45, "Closing"),  # 3:45 PM  — 15 min before close
     ]
 
     for label, hour, minute, session_name in schedules:
+
         async def scheduled_job(session=session_name):
             try:
                 results = await orchestrator.run_all_tenants(session=session)
@@ -128,7 +128,8 @@ async def run_scheduled() -> None:
         scheduler.add_job(
             scheduled_job,
             CronTrigger(
-                hour=hour, minute=minute,
+                hour=hour,
+                minute=minute,
                 day_of_week="mon-fri",
                 timezone="US/Eastern",
             ),
@@ -141,6 +142,7 @@ async def run_scheduled() -> None:
 
     async def intraday_snapshot_job():
         from datetime import date as _date
+
         today = _date.today()
         if not is_market_open(today):
             return
@@ -154,7 +156,8 @@ async def run_scheduled() -> None:
                 except Exception as e:
                     log.warning(
                         "intraday_snapshot_tenant_failed",
-                        tenant_id=tenant.id, error=str(e),
+                        tenant_id=tenant.id,
+                        error=str(e),
                     )
             log.debug("intraday_snapshot_job_complete")
         except Exception as e:
@@ -184,12 +187,15 @@ async def run_scheduled() -> None:
                     if Orchestrator._tenant_fully_configured(tenant):
                         try:
                             await memory_manager.run_weekly_compaction(
-                                db, agent, tenant_id=tenant.id,
+                                db,
+                                agent,
+                                tenant_id=tenant.id,
                             )
                         except Exception as e:
                             log.error(
                                 "weekly_compaction_tenant_failed",
-                                tenant_id=tenant.id, error=str(e),
+                                tenant_id=tenant.id,
+                                error=str(e),
                             )
             else:
                 await memory_manager.run_weekly_compaction(db, agent)
@@ -222,6 +228,7 @@ async def run_scheduled() -> None:
             tenants = await db.get_active_tenants()
             if tenants:
                 from src.notifications.telegram_factory import TelegramFactory
+
                 for tenant in tenants:
                     if not Orchestrator._tenant_fully_configured(tenant):
                         log.info(
@@ -231,10 +238,13 @@ async def run_scheduled() -> None:
                         continue
                     try:
                         from src.utils.allocations import resolve_from_tenant
+
                         tenant_notifier = TelegramFactory.get_notifier(tenant)
                         tenant_alloc = resolve_from_tenant(tenant)
                         reporter = WeeklyReporter(
-                            db, tenant_notifier, tenant_id=tenant.id,
+                            db,
+                            tenant_notifier,
+                            tenant_id=tenant.id,
                             allocations=tenant_alloc,
                             run_portfolio_a=tenant.run_portfolio_a,
                             run_portfolio_b=tenant.run_portfolio_b,
@@ -243,7 +253,8 @@ async def run_scheduled() -> None:
                     except Exception as e:
                         log.error(
                             "weekly_report_tenant_failed",
-                            tenant_id=tenant.id, error=str(e),
+                            tenant_id=tenant.id,
+                            error=str(e),
                         )
             else:
                 reporter = WeeklyReporter(db, notifier)

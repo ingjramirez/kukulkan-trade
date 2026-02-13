@@ -56,7 +56,10 @@ class AgentMemoryManager:
         return "## Memory\n" + "\n\n".join(sections)
 
     async def save_short_term(
-        self, db: Database, analysis_date: str, response: dict,
+        self,
+        db: Database,
+        analysis_date: str,
+        response: dict,
         tenant_id: str = "default",
     ) -> None:
         """Extract and save a short-term memory from an agent response.
@@ -73,10 +76,11 @@ class AgentMemoryManager:
         trades = response.get("trades", [])
 
         # Build compact summary
-        trade_summary = ", ".join(
-            f"{t.get('side', '?')} {t.get('ticker', '?')} @{t.get('weight', 0):.0%}"
-            for t in trades[:5]
-        ) if trades else "no trades"
+        trade_summary = (
+            ", ".join(f"{t.get('side', '?')} {t.get('ticker', '?')} @{t.get('weight', 0):.0%}" for t in trades[:5])
+            if trades
+            else "no trades"
+        )
 
         content = f"{regime} | {reasoning[:150]} | Trades: {trade_summary}"
 
@@ -101,7 +105,9 @@ class AgentMemoryManager:
         log.info("short_term_memory_saved", date=analysis_date)
 
     async def save_agent_notes(
-        self, db: Database, notes: list[dict],
+        self,
+        db: Database,
+        notes: list[dict],
         tenant_id: str = "default",
     ) -> None:
         """Parse and save agent notes from the response.
@@ -145,7 +151,9 @@ class AgentMemoryManager:
         log.info("agent_notes_saved", count=len(notes))
 
     async def run_weekly_compaction(
-        self, db: Database, agent,
+        self,
+        db: Database,
+        agent,
         tenant_id: str = "default",
     ) -> None:
         """Compress the past week's decisions into a ~200-token summary.
@@ -168,9 +176,7 @@ class AgentMemoryManager:
         week_key = f"week_{now.strftime('%Y-%W')}"
 
         # Combine short-term memories into context
-        decisions_text = "\n".join(
-            f"- [{m.key}] {m.content}" for m in short_term
-        )
+        decisions_text = "\n".join(f"- [{m.key}] {m.content}" for m in short_term)
 
         prompt = f"""Compress these trading decisions into a ~200-token summary.
 Focus on: key lessons learned, recurring themes, what worked/didn't, evolving theses.

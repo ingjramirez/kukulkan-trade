@@ -157,7 +157,8 @@ class TenantUpdateRequest(BaseModel):
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
     strategy_mode: str | None = Field(
-        default=None, pattern=r"^(conservative|standard|aggressive)$",
+        default=None,
+        pattern=r"^(conservative|standard|aggressive)$",
     )
     run_portfolio_a: bool | None = None
     run_portfolio_b: bool | None = None
@@ -175,13 +176,15 @@ class TenantUpdateRequest(BaseModel):
 
 class TenantSelfUpdateRequest(BaseModel):
     """Fields a tenant user can update on their own account."""
+
     alpaca_api_key: str | None = None
     alpaca_api_secret: str | None = None
     alpaca_base_url: str | None = None
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
     strategy_mode: str | None = Field(
-        default=None, pattern=r"^(conservative|standard|aggressive)$",
+        default=None,
+        pattern=r"^(conservative|standard|aggressive)$",
     )
     run_portfolio_a: bool | None = None
     run_portfolio_b: bool | None = None

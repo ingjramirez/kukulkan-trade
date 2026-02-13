@@ -50,9 +50,7 @@ def get_tenant_universe(
         return sorted(set(whitelist))
 
     # Additive/subtractive mode
-    base = set(
-        PORTFOLIO_A_UNIVERSE if portfolio == "A" else PORTFOLIO_B_UNIVERSE
-    )
+    base = set(PORTFOLIO_A_UNIVERSE if portfolio == "A" else PORTFOLIO_B_UNIVERSE)
 
     # Merge discovered tickers before exclusions (exclusions take priority)
     if discovered_tickers:

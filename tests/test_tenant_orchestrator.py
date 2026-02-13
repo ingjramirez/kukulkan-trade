@@ -62,7 +62,9 @@ class TestRunAllTenants:
 
         orchestrator = Orchestrator(db)
         with patch.object(
-            orchestrator, "run_tenant_session", new_callable=AsyncMock,
+            orchestrator,
+            "run_tenant_session",
+            new_callable=AsyncMock,
         ) as mock_session:
             mock_session.return_value = {"date": "2026-02-09"}
             results = await orchestrator.run_all_tenants()
@@ -77,7 +79,9 @@ class TestRunAllTenants:
 
         orchestrator = Orchestrator(db)
         with patch.object(
-            orchestrator, "run_tenant_session", new_callable=AsyncMock,
+            orchestrator,
+            "run_tenant_session",
+            new_callable=AsyncMock,
         ) as mock_session:
             mock_session.return_value = {"date": "2026-02-09"}
             results = await orchestrator.run_all_tenants()
@@ -126,7 +130,8 @@ class TestRunDaily:
 
                 with patch("src.orchestrator.is_market_open", return_value=False):
                     result = await orchestrator.run_daily(
-                        run_portfolio_a=False, run_portfolio_b=True,
+                        run_portfolio_a=False,
+                        run_portfolio_b=True,
                     )
                     # Market is closed, so pipeline is skipped entirely
                     assert result["skipped"] == "market_closed"

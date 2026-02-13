@@ -5,10 +5,12 @@ Built with Python 3.11, async SQLAlchemy, Claude AI, and a full notification + d
 
 ## Portfolios
 
-| Portfolio | Strategy | Allocation | Rebalance |
-|-----------|----------|------------|-----------|
-| A | Aggressive Momentum (top 1 ETF) | $33,000 | Daily |
-| B | AI Full Autonomy (Claude decides) | $66,000 | Daily |
+| Portfolio | Strategy | Default Split | Rebalance |
+|-----------|----------|---------------|-----------|
+| A | Aggressive Momentum (top 1 ETF) | 33.33% | Daily |
+| B | AI Full Autonomy (Claude Opus 4.6) | 66.67% | Daily |
+
+Allocations are percentage-based and dynamic — initial equity is captured from Alpaca on first run, and deposit detection adjusts splits automatically.
 
 ## Architecture
 
@@ -49,10 +51,12 @@ Python 3.11 | FastAPI | SQLAlchemy + SQLite | ChromaDB | yfinance | `ta` | Anthr
 - **Conviction-Based Sizing** — AI sets high/medium/low conviction per trade (multipliers: 1.0/0.7/0.4)
 - **Risk Management** — Pre-trade filtering, sector concentration limits, circuit breakers, correlation monitoring
 - **Agent Memory** — 3-tier system: short-term decisions, weekly summaries, persistent notes
-- **Multi-Tenant** — Fernet-encrypted credentials, per-tenant data isolation, admin API + CLI
-- **Security** — JWT auth (2h expiry + revocation), rate limiting, timing-safe auth, audit logging
+- **Dynamic Allocations** — Percentage-based portfolio splits, initial equity capture from Alpaca, automatic deposit detection
+- **Portfolio Toggle Lifecycle** — Enable/disable portfolios via API; positions are liquidated and cash is redistributed on next bot run
+- **Multi-Tenant** — Fernet-encrypted credentials, per-tenant data isolation, admin API + self-service, per-tenant ticker customization
+- **Security** — JWT auth (2h expiry + revocation), rate limiting, timing-safe auth, audit logging, IDOR protection
 - **SQL Migrations** — Automated schema migrations in CI/CD with manual trigger option
-- **70-Ticker Universe** — ETFs + stocks across sectors, fixed income, international, thematic
+- **70-Ticker Universe** — ETFs + stocks across sectors, fixed income, international, thematic; per-tenant whitelist/additions/exclusions
 
 ## Setup
 
@@ -109,18 +113,24 @@ EXECUTOR=paper  python -m src.main --run-now   # Local simulation
 FastAPI REST API on port 8001 with JWT authentication.
 
 ```
-POST /api/auth/login          — Get access token
-POST /api/auth/logout         — Revoke token
-GET  /api/account             — Alpaca account + positions
-GET  /api/portfolios          — Portfolio summaries (A & B)
-GET  /api/portfolios/{name}   — Portfolio detail with positions
-GET  /api/snapshots           — Daily performance snapshots
-GET  /api/trades              — Trade history
-GET  /api/momentum            — Momentum rankings
-GET  /api/decisions           — AI agent decisions
-POST /api/tenants             — Create tenant (admin)
-GET  /api/tenants             — List tenants (admin)
-PATCH /api/tenants/{id}       — Update tenant config (admin)
+POST  /api/auth/login            — Get access token
+POST  /api/auth/logout           — Revoke token
+GET   /api/account               — Alpaca account + positions
+GET   /api/portfolios            — Portfolio summaries (A & B)
+GET   /api/portfolios/{name}     — Portfolio detail with positions
+GET   /api/snapshots             — Daily performance snapshots
+GET   /api/trades                — Trade history
+GET   /api/momentum              — Momentum rankings
+GET   /api/decisions             — AI agent decisions
+GET   /api/universe/base         — Base ticker universe by sector
+POST  /api/run                   — Trigger bot pipeline for a tenant
+POST  /api/tenants               — Create tenant (admin)
+GET   /api/tenants               — List tenants (admin)
+PATCH /api/tenants/{id}          — Update tenant config (admin)
+GET   /api/tenants/me            — Tenant self-service profile
+PATCH /api/tenants/me            — Update own credentials, tickers, toggles
+POST  /api/tenants/me/test-alpaca    — Test Alpaca connection
+POST  /api/tenants/me/test-telegram  — Test Telegram connection
 ```
 
 ## Tenant Management
@@ -132,8 +142,9 @@ python -m src.cli.tenant_cli list-tenants
 python -m src.cli.tenant_cli seed-default  # Create default tenant from .env
 
 # Tenants can be created with just login credentials.
-# Alpaca/Telegram are configured later via PATCH.
+# Alpaca/Telegram are configured later via PATCH /api/tenants/me.
 # Bot skips tenants without complete credentials.
+# Tenants can toggle portfolios on/off and set strategy mode via self-service API.
 ```
 
 ## Backtesting
@@ -207,7 +218,7 @@ kukulkan-trade/
 │   │   ├── deps.py               # Dependency injection (auth, db)
 │   │   ├── rate_limit.py         # Sliding-window rate limiter
 │   │   ├── schemas.py            # Pydantic request/response models
-│   │   └── routes/               # 7 route modules
+│   │   └── routes/               # 9 route modules
 │   ├── backtest/
 │   │   ├── runner.py              # Historical strategy backtesting
 │   │   └── ai_strategy.py        # AI backtest with budget tracking
@@ -235,6 +246,7 @@ kukulkan-trade/
 │   │   ├── portfolio_a.py         # Momentum strategy
 │   │   └── portfolio_b.py         # AI Autonomy strategy
 │   ├── utils/
+│   │   ├── allocations.py       # TenantAllocations + resolve helpers
 │   │   ├── crypto.py             # Fernet encryption for credentials
 │   │   ├── market_calendar.py    # NYSE trading calendar
 │   │   └── tenant_universe.py    # Per-tenant ticker resolution
@@ -243,7 +255,7 @@ kukulkan-trade/
 ├── migrations/                    # SQL migration files
 ├── scripts/
 │   └── migrate.py                 # Migration runner
-├── tests/                         # 581 tests
+├── tests/                         # 690+ tests
 ├── deploy/
 │   ├── kukulkan-bot.service       # Bot systemd unit
 │   ├── kukulkan-api.service       # API systemd unit

@@ -100,11 +100,13 @@ async def test_get_all_agent_memory_context(db):
 
 def test_build_memory_prompt_empty(memory_manager):
     """Empty memories produce empty string."""
-    result = memory_manager.build_memory_prompt({
-        "short_term": [],
-        "weekly_summary": [],
-        "agent_note": [],
-    })
+    result = memory_manager.build_memory_prompt(
+        {
+            "short_term": [],
+            "weekly_summary": [],
+            "agent_note": [],
+        }
+    )
     assert result == ""
 
 
@@ -114,11 +116,13 @@ def test_build_memory_prompt_with_data(memory_manager):
     ws = MagicMock(key="week_2026-02", content="Learned to hold winners longer")
     note = MagicMock(key="thesis-tech", content="XLK showing strength")
 
-    result = memory_manager.build_memory_prompt({
-        "short_term": [st],
-        "weekly_summary": [ws],
-        "agent_note": [note],
-    })
+    result = memory_manager.build_memory_prompt(
+        {
+            "short_term": [st],
+            "weekly_summary": [ws],
+            "agent_note": [note],
+        }
+    )
 
     assert "## Memory" in result
     assert "### Recent Decisions" in result
@@ -133,11 +137,13 @@ def test_build_memory_prompt_partial(memory_manager):
     """Only non-empty tiers appear in the prompt."""
     note = MagicMock(key="lesson-1", content="Don't sell too early")
 
-    result = memory_manager.build_memory_prompt({
-        "short_term": [],
-        "weekly_summary": [],
-        "agent_note": [note],
-    })
+    result = memory_manager.build_memory_prompt(
+        {
+            "short_term": [],
+            "weekly_summary": [],
+            "agent_note": [note],
+        }
+    )
 
     assert "## Memory" in result
     assert "### Your Notes" in result
@@ -148,16 +154,15 @@ def test_build_memory_prompt_partial(memory_manager):
 def test_build_memory_prompt_respects_limits(memory_manager):
     """Only the last N entries per tier are included."""
     # Create more than MAX_SHORT_TERM entries
-    entries = [
-        MagicMock(key=f"d{i}", content=f"decision {i}")
-        for i in range(MAX_SHORT_TERM + 3)
-    ]
+    entries = [MagicMock(key=f"d{i}", content=f"decision {i}") for i in range(MAX_SHORT_TERM + 3)]
 
-    result = memory_manager.build_memory_prompt({
-        "short_term": entries,
-        "weekly_summary": [],
-        "agent_note": [],
-    })
+    result = memory_manager.build_memory_prompt(
+        {
+            "short_term": entries,
+            "weekly_summary": [],
+            "agent_note": [],
+        }
+    )
 
     # Should only include the last MAX_SHORT_TERM
     assert f"d{MAX_SHORT_TERM + 2}" in result  # last one
@@ -168,10 +173,7 @@ async def test_save_short_term(db, memory_manager):
     """save_short_term extracts and stores a compact summary."""
     response = {
         "regime_assessment": "Risk-on bull market",
-        "reasoning": (
-            "Tech sector showing momentum, rotating into XLK "
-            "and QQQ based on strong breadth signals."
-        ),
+        "reasoning": ("Tech sector showing momentum, rotating into XLK and QQQ based on strong breadth signals."),
         "trades": [
             {"ticker": "XLK", "side": "BUY", "weight": 0.15, "reason": "momentum"},
             {"ticker": "GLD", "side": "SELL", "weight": 0.0, "reason": "exit"},
@@ -195,7 +197,7 @@ async def test_save_short_term_prunes_to_max(db, memory_manager):
             "reasoning": f"Reasoning {i}",
             "trades": [],
         }
-        await memory_manager.save_short_term(db, f"2026-01-{10+i:02d}", response)
+        await memory_manager.save_short_term(db, f"2026-01-{10 + i:02d}", response)
 
     memories = await db.get_agent_memories("short_term")
     assert len(memories) == MAX_SHORT_TERM
@@ -219,9 +221,7 @@ async def test_save_agent_notes(db, memory_manager):
     assert len(all_notes) == 2
 
     # Update one note
-    await memory_manager.save_agent_notes(
-        db, [{"key": "thesis-tech", "content": "XLK weakening, watch for breakdown"}]
-    )
+    await memory_manager.save_agent_notes(db, [{"key": "thesis-tech", "content": "XLK weakening, watch for breakdown"}])
 
     all_notes = await db.get_agent_memories("agent_note")
     assert len(all_notes) == 2
@@ -232,9 +232,7 @@ async def test_save_agent_notes(db, memory_manager):
 async def test_save_agent_notes_enforces_max(db, memory_manager):
     """Notes are capped at MAX_AGENT_NOTES."""
     for i in range(MAX_AGENT_NOTES + 3):
-        await memory_manager.save_agent_notes(
-            db, [{"key": f"note-{i}", "content": f"Content {i}"}]
-        )
+        await memory_manager.save_agent_notes(db, [{"key": f"note-{i}", "content": f"Content {i}"}])
 
     all_notes = await db.get_agent_memories("agent_note")
     assert len(all_notes) == MAX_AGENT_NOTES
@@ -272,9 +270,7 @@ async def test_run_weekly_compaction(db, memory_manager):
     # Mock the Claude agent
     mock_agent = MagicMock()
     mock_response = MagicMock()
-    mock_response.content = [MagicMock(
-        text="Tech rotation was the key theme this week. XLK outperformed."
-    )]
+    mock_response.content = [MagicMock(text="Tech rotation was the key theme this week. XLK outperformed.")]
     mock_agent.client.messages.create.return_value = mock_response
 
     await memory_manager.run_weekly_compaction(db, mock_agent)
@@ -305,9 +301,7 @@ async def test_run_weekly_compaction_prunes_old_summaries(db, memory_manager):
     """Only the last MAX_WEEKLY_SUMMARIES are kept."""
     # Seed more than MAX weekly summaries
     for i in range(MAX_WEEKLY_SUMMARIES + 2):
-        await db.upsert_agent_memory(
-            "weekly_summary", f"week_2026-{i:02d}", f"Summary {i}"
-        )
+        await db.upsert_agent_memory("weekly_summary", f"week_2026-{i:02d}", f"Summary {i}")
 
     # Add a short-term memory so compaction runs
     await db.upsert_agent_memory("short_term", "2026-01-15", "Some decision")
@@ -396,7 +390,10 @@ async def test_save_short_term_with_tenant_id(db, memory_manager):
     }
 
     await memory_manager.save_short_term(
-        db, "2026-02-10", response, tenant_id="tenant-xyz",
+        db,
+        "2026-02-10",
+        response,
+        tenant_id="tenant-xyz",
     )
 
     # Should NOT appear under default tenant
@@ -429,12 +426,16 @@ async def test_run_weekly_compaction_with_tenant_id(db, memory_manager):
     """Weekly compaction reads and writes under the given tenant_id."""
     # Seed short-term under tenant-1
     await db.upsert_agent_memory(
-        "short_term", "2026-01-15", "Bull | Tech up",
+        "short_term",
+        "2026-01-15",
+        "Bull | Tech up",
         tenant_id="tenant-1",
     )
     # Seed under default (should NOT be picked up)
     await db.upsert_agent_memory(
-        "short_term", "2026-01-15", "Bear | Everything down",
+        "short_term",
+        "2026-01-15",
+        "Bear | Everything down",
         tenant_id="default",
     )
 

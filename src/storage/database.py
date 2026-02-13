@@ -35,9 +35,7 @@ class Database:
     def __init__(self, url: str = "sqlite+aiosqlite:///data/kukulkan.db") -> None:
         self._url = url
         self._engine = create_async_engine(url, echo=False)
-        self._session_factory = sessionmaker(
-            self._engine, class_=AsyncSession, expire_on_commit=False
-        )
+        self._session_factory = sessionmaker(self._engine, class_=AsyncSession, expire_on_commit=False)
 
     async def init_db(self) -> None:
         """Create all tables if they don't exist."""
@@ -60,7 +58,9 @@ class Database:
     # ── Portfolio CRUD ───────────────────────────────────────────────────
 
     async def get_portfolio(
-        self, name: str, tenant_id: str = "default",
+        self,
+        name: str,
+        tenant_id: str = "default",
     ) -> PortfolioRow | None:
         """Get portfolio by name and tenant."""
         async with self.session() as s:
@@ -73,7 +73,10 @@ class Database:
             return result.scalar_one_or_none()
 
     async def upsert_portfolio(
-        self, name: str, cash: float, total_value: float,
+        self,
+        name: str,
+        cash: float,
+        total_value: float,
         tenant_id: str = "default",
     ) -> None:
         """Create or update a portfolio."""
@@ -92,16 +95,22 @@ class Database:
                 existing.total_value = total_value
                 existing.updated_at = datetime.now(timezone.utc)
             else:
-                s.add(PortfolioRow(
-                    tenant_id=tenant_id, name=name,
-                    cash=cash, total_value=total_value,
-                ))
+                s.add(
+                    PortfolioRow(
+                        tenant_id=tenant_id,
+                        name=name,
+                        cash=cash,
+                        total_value=total_value,
+                    )
+                )
             await s.commit()
 
     # ── Position CRUD ────────────────────────────────────────────────────
 
     async def get_positions(
-        self, portfolio: str, tenant_id: str = "default",
+        self,
+        portfolio: str,
+        tenant_id: str = "default",
     ) -> list[PositionRow]:
         """Get all open positions for a portfolio."""
         async with self.session() as s:
@@ -140,13 +149,15 @@ class Database:
                 existing.avg_price = avg_price
                 existing.updated_at = datetime.now(timezone.utc)
             elif shares > 0:
-                s.add(PositionRow(
-                    tenant_id=tenant_id,
-                    portfolio=portfolio,
-                    ticker=ticker,
-                    shares=shares,
-                    avg_price=avg_price,
-                ))
+                s.add(
+                    PositionRow(
+                        tenant_id=tenant_id,
+                        portfolio=portfolio,
+                        ticker=ticker,
+                        shares=shares,
+                        avg_price=avg_price,
+                    )
+                )
             await s.commit()
 
     async def update_position_prices(
@@ -158,13 +169,17 @@ class Database:
         """Update current_price and market_value for all positions in a portfolio."""
         async with self.session() as s:
             positions = (
-                await s.execute(
-                    select(PositionRow).where(
-                        PositionRow.tenant_id == tenant_id,
-                        PositionRow.portfolio == portfolio,
+                (
+                    await s.execute(
+                        select(PositionRow).where(
+                            PositionRow.tenant_id == tenant_id,
+                            PositionRow.portfolio == portfolio,
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             for p in positions:
                 price = prices.get(p.ticker)
                 if price is not None:
@@ -187,16 +202,18 @@ class Database:
     ) -> None:
         """Record an executed trade."""
         async with self.session() as s:
-            s.add(TradeRow(
-                tenant_id=tenant_id,
-                portfolio=portfolio,
-                ticker=ticker,
-                side=side,
-                shares=shares,
-                price=price,
-                total=shares * price,
-                reason=reason,
-            ))
+            s.add(
+                TradeRow(
+                    tenant_id=tenant_id,
+                    portfolio=portfolio,
+                    ticker=ticker,
+                    side=side,
+                    shares=shares,
+                    price=price,
+                    total=shares * price,
+                    reason=reason,
+                )
+            )
             await s.commit()
         log.info(
             "trade_logged",
@@ -208,7 +225,9 @@ class Database:
         )
 
     async def get_trades(
-        self, portfolio: str, since: date | None = None,
+        self,
+        portfolio: str,
+        since: date | None = None,
         tenant_id: str = "default",
     ) -> list[TradeRow]:
         """Get trades for a portfolio, optionally filtered by date."""
@@ -247,20 +266,24 @@ class Database:
                     DailySnapshotRow.date == snapshot_date,
                 )
             )
-            s.add(DailySnapshotRow(
-                tenant_id=tenant_id,
-                portfolio=portfolio,
-                date=snapshot_date,
-                total_value=total_value,
-                cash=cash,
-                positions_value=positions_value,
-                daily_return_pct=daily_return_pct,
-                cumulative_return_pct=cumulative_return_pct,
-            ))
+            s.add(
+                DailySnapshotRow(
+                    tenant_id=tenant_id,
+                    portfolio=portfolio,
+                    date=snapshot_date,
+                    total_value=total_value,
+                    cash=cash,
+                    positions_value=positions_value,
+                    daily_return_pct=daily_return_pct,
+                    cumulative_return_pct=cumulative_return_pct,
+                )
+            )
             await s.commit()
 
     async def get_snapshots(
-        self, portfolio: str, since: date | None = None,
+        self,
+        portfolio: str,
+        since: date | None = None,
         tenant_id: str = "default",
     ) -> list[DailySnapshotRow]:
         """Get snapshots for a portfolio."""
@@ -277,20 +300,14 @@ class Database:
 
     # ── Momentum Rankings ────────────────────────────────────────────────
 
-    async def save_momentum_rankings(
-        self, rankings: list[MomentumRankingRow]
-    ) -> None:
+    async def save_momentum_rankings(self, rankings: list[MomentumRankingRow]) -> None:
         """Save a batch of momentum rankings (replaces if exists for same date)."""
         if not rankings:
             return
         async with self.session() as s:
             # Delete existing rankings for this date if re-running
             ranking_date = rankings[0].date
-            await s.execute(
-                delete(MomentumRankingRow).where(
-                    MomentumRankingRow.date == ranking_date
-                )
-            )
+            await s.execute(delete(MomentumRankingRow).where(MomentumRankingRow.date == ranking_date))
             s.add_all(rankings)
             await s.commit()
 
@@ -298,11 +315,7 @@ class Database:
         """Get the most recent momentum rankings."""
         async with self.session() as s:
             # Find the latest date
-            latest = await s.execute(
-                select(MomentumRankingRow.date)
-                .order_by(MomentumRankingRow.date.desc())
-                .limit(1)
-            )
+            latest = await s.execute(select(MomentumRankingRow.date).order_by(MomentumRankingRow.date.desc()).limit(1))
             latest_date = latest.scalar_one_or_none()
             if not latest_date:
                 return []
@@ -332,9 +345,7 @@ class Database:
                     s.add(row)
             await s.commit()
 
-    async def get_market_data(
-        self, ticker: str, since: date | None = None
-    ) -> list[MarketDataRow]:
+    async def get_market_data(self, ticker: str, since: date | None = None) -> list[MarketDataRow]:
         """Get cached OHLCV data for a ticker."""
         async with self.session() as s:
             stmt = select(MarketDataRow).where(MarketDataRow.ticker == ticker)
@@ -347,7 +358,8 @@ class Database:
     # ── Discovered Tickers ────────────────────────────────────────────────
 
     async def get_approved_tickers(
-        self, tenant_id: str = "default",
+        self,
+        tenant_id: str = "default",
     ) -> list[DiscoveredTickerRow]:
         """Get all approved discovered tickers for a tenant."""
         async with self.session() as s:
@@ -373,7 +385,9 @@ class Database:
             return list(result.scalars().all())
 
     async def get_discovered_ticker(
-        self, ticker: str, tenant_id: str = "default",
+        self,
+        ticker: str,
+        tenant_id: str = "default",
     ) -> DiscoveredTickerRow | None:
         """Get a discovered ticker by symbol and tenant."""
         async with self.session() as s:
@@ -392,7 +406,10 @@ class Database:
             await s.commit()
 
     async def update_discovered_ticker_status(
-        self, ticker: str, status: str, tenant_id: str = "default",
+        self,
+        ticker: str,
+        status: str,
+        tenant_id: str = "default",
     ) -> None:
         """Update the status of a discovered ticker."""
         async with self.session() as s:
@@ -409,7 +426,9 @@ class Database:
                 await s.commit()
 
     async def expire_old_tickers(
-        self, today: date, tenant_id: str = "default",
+        self,
+        today: date,
+        tenant_id: str = "default",
     ) -> int:
         """Mark approved tickers past their expiry date as expired for a tenant.
 
@@ -431,7 +450,9 @@ class Database:
             return len(expired)
 
     async def get_all_discovered_tickers(
-        self, tenant_id: str = "default", status: str | None = None,
+        self,
+        tenant_id: str = "default",
+        status: str | None = None,
     ) -> list[DiscoveredTickerRow]:
         """Get all discovered tickers for a tenant, optionally filtered by status.
 
@@ -455,7 +476,8 @@ class Database:
     # ── API Query Methods ──────────────────────────────────────────────
 
     async def get_all_portfolios(
-        self, tenant_id: str = "default",
+        self,
+        tenant_id: str = "default",
     ) -> list[PortfolioRow]:
         """Get all portfolios for a tenant."""
         async with self.session() as s:
@@ -504,7 +526,9 @@ class Database:
             return list(result.scalars().all())
 
     async def get_agent_decisions(
-        self, limit: int = 10, tenant_id: str = "default",
+        self,
+        limit: int = 10,
+        tenant_id: str = "default",
     ) -> list[AgentDecisionRow]:
         """Get recent agent decisions."""
         async with self.session() as s:
@@ -519,7 +543,9 @@ class Database:
     # ── Agent Memory ──────────────────────────────────────────────────
 
     async def get_agent_memories(
-        self, category: str, tenant_id: str = "default",
+        self,
+        category: str,
+        tenant_id: str = "default",
     ) -> list[AgentMemoryRow]:
         """Get all memories for a given category, ordered by created_at."""
         async with self.session() as s:
@@ -558,13 +584,15 @@ class Database:
                 existing.expires_at = expires_at
                 existing.created_at = datetime.now(timezone.utc)
             else:
-                s.add(AgentMemoryRow(
-                    tenant_id=tenant_id,
-                    category=category,
-                    key=key,
-                    content=content,
-                    expires_at=expires_at,
-                ))
+                s.add(
+                    AgentMemoryRow(
+                        tenant_id=tenant_id,
+                        category=category,
+                        key=key,
+                        content=content,
+                        expires_at=expires_at,
+                    )
+                )
             await s.commit()
 
     async def delete_expired_memories(self) -> int:
@@ -583,7 +611,8 @@ class Database:
             return len(expired)
 
     async def get_all_agent_memory_context(
-        self, tenant_id: str = "default",
+        self,
+        tenant_id: str = "default",
     ) -> dict:
         """Return all 3 memory tiers as a dict.
 
@@ -644,7 +673,9 @@ class Database:
         return row
 
     async def get_active_trailing_stops(
-        self, tenant_id: str, portfolio: str | None = None,
+        self,
+        tenant_id: str,
+        portfolio: str | None = None,
     ) -> list[TrailingStopRow]:
         """Get all active trailing stops, optionally filtered by portfolio."""
         async with self.session() as s:
@@ -667,11 +698,7 @@ class Database:
     ) -> None:
         """Update a trailing stop's peak, stop_price, or active status."""
         async with self.session() as s:
-            row = (
-                await s.execute(
-                    select(TrailingStopRow).where(TrailingStopRow.id == stop_id)
-                )
-            ).scalar_one_or_none()
+            row = (await s.execute(select(TrailingStopRow).where(TrailingStopRow.id == stop_id))).scalar_one_or_none()
             if row is None:
                 return
             if peak_price is not None:
@@ -688,7 +715,10 @@ class Database:
         await self.update_trailing_stop(stop_id, is_active=False)
 
     async def deactivate_trailing_stops_for_ticker(
-        self, tenant_id: str, portfolio: str, ticker: str,
+        self,
+        tenant_id: str,
+        portfolio: str,
+        ticker: str,
     ) -> None:
         """Deactivate all trailing stops for a tenant/portfolio/ticker."""
         async with self.session() as s:
@@ -708,7 +738,10 @@ class Database:
     # ── Earnings Calendar ────────────────────────────────────────
 
     async def upsert_earnings(
-        self, ticker: str, earnings_date: date, source: str = "yfinance",
+        self,
+        ticker: str,
+        earnings_date: date,
+        source: str = "yfinance",
     ) -> None:
         """Insert or update an earnings date for a ticker."""
         async with self.session() as s:
@@ -724,28 +757,35 @@ class Database:
                 existing.source = source
                 existing.fetched_at = datetime.now(timezone.utc)
             else:
-                s.add(EarningsCalendarRow(
-                    ticker=ticker,
-                    earnings_date=earnings_date,
-                    source=source,
-                    fetched_at=datetime.now(timezone.utc),
-                ))
+                s.add(
+                    EarningsCalendarRow(
+                        ticker=ticker,
+                        earnings_date=earnings_date,
+                        source=source,
+                        fetched_at=datetime.now(timezone.utc),
+                    )
+                )
             await s.commit()
 
     async def get_upcoming_earnings(
-        self, tickers: list[str], days_ahead: int = 14,
+        self,
+        tickers: list[str],
+        days_ahead: int = 14,
     ) -> list[EarningsCalendarRow]:
         """Get earnings within N days for given tickers."""
         from datetime import timedelta
+
         today = date.today()
         end_date = today + timedelta(days=days_ahead)
         async with self.session() as s:
             result = await s.execute(
-                select(EarningsCalendarRow).where(
+                select(EarningsCalendarRow)
+                .where(
                     EarningsCalendarRow.ticker.in_(tickers),
                     EarningsCalendarRow.earnings_date >= today,
                     EarningsCalendarRow.earnings_date <= end_date,
-                ).order_by(EarningsCalendarRow.earnings_date)
+                )
+                .order_by(EarningsCalendarRow.earnings_date)
             )
             return list(result.scalars().all())
 
@@ -753,9 +793,8 @@ class Database:
         """Get the most recent fetched_at timestamp from earnings_calendar."""
         async with self.session() as s:
             from sqlalchemy import func
-            result = await s.execute(
-                select(func.max(EarningsCalendarRow.fetched_at))
-            )
+
+            result = await s.execute(select(func.max(EarningsCalendarRow.fetched_at)))
             return result.scalar_one_or_none()
 
     async def cleanup_past_earnings(self) -> int:
@@ -788,6 +827,7 @@ class Database:
         """Create or update a watchlist item."""
         today = date.today()
         from datetime import timedelta
+
         exp = expires_at or (today + timedelta(days=14))
         async with self.session() as s:
             existing = (
@@ -805,33 +845,41 @@ class Database:
                 existing.expires_at = exp
                 existing.portfolio = portfolio
             else:
-                s.add(WatchlistRow(
-                    tenant_id=tenant_id,
-                    portfolio=portfolio,
-                    ticker=ticker,
-                    reason=reason,
-                    conviction=conviction,
-                    target_entry=target_entry,
-                    added_date=today,
-                    expires_at=exp,
-                ))
+                s.add(
+                    WatchlistRow(
+                        tenant_id=tenant_id,
+                        portfolio=portfolio,
+                        ticker=ticker,
+                        reason=reason,
+                        conviction=conviction,
+                        target_entry=target_entry,
+                        added_date=today,
+                        expires_at=exp,
+                    )
+                )
             await s.commit()
 
     async def get_watchlist(
-        self, tenant_id: str, portfolio: str = "B",
+        self,
+        tenant_id: str,
+        portfolio: str = "B",
     ) -> list[WatchlistRow]:
         """Get all watchlist items for a tenant/portfolio."""
         async with self.session() as s:
             result = await s.execute(
-                select(WatchlistRow).where(
+                select(WatchlistRow)
+                .where(
                     WatchlistRow.tenant_id == tenant_id,
                     WatchlistRow.portfolio == portfolio,
-                ).order_by(WatchlistRow.added_date.desc())
+                )
+                .order_by(WatchlistRow.added_date.desc())
             )
             return list(result.scalars().all())
 
     async def remove_watchlist_item(
-        self, tenant_id: str, ticker: str,
+        self,
+        tenant_id: str,
+        ticker: str,
     ) -> None:
         """Remove a watchlist item."""
         async with self.session() as s:
@@ -864,7 +912,9 @@ class Database:
             return len(rows)
 
     async def remove_watchlist_if_traded(
-        self, tenant_id: str, ticker: str,
+        self,
+        tenant_id: str,
+        ticker: str,
     ) -> None:
         """Auto-remove a ticker from watchlist when it's actually traded."""
         await self.remove_watchlist_item(tenant_id, ticker)
@@ -889,14 +939,16 @@ class Database:
                     IntradaySnapshotRow.timestamp == timestamp,
                 )
             )
-            s.add(IntradaySnapshotRow(
-                tenant_id=tenant_id,
-                portfolio=portfolio,
-                timestamp=timestamp,
-                total_value=total_value,
-                cash=cash,
-                positions_value=positions_value,
-            ))
+            s.add(
+                IntradaySnapshotRow(
+                    tenant_id=tenant_id,
+                    portfolio=portfolio,
+                    timestamp=timestamp,
+                    total_value=total_value,
+                    cash=cash,
+                    positions_value=positions_value,
+                )
+            )
             await s.commit()
 
     async def get_intraday_snapshots(
@@ -924,6 +976,7 @@ class Database:
     async def purge_old_intraday_snapshots(self, days: int = 90) -> int:
         """Delete intraday snapshots older than N days. Returns count deleted."""
         from datetime import timedelta
+
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         async with self.session() as s:
             result = await s.execute(
@@ -958,41 +1011,33 @@ class Database:
     async def get_tenant(self, tenant_id: str) -> TenantRow | None:
         """Get a tenant by ID."""
         async with self.session() as s:
-            result = await s.execute(
-                select(TenantRow).where(TenantRow.id == tenant_id)
-            )
+            result = await s.execute(select(TenantRow).where(TenantRow.id == tenant_id))
             return result.scalar_one_or_none()
 
     async def get_active_tenants(self) -> list[TenantRow]:
         """Get all active tenants, ordered by name."""
         async with self.session() as s:
-            result = await s.execute(
-                select(TenantRow)
-                .where(TenantRow.is_active.is_(True))
-                .order_by(TenantRow.name)
-            )
+            result = await s.execute(select(TenantRow).where(TenantRow.is_active.is_(True)).order_by(TenantRow.name))
             return list(result.scalars().all())
 
     async def get_tenant_by_username(self, username: str) -> TenantRow | None:
         """Find an active tenant by dashboard_user (for login)."""
         async with self.session() as s:
             result = await s.execute(
-                select(TenantRow)
-                .where(TenantRow.dashboard_user == username)
-                .where(TenantRow.is_active.is_(True))
+                select(TenantRow).where(TenantRow.dashboard_user == username).where(TenantRow.is_active.is_(True))
             )
             return result.scalar_one_or_none()
 
     async def get_all_tenants(self) -> list[TenantRow]:
         """Get all tenants (active and inactive)."""
         async with self.session() as s:
-            result = await s.execute(
-                select(TenantRow).order_by(TenantRow.name)
-            )
+            result = await s.execute(select(TenantRow).order_by(TenantRow.name))
             return list(result.scalars().all())
 
     async def update_tenant(
-        self, tenant_id: str, updates: dict,
+        self,
+        tenant_id: str,
+        updates: dict,
     ) -> TenantRow | None:
         """Update a tenant's fields.
 
@@ -1004,11 +1049,7 @@ class Database:
             Updated TenantRow, or None if not found.
         """
         async with self.session() as s:
-            row = (
-                await s.execute(
-                    select(TenantRow).where(TenantRow.id == tenant_id)
-                )
-            ).scalar_one_or_none()
+            row = (await s.execute(select(TenantRow).where(TenantRow.id == tenant_id))).scalar_one_or_none()
             if row is None:
                 return None
             for key, value in updates.items():
@@ -1027,11 +1068,7 @@ class Database:
             True if tenant was found and deactivated.
         """
         async with self.session() as s:
-            row = (
-                await s.execute(
-                    select(TenantRow).where(TenantRow.id == tenant_id)
-                )
-            ).scalar_one_or_none()
+            row = (await s.execute(select(TenantRow).where(TenantRow.id == tenant_id))).scalar_one_or_none()
             if row is None:
                 return False
             row.is_active = False

@@ -104,14 +104,16 @@ class MomentumStrategy:
             if ticker != target and shares > 0:
                 price = latest_prices.get(ticker)
                 if price is not None and not pd.isna(price):
-                    trades.append(TradeSchema(
-                        portfolio=PortfolioName.A,
-                        ticker=ticker,
-                        side=OrderSide.SELL,
-                        shares=shares,
-                        price=float(price),
-                        reason=f"rotation out, new target={target}",
-                    ))
+                    trades.append(
+                        TradeSchema(
+                            portfolio=PortfolioName.A,
+                            ticker=ticker,
+                            side=OrderSide.SELL,
+                            shares=shares,
+                            price=float(price),
+                            reason=f"rotation out, new target={target}",
+                        )
+                    )
 
         # Calculate available cash after sells
         sell_proceeds = sum(t.total for t in trades)
@@ -134,14 +136,16 @@ class MomentumStrategy:
         if target not in current_positions or current_positions[target] == 0:
             shares_to_buy = int(buy_budget / target_price)
             if shares_to_buy > 0:
-                trades.append(TradeSchema(
-                    portfolio=PortfolioName.A,
-                    ticker=target,
-                    side=OrderSide.BUY,
-                    shares=float(shares_to_buy),
-                    price=float(target_price),
-                    reason="momentum rank #1",
-                ))
+                trades.append(
+                    TradeSchema(
+                        portfolio=PortfolioName.A,
+                        ticker=target,
+                        side=OrderSide.BUY,
+                        shares=float(shares_to_buy),
+                        price=float(target_price),
+                        reason="momentum rank #1",
+                    )
+                )
 
         log.info(
             "portfolio_a_trades",

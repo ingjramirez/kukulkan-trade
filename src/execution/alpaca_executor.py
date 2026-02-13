@@ -69,12 +69,17 @@ class AlpacaExecutor:
             existing = await self._db.get_portfolio(name, tenant_id=tenant_id)
             if existing is None:
                 await self._db.upsert_portfolio(
-                    name, cash=cash, total_value=cash, tenant_id=tenant_id,
+                    name,
+                    cash=cash,
+                    total_value=cash,
+                    tenant_id=tenant_id,
                 )
                 log.info("portfolio_initialized_alpaca", portfolio=name, cash=cash)
 
     async def execute_trades(
-        self, trades: list[TradeSchema], tenant_id: str = "default",
+        self,
+        trades: list[TradeSchema],
+        tenant_id: str = "default",
     ) -> list[TradeSchema]:
         """Submit market orders to Alpaca and log fills to DB.
 
@@ -122,15 +127,14 @@ class AlpacaExecutor:
         elapsed = 0.0
         while elapsed < self._fill_timeout:
             order = await asyncio.to_thread(
-                self._client.get_order_by_id, order_id,
+                self._client.get_order_by_id,
+                order_id,
             )
             status = _order_status(order.status)
 
             if status in _TERMINAL_STATES or status == _PARTIAL_FILL_STATE:
                 filled_qty = float(order.filled_qty) if order.filled_qty else 0.0
-                filled_price = (
-                    float(order.filled_avg_price) if order.filled_avg_price else None
-                )
+                filled_price = float(order.filled_avg_price) if order.filled_avg_price else None
                 log.info(
                     "alpaca_fill_resolved",
                     order_id=order_id,
@@ -200,10 +204,12 @@ class AlpacaExecutor:
                     order_id=str(order.id),
                     ticker=trade.ticker,
                 )
-                self._pending_orders.append({
-                    "order_id": str(order.id),
-                    "trade": trade,
-                })
+                self._pending_orders.append(
+                    {
+                        "order_id": str(order.id),
+                        "trade": trade,
+                    }
+                )
                 return False
 
             # Use actual fill data
@@ -266,13 +272,9 @@ class AlpacaExecutor:
                 total_shares = existing.shares + filled_shares
                 total_cost = (existing.shares * existing.avg_price) + cost
                 new_avg = total_cost / total_shares
-                await self._db.upsert_position(
-                    portfolio_name, ticker, total_shares, new_avg
-                )
+                await self._db.upsert_position(portfolio_name, ticker, total_shares, new_avg)
             else:
-                await self._db.upsert_position(
-                    portfolio_name, ticker, filled_shares, fill_price
-                )
+                await self._db.upsert_position(portfolio_name, ticker, filled_shares, fill_price)
             await self._db.upsert_portfolio(
                 portfolio_name,
                 cash=portfolio.cash - cost,
@@ -283,9 +285,7 @@ class AlpacaExecutor:
             if existing is None:
                 return
             remaining = existing.shares - filled_shares
-            await self._db.upsert_position(
-                portfolio_name, ticker, remaining, existing.avg_price
-            )
+            await self._db.upsert_position(portfolio_name, ticker, remaining, existing.avg_price)
             proceeds = filled_shares * fill_price
             await self._db.upsert_portfolio(
                 portfolio_name,
@@ -319,16 +319,10 @@ class AlpacaExecutor:
             order_id = entry["order_id"]
             trade: TradeSchema = entry["trade"]
             try:
-                order = await asyncio.to_thread(
-                    self._client.get_order_by_id, order_id
-                )
+                order = await asyncio.to_thread(self._client.get_order_by_id, order_id)
                 status = _order_status(order.status)
                 filled_qty = float(order.filled_qty) if order.filled_qty else 0.0
-                filled_price = (
-                    float(order.filled_avg_price)
-                    if order.filled_avg_price
-                    else None
-                )
+                filled_price = float(order.filled_avg_price) if order.filled_avg_price else None
 
                 if status in ("filled", "partially_filled") and filled_qty > 0:
                     fill_price = filled_price or trade.price
@@ -397,7 +391,8 @@ class AlpacaExecutor:
             if qty <= 0:
                 log.warning(
                     "alpaca_short_position_skipped",
-                    ticker=pos.symbol, qty=qty,
+                    ticker=pos.symbol,
+                    qty=qty,
                 )
                 continue
             alpaca_map[pos.symbol] = qty
@@ -442,20 +437,22 @@ class AlpacaExecutor:
 
             # Correct DB to match Alpaca
             portfolio = db_entry["portfolio"] if db_entry else "B"
-            avg_price = (
-                alpaca_price_map.get(ticker)
-                or (db_entry["avg_price"] if db_entry else 0)
-            )
+            avg_price = alpaca_price_map.get(ticker) or (db_entry["avg_price"] if db_entry else 0)
 
             await self._db.upsert_position(
-                portfolio, ticker, alpaca_qty, avg_price,
+                portfolio,
+                ticker,
+                alpaca_qty,
+                avg_price,
             )
-            corrections.append({
-                "ticker": ticker,
-                "portfolio": portfolio,
-                "old_qty": db_qty,
-                "new_qty": alpaca_qty,
-            })
+            corrections.append(
+                {
+                    "ticker": ticker,
+                    "portfolio": portfolio,
+                    "old_qty": db_qty,
+                    "new_qty": alpaca_qty,
+                }
+            )
             log.info(
                 "position_drift_corrected",
                 ticker=ticker,
@@ -483,9 +480,7 @@ class AlpacaExecutor:
             )
 
         return {
-            "alpaca": [
-                {"symbol": t, "qty": q} for t, q in alpaca_map.items()
-            ],
+            "alpaca": [{"symbol": t, "qty": q} for t, q in alpaca_map.items()],
             "drift": drift,
             "corrections": corrections,
         }
@@ -514,15 +509,14 @@ class AlpacaExecutor:
             return
 
         positions = await self._db.get_positions(portfolio_name, tenant_id=tenant_id)
-        positions_value = sum(
-            p.shares * prices.get(p.ticker, p.avg_price) for p in positions
-        )
+        positions_value = sum(p.shares * prices.get(p.ticker, p.avg_price) for p in positions)
         total_value = portfolio.cash + positions_value
 
         initial_value = alloc.for_portfolio(portfolio_name)
 
         snapshots = await self._db.get_snapshots(
-            portfolio_name, tenant_id=tenant_id,
+            portfolio_name,
+            tenant_id=tenant_id,
         )
         daily_return_pct = None
         cumulative_return_pct = ((total_value - initial_value) / initial_value) * 100
@@ -543,10 +537,15 @@ class AlpacaExecutor:
         )
 
         await self._db.update_position_prices(
-            portfolio_name, prices, tenant_id=tenant_id,
+            portfolio_name,
+            prices,
+            tenant_id=tenant_id,
         )
         await self._db.upsert_portfolio(
-            portfolio_name, portfolio.cash, total_value, tenant_id=tenant_id,
+            portfolio_name,
+            portfolio.cash,
+            total_value,
+            tenant_id=tenant_id,
         )
 
         log.info(

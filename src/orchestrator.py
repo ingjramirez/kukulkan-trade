@@ -56,7 +56,9 @@ _INTER_TENANT_DELAY_SECONDS = 2.0
 
 
 def _active_portfolio_names(
-    run_a: bool, run_b: bool, tenant_id: str,
+    run_a: bool,
+    run_b: bool,
+    tenant_id: str,
 ) -> list[str]:
     """Return list of enabled portfolio names.
 
@@ -119,7 +121,9 @@ class Orchestrator:
         self._regime_classifier = RegimeClassifier()
 
     async def run_all_tenants(
-        self, today: date | None = None, session: str = "",
+        self,
+        today: date | None = None,
+        session: str = "",
     ) -> list[dict]:
         """Run the daily pipeline for all active tenants.
 
@@ -149,11 +153,13 @@ class Orchestrator:
                     tenant_id=tenant.id,
                     tenant_name=tenant.name,
                 )
-                results.append({
-                    "tenant_id": tenant.id,
-                    "tenant_name": tenant.name,
-                    "skipped": "incomplete_credentials",
-                })
+                results.append(
+                    {
+                        "tenant_id": tenant.id,
+                        "tenant_name": tenant.name,
+                        "skipped": "incomplete_credentials",
+                    }
+                )
                 continue
 
             log.info(
@@ -164,7 +170,9 @@ class Orchestrator:
             )
             try:
                 summary = await self.run_tenant_session(
-                    tenant=tenant, today=today, session=session,
+                    tenant=tenant,
+                    today=today,
+                    session=session,
                 )
                 results.append(summary)
             except Exception as e:
@@ -174,18 +182,19 @@ class Orchestrator:
                     tenant_name=tenant.name,
                     error=str(e),
                 )
-                results.append({
-                    "tenant_id": tenant.id,
-                    "tenant_name": tenant.name,
-                    "error": str(e),
-                })
+                results.append(
+                    {
+                        "tenant_id": tenant.id,
+                        "tenant_name": tenant.name,
+                        "error": str(e),
+                    }
+                )
                 # Try to notify tenant of the failure
                 try:
                     from src.notifications.telegram_factory import TelegramFactory
+
                     notifier = TelegramFactory.get_notifier(tenant)
-                    await notifier.send_error(
-                        f"Pipeline failed for {tenant.name} ({session}): {e}"
-                    )
+                    await notifier.send_error(f"Pipeline failed for {tenant.name} ({session}): {e}")
                 except Exception:
                     pass
 
@@ -227,6 +236,7 @@ class Orchestrator:
         client = AlpacaClientFactory.get_trading_client(tenant)
 
         from src.execution.alpaca_executor import AlpacaExecutor
+
         executor = AlpacaExecutor(self._db, client)
 
         # Capture initial equity on first run
@@ -236,11 +246,14 @@ class Orchestrator:
                 tenant.initial_equity = equity
                 tenant.portfolio_a_cash = equity * tenant.portfolio_a_pct / 100
                 tenant.portfolio_b_cash = equity * tenant.portfolio_b_pct / 100
-                await self._db.update_tenant(tenant.id, {
-                    "initial_equity": equity,
-                    "portfolio_a_cash": tenant.portfolio_a_cash,
-                    "portfolio_b_cash": tenant.portfolio_b_cash,
-                })
+                await self._db.update_tenant(
+                    tenant.id,
+                    {
+                        "initial_equity": equity,
+                        "portfolio_a_cash": tenant.portfolio_a_cash,
+                        "portfolio_b_cash": tenant.portfolio_b_cash,
+                    },
+                )
                 log.info(
                     "initial_equity_captured",
                     tenant_id=tenant.id,
@@ -257,7 +270,9 @@ class Orchestrator:
             tenant_id=tenant.id,
         )
         tenant_b_universe = get_tenant_universe(
-            tenant, "B", discovered_tickers=discovered,
+            tenant,
+            "B",
+            discovered_tickers=discovered,
         )
 
         # Build tenant-scoped orchestrator state
@@ -287,7 +302,9 @@ class Orchestrator:
             self._notifier = saved_notifier
 
     async def run_daily(
-        self, today: date | None = None, session: str = "",
+        self,
+        today: date | None = None,
+        session: str = "",
         tenant_id: str = "default",
         strategy_mode: str | None = None,
         run_portfolio_a: bool = True,
@@ -330,8 +347,7 @@ class Orchestrator:
             if self._notifier_available():
                 try:
                     await self._notifier.send_message(
-                        f"Market closed today ({today.strftime('%A, %b %d')}). "
-                        "Pipeline skipped."
+                        f"Market closed today ({today.strftime('%A, %b %d')}). Pipeline skipped."
                     )
                 except Exception:
                     pass
@@ -347,7 +363,8 @@ class Orchestrator:
 
         # Step 1: Initialize portfolios
         await self._executor.initialize_portfolios(
-            allocations=alloc, tenant_id=tenant_id,
+            allocations=alloc,
+            tenant_id=tenant_id,
         )
 
         # Step 1.1: Sync positions with broker (if supported)
@@ -370,9 +387,7 @@ class Orchestrator:
         # Step 2: Fetch market data
         log.info("step_2_fetching_market_data")
         try:
-            data = await self._market_data.fetch_universe(
-                tickers=dynamic_universe, period="1y"
-            )
+            data = await self._market_data.fetch_universe(tickers=dynamic_universe, period="1y")
         except Exception as e:
             log.error("market_data_fetch_failed", error=str(e))
             summary["errors"].append(f"Market data fetch failed: {e}")
@@ -397,7 +412,10 @@ class Orchestrator:
         trailing_stop_alerts: list[dict] = []
         try:
             trailing_stop_sells, trailing_stop_alerts = await self._check_trailing_stops(
-                tenant_id, closes, run_portfolio_a, run_portfolio_b,
+                tenant_id,
+                closes,
+                run_portfolio_a,
+                run_portfolio_b,
             )
             if trailing_stop_sells:
                 summary["trailing_stops_triggered"] = len(trailing_stop_sells)
@@ -408,7 +426,10 @@ class Orchestrator:
         if tenant_id != "default":
             try:
                 new_alloc = await self._handle_rebalance(
-                    tenant_id, closes, run_portfolio_a, run_portfolio_b,
+                    tenant_id,
+                    closes,
+                    run_portfolio_a,
+                    run_portfolio_b,
                 )
                 if new_alloc is not None:
                     alloc = new_alloc
@@ -420,7 +441,9 @@ class Orchestrator:
         # Step 2.5: Missed day recovery
         try:
             recovered = await self.recovery_check(
-                today, closes, tenant_id=tenant_id,
+                today,
+                closes,
+                tenant_id=tenant_id,
                 allocations=alloc,
                 run_portfolio_a=run_portfolio_a,
                 run_portfolio_b=run_portfolio_b,
@@ -459,7 +482,10 @@ class Orchestrator:
         halted_portfolios: set[str] = set()
         for pname in ("A", "B"):
             halted, reason = await self._risk_manager.check_circuit_breakers(
-                pname, self._db, today, tenant_id=tenant_id,
+                pname,
+                self._db,
+                today,
+                tenant_id=tenant_id,
             )
             if halted:
                 halted_portfolios.add(pname)
@@ -480,7 +506,9 @@ class Orchestrator:
         else:
             try:
                 trades_a, a_reason = await self._run_portfolio_a(
-                    closes, today, tenant_id=tenant_id,
+                    closes,
+                    today,
+                    tenant_id=tenant_id,
                     allocations=alloc,
                 )
                 summary["trades"]["A"] = len(trades_a)
@@ -521,9 +549,7 @@ class Orchestrator:
             positions_b = await self._db.get_positions("B", tenant_id=tenant_id)
             held_tickers = [p.ticker for p in positions_b]
             if len(closes) >= 2:
-                pct = (
-                    (closes.iloc[-1] - closes.iloc[-2]) / closes.iloc[-2]
-                ).abs().dropna()
+                pct = ((closes.iloc[-1] - closes.iloc[-2]) / closes.iloc[-2]).abs().dropna()
                 movers = pct.sort_values(ascending=False).head(5).index.tolist()
             else:
                 movers = []
@@ -556,13 +582,16 @@ class Orchestrator:
         if session == "Morning":
             try:
                 from src.data.earnings_calendar import EarningsCalendar
+
                 earnings_cal = EarningsCalendar()
                 await earnings_cal.refresh_earnings(self._db, list(closes.columns))
                 positions_b = await self._db.get_positions("B", tenant_id=tenant_id)
                 held_tickers = [p.ticker for p in positions_b]
                 all_tickers = list(set(held_tickers + list(closes.columns)))
                 upcoming = await earnings_cal.get_upcoming(
-                    self._db, all_tickers, days_ahead=14,
+                    self._db,
+                    all_tickers,
+                    days_ahead=14,
                 )
                 if upcoming:
                     e_lines = ["Upcoming Earnings (next 14 days):"]
@@ -574,9 +603,7 @@ class Orchestrator:
                         elif days_until <= 5 and row.ticker in held_tickers:
                             warning = " — consider reducing position"
                         e_lines.append(
-                            f"- {row.ticker}: "
-                            f"{row.earnings_date.strftime('%b %d')} "
-                            f"({days_until}d away){warning}"
+                            f"- {row.ticker}: {row.earnings_date.strftime('%b %d')} ({days_until}d away){warning}"
                         )
                     e_lines.append(
                         "\nNote: Earnings dates are approximate. "
@@ -609,7 +636,11 @@ class Orchestrator:
         else:
             try:
                 trades_b, b_reasoning = await self._run_portfolio_b(
-                    closes, volumes, yield_curve, vix, today,
+                    closes,
+                    volumes,
+                    yield_curve,
+                    vix,
+                    today,
                     news_context=news_context,
                     session=session,
                     regime_result=regime_result,
@@ -637,11 +668,7 @@ class Orchestrator:
             pval = portfolio.total_value if portfolio else alloc.for_portfolio(pname)
             pcash = portfolio.cash if portfolio else pval
 
-            latest_prices = {
-                t: float(closes[t].iloc[-1])
-                for t in closes.columns
-                if not pd.isna(closes[t].iloc[-1])
-            }
+            latest_prices = {t: float(closes[t].iloc[-1]) for t in closes.columns if not pd.isna(closes[t].iloc[-1])}
             verdict = self._risk_manager.check_pre_trade(
                 trades=trades,
                 portfolio_name=pname,
@@ -664,7 +691,8 @@ class Orchestrator:
         executed: list = []
         if all_trades:
             executed = await self._executor.execute_trades(
-                all_trades, tenant_id=tenant_id,
+                all_trades,
+                tenant_id=tenant_id,
             )
             summary["trades_executed"] = len(executed)
         else:
@@ -694,7 +722,9 @@ class Orchestrator:
             if trade.side.value == "SELL":
                 try:
                     await self._db.deactivate_trailing_stops_for_ticker(
-                        tenant_id, trade.portfolio.value, trade.ticker,
+                        tenant_id,
+                        trade.portfolio.value,
+                        trade.ticker,
                     )
                 except Exception as e:
                     log.warning("trailing_stop_deactivate_failed", error=str(e))
@@ -705,9 +735,7 @@ class Orchestrator:
         latest_prices: dict[str, float] = {}
         if hasattr(self._executor, "_client"):
             try:
-                alpaca_positions = await asyncio.to_thread(
-                    self._executor._client.get_all_positions
-                )
+                alpaca_positions = await asyncio.to_thread(self._executor._client.get_all_positions)
                 for pos in alpaca_positions:
                     latest_prices[pos.symbol] = float(pos.current_price)
             except Exception as e:
@@ -717,13 +745,18 @@ class Orchestrator:
             if t not in latest_prices and not pd.isna(closes[t].iloc[-1]):
                 latest_prices[t] = float(closes[t].iloc[-1])
         snapshot_portfolios = _active_portfolio_names(
-            run_portfolio_a, run_portfolio_b, tenant_id,
+            run_portfolio_a,
+            run_portfolio_b,
+            tenant_id,
         )
         for portfolio_name in snapshot_portfolios:
             try:
                 await self._executor.take_snapshot(
-                    portfolio_name, today, latest_prices,
-                    allocations=alloc, tenant_id=tenant_id,
+                    portfolio_name,
+                    today,
+                    latest_prices,
+                    allocations=alloc,
+                    tenant_id=tenant_id,
                 )
             except Exception as e:
                 log.error("snapshot_failed", portfolio=portfolio_name, error=str(e))
@@ -731,7 +764,10 @@ class Orchestrator:
         # Step 8.5: Reconcile equity against Alpaca
         try:
             drift = await self._reconcile_equity(
-                tenant_id, run_portfolio_a, run_portfolio_b, alloc,
+                tenant_id,
+                run_portfolio_a,
+                run_portfolio_b,
+                alloc,
             )
             if drift is not None:
                 summary["equity_drift_corrected"] = round(drift, 2)
@@ -767,7 +803,9 @@ class Orchestrator:
         return summary
 
     async def _run_portfolio_a(
-        self, closes: pd.DataFrame, today: date,
+        self,
+        closes: pd.DataFrame,
+        today: date,
         tenant_id: str = "default",
         allocations: TenantAllocations | None = None,
     ) -> tuple[list, str]:
@@ -780,7 +818,10 @@ class Orchestrator:
 
         total_value = portfolio.total_value if portfolio else alloc.portfolio_a_cash
         trades = self._strategy_a.generate_trades(
-            closes, position_map, cash, portfolio_value=total_value,
+            closes,
+            position_map,
+            cash,
+            portfolio_value=total_value,
         )
 
         # Save momentum rankings
@@ -800,7 +841,12 @@ class Orchestrator:
         return trades, reason
 
     async def _run_portfolio_b(
-        self, closes, volumes, yield_curve, vix, today,
+        self,
+        closes,
+        volumes,
+        yield_curve,
+        vix,
+        today,
         news_context: str = "",
         session: str = "",
         regime_result: RegimeResult | None = None,
@@ -825,8 +871,7 @@ class Orchestrator:
                 "ticker": p.ticker,
                 "shares": p.shares,
                 "avg_price": p.avg_price,
-                "market_value": p.shares * float(closes[p.ticker].iloc[-1])
-                if p.ticker in closes.columns else 0,
+                "market_value": p.shares * float(closes[p.ticker].iloc[-1]) if p.ticker in closes.columns else 0,
             }
             for p in positions
         ]
@@ -900,7 +945,9 @@ class Orchestrator:
         try:
             spy_closes = closes["SPY"] if "SPY" in closes.columns else None
             stats = await self._performance_tracker.get_portfolio_stats(
-                self._db, "B", alloc.portfolio_b_cash,
+                self._db,
+                "B",
+                alloc.portfolio_b_cash,
                 spy_closes=spy_closes,
             )
             if stats.days_tracked > 0:
@@ -929,16 +976,12 @@ class Orchestrator:
             if stops_b:
                 stop_lines = []
                 for s in stops_b:
-                    current = (
-                        float(closes[s.ticker].iloc[-1])
-                        if s.ticker in closes.columns
-                        else s.peak_price
-                    )
+                    current = float(closes[s.ticker].iloc[-1]) if s.ticker in closes.columns else s.peak_price
                     pct_from_stop = ((current - s.stop_price) / current) * 100
                     stop_lines.append(
                         f"- {s.ticker}: entry ${s.entry_price:.2f}, "
                         f"peak ${s.peak_price:.2f}, "
-                        f"stop ${s.stop_price:.2f} ({s.trail_pct*100:.1f}% trail) "
+                        f"stop ${s.stop_price:.2f} ({s.trail_pct * 100:.1f}% trail) "
                         f"— {pct_from_stop:.1f}% from trigger"
                     )
                 trailing_context = "\n".join(stop_lines)
@@ -955,8 +998,7 @@ class Orchestrator:
                     days_left = (w.expires_at - today).days
                     target = f", target ${w.target_entry:.2f}" if w.target_entry else ""
                     wl_lines.append(
-                        f"- {w.ticker}: \"{w.reason}\" "
-                        f"({w.conviction} conviction{target}, {days_left}d left)"
+                        f'- {w.ticker}: "{w.reason}" ({w.conviction} conviction{target}, {days_left}d left)'
                     )
                 watchlist_context = "\n".join(wl_lines)
         except Exception as e:
@@ -969,9 +1011,7 @@ class Orchestrator:
             session=session,
             regime_summary=regime_result.summary if regime_result else None,
             portfolio_allocation=alloc.portfolio_b_cash,
-            universe_size=(
-                len(portfolio_b_universe) if portfolio_b_universe else None
-            ),
+            universe_size=(len(portfolio_b_universe) if portfolio_b_universe else None),
             trailing_stops_context=trailing_context,
             earnings_context=earnings_context,
             watchlist_context=watchlist_context,
@@ -1011,16 +1051,25 @@ class Orchestrator:
 
         # Save decision
         await self._strategy_b.save_decision(
-            self._db, today, response, trades, tenant_id=tenant_id,
+            self._db,
+            today,
+            response,
+            trades,
+            tenant_id=tenant_id,
         )
 
         # Save agent memory (short-term + notes)
         try:
             await self._memory_manager.save_short_term(
-                self._db, today.isoformat(), response, tenant_id=tenant_id,
+                self._db,
+                today.isoformat(),
+                response,
+                tenant_id=tenant_id,
             )
             await self._memory_manager.save_agent_notes(
-                self._db, response.get("memory_notes", []), tenant_id=tenant_id,
+                self._db,
+                response.get("memory_notes", []),
+                tenant_id=tenant_id,
             )
         except Exception as e:
             log.warning("memory_save_failed", error=str(e))
@@ -1031,7 +1080,9 @@ class Orchestrator:
         # Process watchlist updates from agent response
         try:
             await self._process_watchlist_updates(
-                response.get("watchlist_updates", []), tenant_id, today,
+                response.get("watchlist_updates", []),
+                tenant_id,
+                today,
             )
         except Exception as e:
             log.warning("watchlist_update_failed", error=str(e))
@@ -1062,7 +1113,9 @@ class Orchestrator:
         alerts: list[dict] = []
 
         active_portfolios = _active_portfolio_names(
-            run_portfolio_a, run_portfolio_b, tenant_id,
+            run_portfolio_a,
+            run_portfolio_b,
+            tenant_id,
         )
         stops = await self._db.get_active_trailing_stops(tenant_id)
 
@@ -1080,7 +1133,9 @@ class Orchestrator:
             if price > stop.peak_price:
                 new_stop_price = price * (1 - stop.trail_pct)
                 await self._db.update_trailing_stop(
-                    stop.id, peak_price=price, stop_price=new_stop_price,
+                    stop.id,
+                    peak_price=price,
+                    stop_price=new_stop_price,
                 )
                 log.debug(
                     "trailing_stop_peak_updated",
@@ -1091,24 +1146,29 @@ class Orchestrator:
             elif price <= stop.stop_price:
                 # TRIGGERED — generate full sell
                 positions = await self._db.get_positions(
-                    stop.portfolio, tenant_id=tenant_id,
+                    stop.portfolio,
+                    tenant_id=tenant_id,
                 )
                 pos = next((p for p in positions if p.ticker == stop.ticker), None)
                 if pos and pos.shares > 0:
-                    sells.append(TradeSchema(
-                        portfolio=PortfolioName(stop.portfolio),
-                        ticker=stop.ticker,
-                        side=OrderSide.SELL,
-                        shares=pos.shares,
-                        price=price,
-                        reason=f"Trailing stop triggered (stop=${stop.stop_price:.2f})",
-                    ))
-                    alerts.append({
-                        "ticker": stop.ticker,
-                        "price": price,
-                        "entry": stop.entry_price,
-                        "peak": stop.peak_price,
-                    })
+                    sells.append(
+                        TradeSchema(
+                            portfolio=PortfolioName(stop.portfolio),
+                            ticker=stop.ticker,
+                            side=OrderSide.SELL,
+                            shares=pos.shares,
+                            price=price,
+                            reason=f"Trailing stop triggered (stop=${stop.stop_price:.2f})",
+                        )
+                    )
+                    alerts.append(
+                        {
+                            "ticker": stop.ticker,
+                            "price": price,
+                            "entry": stop.entry_price,
+                            "peak": stop.peak_price,
+                        }
+                    )
                     await self._db.deactivate_trailing_stop(stop.id)
                     log.info(
                         "trailing_stop_triggered",
@@ -1123,8 +1183,7 @@ class Orchestrator:
     @staticmethod
     def _format_correlation(corr_data: dict) -> str:
         """Format correlation data for the system prompt."""
-        lines = [f"Correlation (avg: {corr_data['avg_correlation']:.2f}, "
-                 f"{corr_data['matrix_size']} positions):"]
+        lines = [f"Correlation (avg: {corr_data['avg_correlation']:.2f}, {corr_data['matrix_size']} positions):"]
         for t1, t2, val in corr_data["high_pairs"]:
             lines.append(f"  {t1}-{t2}: {val:.2f} (HIGH)")
         return "\n".join(lines)
@@ -1254,11 +1313,14 @@ class Orchestrator:
 
         # Update tenant record
         if tenant_id != "default":
-            await self._db.update_tenant(tenant_id, {
-                "initial_equity": new_equity,
-                "portfolio_a_cash": new_a_cash,
-                "portfolio_b_cash": new_b_cash,
-            })
+            await self._db.update_tenant(
+                tenant_id,
+                {
+                    "initial_equity": new_equity,
+                    "portfolio_a_cash": new_a_cash,
+                    "portfolio_b_cash": new_b_cash,
+                },
+            )
 
         log.info(
             "deposit_detected",
@@ -1279,6 +1341,7 @@ class Orchestrator:
                 pass
 
         from src.utils.allocations import resolve_allocations
+
         return resolve_allocations(
             initial_equity=new_equity,
             portfolio_a_pct=allocations.portfolio_a_pct,
@@ -1352,7 +1415,9 @@ class Orchestrator:
                 new_cash = portfolio.cash + drift * share
                 new_total = portfolio.total_value + drift * share
                 await self._db.upsert_portfolio(
-                    pname, cash=new_cash, total_value=new_total,
+                    pname,
+                    cash=new_cash,
+                    total_value=new_total,
                     tenant_id=tenant_id,
                 )
 
@@ -1414,6 +1479,7 @@ class Orchestrator:
 
         # Generate SELL trades for positions in portfolios to liquidate
         from src.storage.models import OrderSide, PortfolioName, TradeSchema
+
         sell_trades: list[TradeSchema] = []
         for pname in portfolios_to_liquidate:
             positions = await self._db.get_positions(pname, tenant_id=tenant_id)
@@ -1421,14 +1487,16 @@ class Orchestrator:
                 if pos.shares <= 0:
                     continue
                 price = latest_prices.get(pos.ticker, pos.avg_price)
-                sell_trades.append(TradeSchema(
-                    portfolio=PortfolioName(pname),
-                    ticker=pos.ticker,
-                    side=OrderSide.SELL,
-                    shares=pos.shares,
-                    price=price,
-                    reason="Portfolio rebalance: liquidation",
-                ))
+                sell_trades.append(
+                    TradeSchema(
+                        portfolio=PortfolioName(pname),
+                        ticker=pos.ticker,
+                        side=OrderSide.SELL,
+                        shares=pos.shares,
+                        price=price,
+                        reason="Portfolio rebalance: liquidation",
+                    )
+                )
 
         # Execute sells
         if sell_trades:
@@ -1464,12 +1532,15 @@ class Orchestrator:
         await self._db.upsert_portfolio("B", cash=b_cash, total_value=b_cash, tenant_id=tenant_id)
 
         # Update tenant record: clear flag + update cash + initial_equity
-        await self._db.update_tenant(tenant_id, {
-            "pending_rebalance": False,
-            "portfolio_a_cash": a_cash,
-            "portfolio_b_cash": b_cash,
-            "initial_equity": total_cash if total_cash > 0 else tenant.initial_equity,
-        })
+        await self._db.update_tenant(
+            tenant_id,
+            {
+                "pending_rebalance": False,
+                "portfolio_a_cash": a_cash,
+                "portfolio_b_cash": b_cash,
+                "initial_equity": total_cash if total_cash > 0 else tenant.initial_equity,
+            },
+        )
 
         # Notify via Telegram
         if self._notifier_available():
@@ -1496,6 +1567,7 @@ class Orchestrator:
         )
 
         from src.utils.allocations import resolve_allocations
+
         return resolve_allocations(
             initial_equity=total_cash if total_cash > 0 else (tenant.initial_equity or 0),
             portfolio_a_pct=a_pct,
@@ -1512,12 +1584,13 @@ class Orchestrator:
         msg_id = await self._notifier.send_approval_request(complexity, request_id)
         if msg_id is None:
             return "sonnet"
-        return await self._notifier.wait_for_approval(
-            request_id, PORTFOLIO_B.approval_timeout_seconds
-        )
+        return await self._notifier.wait_for_approval(request_id, PORTFOLIO_B.approval_timeout_seconds)
 
     async def _process_suggested_tickers(
-        self, response: dict, today: date, tenant_id: str = "default",
+        self,
+        response: dict,
+        today: date,
+        tenant_id: str = "default",
     ) -> None:
         """Validate agent-suggested tickers and send for Telegram approval.
 
@@ -1538,7 +1611,10 @@ class Orchestrator:
 
             # Propose (validates via yfinance internally)
             row = await self._ticker_discovery.propose_ticker(
-                ticker=ticker, rationale=rationale, source="agent", today=today,
+                ticker=ticker,
+                rationale=rationale,
+                source="agent",
+                today=today,
                 tenant_id=tenant_id,
             )
             if row is None:
@@ -1549,23 +1625,32 @@ class Orchestrator:
                 choice = await self._request_ticker_approval(row)
                 if choice == "approve":
                     await self._db.update_discovered_ticker_status(
-                        ticker, "approved", tenant_id=tenant_id,
+                        ticker,
+                        "approved",
+                        tenant_id=tenant_id,
                     )
                     log.info("ticker_approved", ticker=ticker, tenant_id=tenant_id)
                 else:
                     await self._db.update_discovered_ticker_status(
-                        ticker, "rejected", tenant_id=tenant_id,
+                        ticker,
+                        "rejected",
+                        tenant_id=tenant_id,
                     )
                     log.info("ticker_rejected", ticker=ticker, tenant_id=tenant_id)
             else:
                 # No Telegram — auto-reject (requires human approval)
                 await self._db.update_discovered_ticker_status(
-                    ticker, "rejected", tenant_id=tenant_id,
+                    ticker,
+                    "rejected",
+                    tenant_id=tenant_id,
                 )
                 log.info("ticker_auto_rejected_no_telegram", ticker=ticker)
 
     async def _process_watchlist_updates(
-        self, updates: list[dict], tenant_id: str, today: date,
+        self,
+        updates: list[dict],
+        tenant_id: str,
+        today: date,
     ) -> None:
         """Process watchlist add/remove actions from the agent response.
 
@@ -1607,12 +1692,12 @@ class Orchestrator:
         msg_id = await self._notifier.send_ticker_proposal(row, request_id)
         if msg_id is None:
             return "reject"
-        return await self._notifier.wait_for_ticker_approval(
-            request_id, PORTFOLIO_B.approval_timeout_seconds
-        )
+        return await self._notifier.wait_for_ticker_approval(request_id, PORTFOLIO_B.approval_timeout_seconds)
 
     async def recovery_check(
-        self, today: date, closes: pd.DataFrame,
+        self,
+        today: date,
+        closes: pd.DataFrame,
         tenant_id: str = "default",
         allocations: TenantAllocations | None = None,
         run_portfolio_a: bool = True,
@@ -1640,7 +1725,9 @@ class Orchestrator:
         recovered_dates: list[str] = []
 
         recovery_portfolios = _active_portfolio_names(
-            run_portfolio_a, run_portfolio_b, tenant_id,
+            run_portfolio_a,
+            run_portfolio_b,
+            tenant_id,
         )
         all_portfolio_initials = {
             "A": alloc.portfolio_a_cash,
@@ -1658,11 +1745,7 @@ class Orchestrator:
             # Build expected trading days between last snapshot and today
             expected = trading_days_between(last_snap_date, today)
 
-            missed = [
-                d for d in expected
-                if d not in snapshot_dates
-                and d in closes.index.date
-            ]
+            missed = [d for d in expected if d not in snapshot_dates and d in closes.index.date]
 
             if not missed:
                 continue
@@ -1690,25 +1773,22 @@ class Orchestrator:
 
                 # Calculate value from existing positions
                 portfolio = await self._db.get_portfolio(
-                    pname, tenant_id=tenant_id,
+                    pname,
+                    tenant_id=tenant_id,
                 )
                 if portfolio is None:
                     continue
 
                 positions = await self._db.get_positions(
-                    pname, tenant_id=tenant_id,
+                    pname,
+                    tenant_id=tenant_id,
                 )
-                pos_value = sum(
-                    p.shares * prices.get(p.ticker, p.avg_price)
-                    for p in positions
-                )
+                pos_value = sum(p.shares * prices.get(p.ticker, p.avg_price) for p in positions)
                 total_value = portfolio.cash + pos_value
 
                 daily_ret = None
                 if prev_total > 0:
-                    daily_ret = (
-                        (total_value - prev_total) / prev_total * 100
-                    )
+                    daily_ret = (total_value - prev_total) / prev_total * 100
                 cum_ret = ((total_value - initial) / initial) * 100
 
                 await self._db.save_snapshot(
@@ -1734,8 +1814,7 @@ class Orchestrator:
             if self._notifier_available():
                 try:
                     msg = (
-                        f"Recovery: backfilled {len(recovered_dates)} "
-                        f"missed snapshot(s): {', '.join(recovered_dates)}"
+                        f"Recovery: backfilled {len(recovered_dates)} missed snapshot(s): {', '.join(recovered_dates)}"
                     )
                     await self._notifier.send_message(msg)
                 except Exception:
@@ -1765,22 +1844,20 @@ class Orchestrator:
             # Build portfolio summaries from snapshots (only enabled portfolios)
             portfolio_summaries = {}
             notify_portfolios = _active_portfolio_names(
-                run_portfolio_a, run_portfolio_b, tenant_id,
+                run_portfolio_a,
+                run_portfolio_b,
+                tenant_id,
             )
             for name in notify_portfolios:
                 portfolio = await self._db.get_portfolio(name, tenant_id=tenant_id)
                 snapshots = await self._db.get_snapshots(name, tenant_id=tenant_id)
-                today_snap = next(
-                    (s for s in snapshots if s.date == today), None
-                )
+                today_snap = next((s for s in snapshots if s.date == today), None)
                 default_value = alloc.for_portfolio(name)
                 portfolio_summaries[name] = {
                     "total_value": (
-                        today_snap.total_value if today_snap
-                        else (
-                            portfolio.total_value
-                            if portfolio else default_value
-                        )
+                        today_snap.total_value
+                        if today_snap
+                        else (portfolio.total_value if portfolio else default_value)
                     ),
                     "cash": portfolio.cash if portfolio else default_value,
                     "daily_return_pct": today_snap.daily_return_pct if today_snap else None,
@@ -1797,11 +1874,10 @@ class Orchestrator:
                     portfolio_summaries["A"]["top_ticker"] = "cash"
                 portfolio_summaries["A"]["reason"] = summary.get("a_reason", "")
             if "B" in portfolio_summaries:
-                portfolio_summaries["B"]["reasoning"] = (
-                    summary.get("b_reasoning", "") or "No changes recommended"
-                )
+                portfolio_summaries["B"]["reasoning"] = summary.get("b_reasoning", "") or "No changes recommended"
 
             from src.storage.models import TradeSchema
+
             proposed = [t for t in proposed_trades if isinstance(t, TradeSchema)]
 
             await self._notifier.send_daily_brief(

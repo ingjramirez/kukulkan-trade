@@ -129,7 +129,9 @@ class AIAutonomyStrategy:
         # Filter to interesting tickers for compact format
         held_tickers = [p["ticker"] for p in positions if p.get("ticker")]
         interesting = filter_interesting_tickers(
-            closes, held_tickers, universe=universe,
+            closes,
+            held_tickers,
+            universe=universe,
         )
 
         # Build price dict (last 5 days) — kept for backward compat
@@ -247,47 +249,49 @@ class AIAutonomyStrategy:
                 target_shares = int(target_value / price)
                 shares_to_buy = target_shares - current_shares
                 if shares_to_buy > 0:
-                    trades.append(TradeSchema(
-                        portfolio=PortfolioName.B,
-                        ticker=ticker,
-                        side=OrderSide.BUY,
-                        shares=float(shares_to_buy),
-                        price=float(price),
-                        reason=f"AI: {reason}",
-                    ))
+                    trades.append(
+                        TradeSchema(
+                            portfolio=PortfolioName.B,
+                            ticker=ticker,
+                            side=OrderSide.BUY,
+                            shares=float(shares_to_buy),
+                            price=float(price),
+                            reason=f"AI: {reason}",
+                        )
+                    )
             elif side == "SELL":
                 if weight == 0:
                     # Full exit
                     if current_shares > 0:
-                        trades.append(TradeSchema(
-                            portfolio=PortfolioName.B,
-                            ticker=ticker,
-                            side=OrderSide.SELL,
-                            shares=float(current_shares),
-                            price=float(price),
-                            reason=f"AI exit: {reason}",
-                        ))
+                        trades.append(
+                            TradeSchema(
+                                portfolio=PortfolioName.B,
+                                ticker=ticker,
+                                side=OrderSide.SELL,
+                                shares=float(current_shares),
+                                price=float(price),
+                                reason=f"AI exit: {reason}",
+                            )
+                        )
                 else:
                     # Trim to target weight
                     target_shares = int(target_value / price)
                     shares_to_sell = current_shares - target_shares
                     if shares_to_sell > 0:
-                        trades.append(TradeSchema(
-                            portfolio=PortfolioName.B,
-                            ticker=ticker,
-                            side=OrderSide.SELL,
-                            shares=float(shares_to_sell),
-                            price=float(price),
-                            reason=f"AI trim: {reason}",
-                        ))
+                        trades.append(
+                            TradeSchema(
+                                portfolio=PortfolioName.B,
+                                ticker=ticker,
+                                side=OrderSide.SELL,
+                                shares=float(shares_to_sell),
+                                price=float(price),
+                                reason=f"AI trim: {reason}",
+                            )
+                        )
 
         # Enforce max positions: if buys would exceed 10, drop the smallest
         current_count = len([s for s in current_positions.values() if s > 0])
-        new_buys = [
-            t for t in trades
-            if t.side == OrderSide.BUY
-            and t.ticker not in current_positions
-        ]
+        new_buys = [t for t in trades if t.side == OrderSide.BUY and t.ticker not in current_positions]
         sells = [t for t in trades if t.side == OrderSide.SELL]
         exits = [s for s in sells if current_positions.get(s.ticker, 0) == s.shares]
 
@@ -319,22 +323,23 @@ class AIAutonomyStrategy:
             response: Full agent response dict.
             trades: Validated trades list.
         """
-        trades_json = json.dumps([
-            {"ticker": t.ticker, "side": t.side.value, "shares": t.shares, "price": t.price}
-            for t in trades
-        ])
+        trades_json = json.dumps(
+            [{"ticker": t.ticker, "side": t.side.value, "shares": t.shares, "price": t.price} for t in trades]
+        )
 
         async with db.session() as s:
-            s.add(AgentDecisionRow(
-                tenant_id=tenant_id,
-                date=analysis_date,
-                prompt_summary=f"Portfolio B analysis for {analysis_date}",
-                response_summary=response.get("regime_assessment", ""),
-                proposed_trades=trades_json,
-                reasoning=response.get("reasoning", ""),
-                model_used=response.get("_model", ""),
-                tokens_used=response.get("_tokens_used", 0),
-            ))
+            s.add(
+                AgentDecisionRow(
+                    tenant_id=tenant_id,
+                    date=analysis_date,
+                    prompt_summary=f"Portfolio B analysis for {analysis_date}",
+                    response_summary=response.get("regime_assessment", ""),
+                    proposed_trades=trades_json,
+                    reasoning=response.get("reasoning", ""),
+                    model_used=response.get("_model", ""),
+                    tokens_used=response.get("_tokens_used", 0),
+                )
+            )
             await s.commit()
 
         log.info(

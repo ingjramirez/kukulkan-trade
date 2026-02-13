@@ -50,11 +50,13 @@ class TestDefaultStrategy:
 class TestStrategyModeFromEnv:
     def test_agent_settings_defaults_to_conservative(self) -> None:
         from config.settings import AgentSettings
+
         agent = AgentSettings()
         assert agent.strategy_mode == "conservative"
 
     def test_agent_settings_from_env(self) -> None:
         from config.settings import AgentSettings
+
         with patch.dict(os.environ, {"AGENT_STRATEGY_MODE": "aggressive"}):
             agent = AgentSettings()
             assert agent.strategy_mode == "aggressive"
@@ -208,6 +210,7 @@ class TestStrategyLoggedOnStart:
     def test_pipeline_start_includes_strategy(self, mock_settings) -> None:
         """Orchestrator logs strategy_mode at pipeline start."""
         import structlog
+
         captured = []
 
         def capture_log(logger, method, event_dict):
@@ -217,6 +220,7 @@ class TestStrategyLoggedOnStart:
         # Temporarily override structlog to capture the log
         # Instead, just verify the code path by checking the orchestrator import
         from src.orchestrator import Orchestrator
+
         # The log.info call in run_daily includes strategy_mode —
         # verified by reading the source. Integration test would need
         # full async setup. Here we verify the import chain works.

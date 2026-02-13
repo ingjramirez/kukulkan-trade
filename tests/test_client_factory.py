@@ -20,6 +20,7 @@ def _clear_caches():
     """Ensure factory caches are clean before each test."""
     from src.execution.client_factory import AlpacaClientFactory
     from src.notifications.telegram_factory import TelegramFactory
+
     AlpacaClientFactory.clear_cache()
     TelegramFactory.clear_cache()
     yield
@@ -29,6 +30,7 @@ def _clear_caches():
 
 def _mock_tenant(tenant_id: str = "t1") -> MagicMock:
     from src.utils.crypto import encrypt_value
+
     tenant = MagicMock()
     tenant.id = tenant_id
     tenant.alpaca_api_key_enc = encrypt_value("APCA-KEY")
@@ -43,6 +45,7 @@ class TestAlpacaClientFactory:
     @patch("src.execution.client_factory.TradingClient")
     def test_creates_client(self, mock_tc):
         from src.execution.client_factory import AlpacaClientFactory
+
         tenant = _mock_tenant()
         client = AlpacaClientFactory.get_trading_client(tenant)
         mock_tc.assert_called_once_with(
@@ -55,6 +58,7 @@ class TestAlpacaClientFactory:
     @patch("src.execution.client_factory.TradingClient")
     def test_caches_client(self, mock_tc):
         from src.execution.client_factory import AlpacaClientFactory
+
         tenant = _mock_tenant()
         c1 = AlpacaClientFactory.get_trading_client(tenant)
         c2 = AlpacaClientFactory.get_trading_client(tenant)
@@ -64,6 +68,7 @@ class TestAlpacaClientFactory:
     @patch("src.execution.client_factory.TradingClient")
     def test_separate_clients_per_tenant(self, mock_tc):
         from src.execution.client_factory import AlpacaClientFactory
+
         t1 = _mock_tenant("t1")
         t2 = _mock_tenant("t2")
         AlpacaClientFactory.get_trading_client(t1)
@@ -73,6 +78,7 @@ class TestAlpacaClientFactory:
     @patch("src.execution.client_factory.TradingClient")
     def test_invalidate_evicts_from_cache(self, mock_tc):
         from src.execution.client_factory import AlpacaClientFactory
+
         tenant = _mock_tenant()
         AlpacaClientFactory.get_trading_client(tenant)
         AlpacaClientFactory.invalidate("t1")
@@ -83,6 +89,7 @@ class TestAlpacaClientFactory:
 class TestTelegramFactory:
     def test_creates_notifier(self):
         from src.notifications.telegram_factory import TelegramFactory
+
         tenant = _mock_tenant()
         notifier = TelegramFactory.get_notifier(tenant)
         assert notifier._token == "BOT-TOKEN"
@@ -90,6 +97,7 @@ class TestTelegramFactory:
 
     def test_caches_notifier(self):
         from src.notifications.telegram_factory import TelegramFactory
+
         tenant = _mock_tenant()
         n1 = TelegramFactory.get_notifier(tenant)
         n2 = TelegramFactory.get_notifier(tenant)
@@ -97,6 +105,7 @@ class TestTelegramFactory:
 
     def test_invalidate_evicts(self):
         from src.notifications.telegram_factory import TelegramFactory
+
         tenant = _mock_tenant()
         n1 = TelegramFactory.get_notifier(tenant)
         TelegramFactory.invalidate("t1")

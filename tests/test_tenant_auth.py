@@ -41,16 +41,18 @@ async def db():
 async def seeded_db(db):
     """DB with a tenant that has dashboard credentials."""
     async with db.session() as s:
-        s.add(TenantRow(
-            id="tenant-papa",
-            name="Papa",
-            alpaca_api_key_enc=encrypt_value("APCA-KEY-12345678"),
-            alpaca_api_secret_enc=encrypt_value("APCA-SECRET-1234"),
-            telegram_bot_token_enc=encrypt_value("123456:ABCDEF"),
-            telegram_chat_id_enc=encrypt_value("987654321"),
-            dashboard_user="papa",
-            dashboard_password_enc=encrypt_value("papa-secret-pass"),
-        ))
+        s.add(
+            TenantRow(
+                id="tenant-papa",
+                name="Papa",
+                alpaca_api_key_enc=encrypt_value("APCA-KEY-12345678"),
+                alpaca_api_secret_enc=encrypt_value("APCA-SECRET-1234"),
+                telegram_bot_token_enc=encrypt_value("123456:ABCDEF"),
+                telegram_chat_id_enc=encrypt_value("987654321"),
+                dashboard_user="papa",
+                dashboard_password_enc=encrypt_value("papa-secret-pass"),
+            )
+        )
         await s.commit()
     return db
 
@@ -77,10 +79,13 @@ def admin_headers():
 class TestTenantLogin:
     async def test_tenant_login_success(self, client):
         """Tenant user can log in with their credentials."""
-        r = await client.post("/api/auth/login", json={
-            "username": "papa",
-            "password": "papa-secret-pass",
-        })
+        r = await client.post(
+            "/api/auth/login",
+            json={
+                "username": "papa",
+                "password": "papa-secret-pass",
+            },
+        )
         assert r.status_code == 200
         data = r.json()
         assert data["tenant_id"] == "tenant-papa"
@@ -88,26 +93,35 @@ class TestTenantLogin:
 
     async def test_tenant_login_wrong_password(self, client):
         """Wrong password for tenant user returns 401."""
-        r = await client.post("/api/auth/login", json={
-            "username": "papa",
-            "password": "wrong-password",
-        })
+        r = await client.post(
+            "/api/auth/login",
+            json={
+                "username": "papa",
+                "password": "wrong-password",
+            },
+        )
         assert r.status_code == 401
 
     async def test_tenant_login_nonexistent_user(self, client):
         """Non-existent tenant user falls through to admin check."""
-        r = await client.post("/api/auth/login", json={
-            "username": "nobody",
-            "password": "whatever",
-        })
+        r = await client.post(
+            "/api/auth/login",
+            json={
+                "username": "nobody",
+                "password": "whatever",
+            },
+        )
         assert r.status_code == 401
 
     async def test_admin_login_still_works(self, client):
         """Global admin login still works alongside tenant auth."""
-        r = await client.post("/api/auth/login", json={
-            "username": settings.dashboard.user,
-            "password": settings.dashboard.password,
-        })
+        r = await client.post(
+            "/api/auth/login",
+            json={
+                "username": settings.dashboard.user,
+                "password": settings.dashboard.password,
+            },
+        )
         # Should succeed (or skip if test settings don't have valid admin creds)
         if r.status_code == 200:
             data = r.json()
@@ -117,10 +131,13 @@ class TestTenantLogin:
     async def test_inactive_tenant_cannot_login(self, client, seeded_db):
         """Deactivated tenant user cannot log in."""
         await seeded_db.deactivate_tenant("tenant-papa")
-        r = await client.post("/api/auth/login", json={
-            "username": "papa",
-            "password": "papa-secret-pass",
-        })
+        r = await client.post(
+            "/api/auth/login",
+            json={
+                "username": "papa",
+                "password": "papa-secret-pass",
+            },
+        )
         assert r.status_code == 401
 
 
@@ -167,13 +184,17 @@ class TestAdminOnly:
         """Tenant user cannot create new tenants."""
         token = create_access_token("papa", tenant_id="tenant-papa")
         headers = {"Authorization": f"Bearer {token}"}
-        r = await client.post("/api/tenants", json={
-            "name": "Hacker",
-            "alpaca_api_key": "k",
-            "alpaca_api_secret": "s",
-            "telegram_bot_token": "t",
-            "telegram_chat_id": "c",
-        }, headers=headers)
+        r = await client.post(
+            "/api/tenants",
+            json={
+                "name": "Hacker",
+                "alpaca_api_key": "k",
+                "alpaca_api_secret": "s",
+                "telegram_bot_token": "t",
+                "telegram_chat_id": "c",
+            },
+            headers=headers,
+        )
         assert r.status_code == 403
 
     async def test_admin_can_access_tenant_crud(self, client, admin_headers):
@@ -195,41 +216,53 @@ class TestAdminOnly:
 class TestUsernameUniqueness:
     async def test_duplicate_username_rejected(self, client, admin_headers):
         """Creating a tenant with an existing username returns 409."""
-        r = await client.post("/api/tenants", json={
-            "name": "Duplicate",
-            "alpaca_api_key": "k",
-            "alpaca_api_secret": "s",
-            "telegram_bot_token": "t",
-            "telegram_chat_id": "c",
-            "username": "papa",
-            "password": "other-pass",
-        }, headers=admin_headers)
+        r = await client.post(
+            "/api/tenants",
+            json={
+                "name": "Duplicate",
+                "alpaca_api_key": "k",
+                "alpaca_api_secret": "s",
+                "telegram_bot_token": "t",
+                "telegram_chat_id": "c",
+                "username": "papa",
+                "password": "other-pass",
+            },
+            headers=admin_headers,
+        )
         assert r.status_code == 409
         assert "Username already taken" in r.json()["detail"]
 
     async def test_unique_username_accepted(self, client, admin_headers):
         """Creating a tenant with a unique username succeeds."""
-        r = await client.post("/api/tenants", json={
-            "name": "Mama",
-            "alpaca_api_key": "k",
-            "alpaca_api_secret": "s",
-            "telegram_bot_token": "t",
-            "telegram_chat_id": "c",
-            "username": "mama",
-            "password": "mama-pass",
-        }, headers=admin_headers)
+        r = await client.post(
+            "/api/tenants",
+            json={
+                "name": "Mama",
+                "alpaca_api_key": "k",
+                "alpaca_api_secret": "s",
+                "telegram_bot_token": "t",
+                "telegram_chat_id": "c",
+                "username": "mama",
+                "password": "mama-pass",
+            },
+            headers=admin_headers,
+        )
         assert r.status_code == 201
         assert r.json()["dashboard_user"] == "mama"
 
     async def test_no_username_is_fine(self, client, admin_headers):
         """Creating a tenant without username is allowed."""
-        r = await client.post("/api/tenants", json={
-            "name": "NoLogin",
-            "alpaca_api_key": "k",
-            "alpaca_api_secret": "s",
-            "telegram_bot_token": "t",
-            "telegram_chat_id": "c",
-        }, headers=admin_headers)
+        r = await client.post(
+            "/api/tenants",
+            json={
+                "name": "NoLogin",
+                "alpaca_api_key": "k",
+                "alpaca_api_secret": "s",
+                "telegram_bot_token": "t",
+                "telegram_chat_id": "c",
+            },
+            headers=admin_headers,
+        )
         assert r.status_code == 201
         assert r.json()["dashboard_user"] is None
 
@@ -255,10 +288,13 @@ class TestCredentialUpdate:
             json={"password": "new-secret-pass"},
             headers=admin_headers,
         )
-        r = await client.post("/api/auth/login", json={
-            "username": "papa",
-            "password": "new-secret-pass",
-        })
+        r = await client.post(
+            "/api/auth/login",
+            json={
+                "username": "papa",
+                "password": "new-secret-pass",
+            },
+        )
         assert r.status_code == 200
         assert r.json()["tenant_id"] == "tenant-papa"
 

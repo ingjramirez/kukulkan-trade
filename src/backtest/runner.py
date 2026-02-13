@@ -79,14 +79,16 @@ class MockPortfolioB:
             if ticker not in selected and shares > 0:
                 price = latest_prices.get(ticker)
                 if price is not None and not pd.isna(price):
-                    trades.append(TradeSchema(
-                        portfolio=PortfolioName.B,
-                        ticker=ticker,
-                        side=OrderSide.SELL,
-                        shares=shares,
-                        price=float(price),
-                        reason="mock B: rotation out",
-                    ))
+                    trades.append(
+                        TradeSchema(
+                            portfolio=PortfolioName.B,
+                            ticker=ticker,
+                            side=OrderSide.SELL,
+                            shares=shares,
+                            price=float(price),
+                            reason="mock B: rotation out",
+                        )
+                    )
 
         # Calculate available after sells
         sell_proceeds = sum(t.total for t in trades)
@@ -109,23 +111,27 @@ class MockPortfolioB:
             target_shares = int(target_per / price)
             delta = target_shares - current_shares
             if delta > 0:
-                trades.append(TradeSchema(
-                    portfolio=PortfolioName.B,
-                    ticker=ticker,
-                    side=OrderSide.BUY,
-                    shares=float(delta),
-                    price=float(price),
-                    reason="mock B: momentum+RSI rebalance",
-                ))
+                trades.append(
+                    TradeSchema(
+                        portfolio=PortfolioName.B,
+                        ticker=ticker,
+                        side=OrderSide.BUY,
+                        shares=float(delta),
+                        price=float(price),
+                        reason="mock B: momentum+RSI rebalance",
+                    )
+                )
             elif delta < 0:
-                trades.append(TradeSchema(
-                    portfolio=PortfolioName.B,
-                    ticker=ticker,
-                    side=OrderSide.SELL,
-                    shares=float(abs(delta)),
-                    price=float(price),
-                    reason="mock B: rebalance trim",
-                ))
+                trades.append(
+                    TradeSchema(
+                        portfolio=PortfolioName.B,
+                        ticker=ticker,
+                        side=OrderSide.SELL,
+                        shares=float(abs(delta)),
+                        price=float(price),
+                        reason="mock B: rebalance trim",
+                    )
+                )
 
         return trades
 
@@ -215,6 +221,7 @@ class BacktestRunner:
         mock_b = None
         if use_ai:
             from src.backtest.ai_strategy import AIBacktestStrategy
+
             ai_bt_strategy = AIBacktestStrategy(
                 budget_usd=ai_budget,
                 run_label=run_label,
@@ -235,15 +242,13 @@ class BacktestRunner:
         for i, sim_date in enumerate(sim_dates):
             day_idx = trading_days.index(sim_date)
             # Slice data up to current day (no look-forward bias)
-            closes_slice = closes.iloc[:day_idx + 1]
+            closes_slice = closes.iloc[: day_idx + 1]
 
             all_trades: list[TradeSchema] = []
 
             # Portfolio A
             try:
-                trades_a = await self._run_portfolio_a(
-                    strategy_a, closes_slice, trader, sim_date
-                )
+                trades_a = await self._run_portfolio_a(strategy_a, closes_slice, trader, sim_date)
                 all_trades.extend(trades_a)
                 trade_counts["A"] += len(trades_a)
             except Exception as e:
@@ -253,13 +258,14 @@ class BacktestRunner:
             try:
                 if use_ai and ai_bt_strategy is not None:
                     trades_b = await self._run_portfolio_b_ai(
-                        ai_bt_strategy, closes_slice, volumes,
-                        trader, sim_date,
+                        ai_bt_strategy,
+                        closes_slice,
+                        volumes,
+                        trader,
+                        sim_date,
                     )
                 elif mock_b is not None:
-                    trades_b = await self._run_portfolio_b_mock(
-                        mock_b, closes_slice, trader, sim_date
-                    )
+                    trades_b = await self._run_portfolio_b_mock(mock_b, closes_slice, trader, sim_date)
                 else:
                     trades_b = []
                 all_trades.extend(trades_b)
@@ -400,10 +406,7 @@ class BacktestRunner:
                 "ticker": p.ticker,
                 "shares": p.shares,
                 "avg_price": p.avg_price,
-                "market_value": (
-                    p.shares * float(closes[p.ticker].iloc[-1])
-                    if p.ticker in closes.columns else 0
-                ),
+                "market_value": (p.shares * float(closes[p.ticker].iloc[-1]) if p.ticker in closes.columns else 0),
             }
             for p in positions
         ]
@@ -463,10 +466,7 @@ class BacktestRunner:
             "estimated_api_calls": sim_days,
             "estimated_tokens": total_tokens,
             "estimated_cost_usd": round(cost, 2),
-            "note": (
-                f"~{sim_days} Claude API calls. "
-                f"Estimated ${cost:.2f} at Sonnet rates."
-            ),
+            "note": (f"~{sim_days} Claude API calls. Estimated ${cost:.2f} at Sonnet rates."),
         }
 
     async def _compute_summary(self, trade_counts: dict) -> dict:

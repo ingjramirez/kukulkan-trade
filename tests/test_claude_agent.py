@@ -109,22 +109,20 @@ class TestParseResponse:
         self.agent = ClaudeAgent(api_key="fake-key")
 
     def test_valid_json(self) -> None:
-        response = json.dumps({
-            "regime_assessment": "Bullish",
-            "reasoning": "Markets are strong",
-            "trades": [{"ticker": "XLK", "side": "BUY", "weight": 0.15, "reason": "momentum"}],
-            "risk_notes": "None",
-        })
+        response = json.dumps(
+            {
+                "regime_assessment": "Bullish",
+                "reasoning": "Markets are strong",
+                "trades": [{"ticker": "XLK", "side": "BUY", "weight": 0.15, "reason": "momentum"}],
+                "risk_notes": "None",
+            }
+        )
         result = self.agent._parse_response(response)
         assert result["regime_assessment"] == "Bullish"
         assert len(result["trades"]) == 1
 
     def test_json_with_markdown_fences(self) -> None:
-        response = (
-            '```json\n{"regime_assessment": "test",'
-            ' "reasoning": "", "trades": [],'
-            ' "risk_notes": ""}\n```'
-        )
+        response = '```json\n{"regime_assessment": "test", "reasoning": "", "trades": [], "risk_notes": ""}\n```'
         result = self.agent._parse_response(response)
         assert result["regime_assessment"] == "test"
 
@@ -140,20 +138,25 @@ class TestParseResponse:
 class TestAgentResponseToTrades:
     def setup_method(self) -> None:
         self.strategy = AIAutonomyStrategy(agent=ClaudeAgent(api_key="fake-key"))
-        self.prices = pd.Series({
-            "XLK": 200.0,
-            "GLD": 180.0,
-            "XLF": 40.0,
-            "AAPL": 220.0,
-            "MSFT": 410.0,
-        })
+        self.prices = pd.Series(
+            {
+                "XLK": 200.0,
+                "GLD": 180.0,
+                "XLF": 40.0,
+                "AAPL": 220.0,
+                "MSFT": 410.0,
+            }
+        )
 
     def test_basic_buy(self) -> None:
         response = {
             "trades": [{"ticker": "XLK", "side": "BUY", "weight": 0.15, "reason": "momentum"}],
         }
         trades = self.strategy.agent_response_to_trades(
-            response, total_value=66_000.0, current_positions={}, latest_prices=self.prices,
+            response,
+            total_value=66_000.0,
+            current_positions={},
+            latest_prices=self.prices,
         )
         assert len(trades) == 1
         assert trades[0].side.value == "BUY"
@@ -166,7 +169,10 @@ class TestAgentResponseToTrades:
             "trades": [{"ticker": "XLK", "side": "BUY", "weight": 0.50, "reason": "all in"}],
         }
         trades = self.strategy.agent_response_to_trades(
-            response, total_value=66_000.0, current_positions={}, latest_prices=self.prices,
+            response,
+            total_value=66_000.0,
+            current_positions={},
+            latest_prices=self.prices,
         )
         # Should be capped at 30% = $19,800 / 200 = 99 shares
         assert trades[0].shares == 99.0
@@ -176,7 +182,10 @@ class TestAgentResponseToTrades:
             "trades": [{"ticker": "FAKE_TICKER", "side": "BUY", "weight": 0.10, "reason": "fake"}],
         }
         trades = self.strategy.agent_response_to_trades(
-            response, total_value=66_000.0, current_positions={}, latest_prices=self.prices,
+            response,
+            total_value=66_000.0,
+            current_positions={},
+            latest_prices=self.prices,
         )
         assert len(trades) == 0
 
@@ -197,7 +206,10 @@ class TestAgentResponseToTrades:
     def test_no_trades_proposed(self) -> None:
         response = {"trades": []}
         trades = self.strategy.agent_response_to_trades(
-            response, total_value=66_000.0, current_positions={}, latest_prices=self.prices,
+            response,
+            total_value=66_000.0,
+            current_positions={},
+            latest_prices=self.prices,
         )
         assert len(trades) == 0
 
@@ -210,7 +222,10 @@ class TestAgentResponseToTrades:
             "risk_notes": "",
         }
         trades = self.strategy.agent_response_to_trades(
-            response, total_value=66_000.0, current_positions={}, latest_prices=self.prices,
+            response,
+            total_value=66_000.0,
+            current_positions={},
+            latest_prices=self.prices,
         )
         assert len(trades) == 0
 
@@ -223,7 +238,10 @@ class TestAgentResponseToTrades:
             ],
         }
         trades = self.strategy.agent_response_to_trades(
-            response, total_value=66_000.0, current_positions={}, latest_prices=self.prices,
+            response,
+            total_value=66_000.0,
+            current_positions={},
+            latest_prices=self.prices,
         )
         assert len(trades) == 3
         tickers = {t.ticker for t in trades}
@@ -233,12 +251,14 @@ class TestAgentResponseToTrades:
         """High conviction applies 100% of weight."""
         response = {
             "trades": [
-                {"ticker": "XLK", "side": "BUY", "weight": 0.15,
-                 "conviction": "high", "reason": "strong trend"},
+                {"ticker": "XLK", "side": "BUY", "weight": 0.15, "conviction": "high", "reason": "strong trend"},
             ],
         }
         trades = self.strategy.agent_response_to_trades(
-            response, total_value=66_000.0, current_positions={}, latest_prices=self.prices,
+            response,
+            total_value=66_000.0,
+            current_positions={},
+            latest_prices=self.prices,
         )
         # 15% of $66K = $9,900 / $200 = 49 shares
         assert trades[0].shares == 49.0
@@ -247,12 +267,14 @@ class TestAgentResponseToTrades:
         """Medium conviction scales weight to 70%."""
         response = {
             "trades": [
-                {"ticker": "XLK", "side": "BUY", "weight": 0.20,
-                 "conviction": "medium", "reason": "decent setup"},
+                {"ticker": "XLK", "side": "BUY", "weight": 0.20, "conviction": "medium", "reason": "decent setup"},
             ],
         }
         trades = self.strategy.agent_response_to_trades(
-            response, total_value=66_000.0, current_positions={}, latest_prices=self.prices,
+            response,
+            total_value=66_000.0,
+            current_positions={},
+            latest_prices=self.prices,
         )
         # 20% * 0.7 = 14% of $66K = $9,240 / $200 = 46 shares
         assert trades[0].shares == 46.0
@@ -261,12 +283,14 @@ class TestAgentResponseToTrades:
         """Low conviction scales weight to 40%."""
         response = {
             "trades": [
-                {"ticker": "XLK", "side": "BUY", "weight": 0.20,
-                 "conviction": "low", "reason": "speculative"},
+                {"ticker": "XLK", "side": "BUY", "weight": 0.20, "conviction": "low", "reason": "speculative"},
             ],
         }
         trades = self.strategy.agent_response_to_trades(
-            response, total_value=66_000.0, current_positions={}, latest_prices=self.prices,
+            response,
+            total_value=66_000.0,
+            current_positions={},
+            latest_prices=self.prices,
         )
         # 20% * 0.4 = 8% of $66K = $5,280 / $200 = 26 shares
         assert trades[0].shares == 26.0
@@ -279,7 +303,10 @@ class TestAgentResponseToTrades:
             ],
         }
         trades = self.strategy.agent_response_to_trades(
-            response, total_value=66_000.0, current_positions={}, latest_prices=self.prices,
+            response,
+            total_value=66_000.0,
+            current_positions={},
+            latest_prices=self.prices,
         )
         # Same as high: 15% of $66K = $9,900 / $200 = 49 shares
         assert trades[0].shares == 49.0
@@ -294,8 +321,11 @@ class TestAgentResponseToTrades:
         }
         # Only XLK and GLD in custom universe — AAPL should be rejected
         trades = self.strategy.agent_response_to_trades(
-            response, total_value=66_000.0, current_positions={},
-            latest_prices=self.prices, universe=["XLK", "GLD"],
+            response,
+            total_value=66_000.0,
+            current_positions={},
+            latest_prices=self.prices,
+            universe=["XLK", "GLD"],
         )
         assert len(trades) == 1
         assert trades[0].ticker == "XLK"
@@ -396,6 +426,7 @@ class TestBuildCompactIndicators:
         compact = build_compact_indicators(closes, tickers)
         # Build verbose version
         from src.analysis.technical import compute_all_indicators
+
         indicators = {}
         for t in tickers:
             ind = compute_all_indicators(closes[t].dropna())
@@ -424,6 +455,7 @@ class TestFilterInterestingTickers:
 
     def test_fewer_than_full_universe(self) -> None:
         from config.universe import PORTFOLIO_B_UNIVERSE
+
         tickers = [t for t in PORTFOLIO_B_UNIVERSE[:20]]
         closes = _make_closes(tickers, days=50)
         result = filter_interesting_tickers(closes, [])
@@ -446,7 +478,9 @@ class TestFilterInterestingTickers:
         closes = _make_closes(["XLK", "XLF", "GLD", "QQQ", "AAPL"], days=50)
         # Only consider XLK and GLD — others should be excluded
         result = filter_interesting_tickers(
-            closes, [], universe=["XLK", "GLD"],
+            closes,
+            [],
+            universe=["XLK", "GLD"],
         )
         for t in result:
             assert t in ["XLK", "GLD"]
@@ -455,7 +489,9 @@ class TestFilterInterestingTickers:
         """Holdings are included even if in a custom universe."""
         closes = _make_closes(["XLK", "XLF", "GLD"], days=50)
         result = filter_interesting_tickers(
-            closes, ["XLF"], universe=["XLK", "XLF", "GLD"],
+            closes,
+            ["XLF"],
+            universe=["XLK", "XLF", "GLD"],
         )
         assert "XLF" in result
 
@@ -469,10 +505,7 @@ class TestModelOverride:
         agent = ClaudeAgent(api_key="fake-key", model="claude-sonnet-4-5-20250929")
         mock_client = MagicMock()
         mock_response = MagicMock()
-        resp_json = (
-            '{"regime_assessment":"test","reasoning":"",'
-            '"trades":[],"risk_notes":""}'
-        )
+        resp_json = '{"regime_assessment":"test","reasoning":"","trades":[],"risk_notes":""}'
         mock_response.content = [MagicMock(text=resp_json)]
         mock_response.usage.input_tokens = 100
         mock_response.usage.output_tokens = 50
@@ -500,10 +533,7 @@ class TestModelOverride:
         agent = ClaudeAgent(api_key="fake-key", model="claude-sonnet-4-5-20250929")
         mock_client = MagicMock()
         mock_response = MagicMock()
-        resp_json = (
-            '{"regime_assessment":"test","reasoning":"",'
-            '"trades":[],"risk_notes":""}'
-        )
+        resp_json = '{"regime_assessment":"test","reasoning":"","trades":[],"risk_notes":""}'
         mock_response.content = [MagicMock(text=resp_json)]
         mock_response.usage.input_tokens = 100
         mock_response.usage.output_tokens = 50
@@ -559,7 +589,8 @@ class TestBuildSystemPrompt:
     def test_custom_allocation_and_universe(self) -> None:
         """Both allocation and universe size can be customized."""
         prompt = build_system_prompt(
-            portfolio_allocation=50_000.0, universe_size=30,
+            portfolio_allocation=50_000.0,
+            universe_size=30,
         )
         assert "$50,000" in prompt
         assert "~30 tickers" in prompt
@@ -569,10 +600,7 @@ class TestBuildSystemPrompt:
         agent = ClaudeAgent(api_key="fake-key")
         mock_client = MagicMock()
         mock_response = MagicMock()
-        resp_json = (
-            '{"regime_assessment":"test","reasoning":"",'
-            '"trades":[],"risk_notes":""}'
-        )
+        resp_json = '{"regime_assessment":"test","reasoning":"","trades":[],"risk_notes":""}'
         mock_response.content = [MagicMock(text=resp_json)]
         mock_response.usage.input_tokens = 100
         mock_response.usage.output_tokens = 50
@@ -600,6 +628,7 @@ class TestBuildSystemPrompt:
 class TestSaveDecision:
     async def test_saves_to_db(self) -> None:
         from src.storage.database import Database
+
         db = Database(url="sqlite+aiosqlite:///:memory:")
         await db.init_db()
 
@@ -618,6 +647,7 @@ class TestSaveDecision:
         from sqlalchemy import select
 
         from src.storage.models import AgentDecisionRow
+
         async with db.session() as s:
             result = await s.execute(select(AgentDecisionRow))
             rows = result.scalars().all()

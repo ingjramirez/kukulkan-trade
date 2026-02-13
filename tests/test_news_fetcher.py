@@ -15,14 +15,18 @@ def _mock_vector_store():
     """Create a mock VectorStore."""
     vs = MagicMock()
     vs.add_news = MagicMock()
-    vs.search_similar = MagicMock(return_value={
-        "documents": [["NVDA beats earnings expectations", "Fed holds rates steady"]],
-        "metadatas": [[
-            {"ticker": "NVDA", "publisher": "Reuters"},
-            {"ticker": "SPY", "publisher": "Bloomberg"},
-        ]],
-        "distances": [[0.15, 0.32]],
-    })
+    vs.search_similar = MagicMock(
+        return_value={
+            "documents": [["NVDA beats earnings expectations", "Fed holds rates steady"]],
+            "metadatas": [
+                [
+                    {"ticker": "NVDA", "publisher": "Reuters"},
+                    {"ticker": "SPY", "publisher": "Bloomberg"},
+                ]
+            ],
+            "distances": [[0.15, 0.32]],
+        }
+    )
     vs.count = MagicMock(return_value=10)
     return vs
 

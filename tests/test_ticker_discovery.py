@@ -123,15 +123,15 @@ class TestTickerValidation:
 
 class TestProposeTicker:
     @patch("src.agent.ticker_discovery.yf.Ticker")
-    async def test_propose_valid_ticker(
-        self, mock_yf_cls, discovery: TickerDiscovery, db: Database
-    ) -> None:
+    async def test_propose_valid_ticker(self, mock_yf_cls, discovery: TickerDiscovery, db: Database) -> None:
         mock_ticker = MagicMock()
         mock_ticker.info = _make_yf_info(sector="Industrials", name="Palantir")
         mock_yf_cls.return_value = mock_ticker
 
         row = await discovery.propose_ticker(
-            "PLTR", "Defense AI growth", today=date(2026, 2, 5),
+            "PLTR",
+            "Defense AI growth",
+            today=date(2026, 2, 5),
         )
         assert row is not None
         assert row.ticker == "PLTR"
@@ -146,15 +146,16 @@ class TestProposeTicker:
         assert stored.rationale == "Defense AI growth"
 
     @patch("src.agent.ticker_discovery.yf.Ticker")
-    async def test_propose_with_tenant_id(
-        self, mock_yf_cls, discovery: TickerDiscovery, db: Database
-    ) -> None:
+    async def test_propose_with_tenant_id(self, mock_yf_cls, discovery: TickerDiscovery, db: Database) -> None:
         mock_ticker = MagicMock()
         mock_ticker.info = _make_yf_info()
         mock_yf_cls.return_value = mock_ticker
 
         row = await discovery.propose_ticker(
-            "PLTR", "AI play", today=date(2026, 2, 5), tenant_id="tenant-1",
+            "PLTR",
+            "AI play",
+            today=date(2026, 2, 5),
+            tenant_id="tenant-1",
         )
         assert row is not None
         assert row.tenant_id == "tenant-1"
@@ -168,9 +169,7 @@ class TestProposeTicker:
         assert tenant_row is not None
 
     @patch("src.agent.ticker_discovery.yf.Ticker")
-    async def test_rejects_duplicate_proposal(
-        self, mock_yf_cls, discovery: TickerDiscovery
-    ) -> None:
+    async def test_rejects_duplicate_proposal(self, mock_yf_cls, discovery: TickerDiscovery) -> None:
         mock_ticker = MagicMock()
         mock_ticker.info = _make_yf_info()
         mock_yf_cls.return_value = mock_ticker
@@ -184,42 +183,46 @@ class TestProposeTicker:
         assert row is None
 
     @patch("src.agent.ticker_discovery.yf.Ticker")
-    async def test_rejects_when_limit_reached(
-        self, mock_yf_cls, discovery: TickerDiscovery, db: Database
-    ) -> None:
+    async def test_rejects_when_limit_reached(self, mock_yf_cls, discovery: TickerDiscovery, db: Database) -> None:
         mock_ticker = MagicMock()
         mock_ticker.info = _make_yf_info()
         mock_yf_cls.return_value = mock_ticker
 
         # Fill up to the limit with approved tickers
         for i in range(MAX_DYNAMIC_TICKERS):
-            await db.save_discovered_ticker(DiscoveredTickerRow(
-                tenant_id="default",
-                ticker=f"DYN{i}",
-                source="test",
-                rationale="test",
-                status="approved",
-                proposed_at=date(2026, 2, 1),
-                expires_at=date(2026, 3, 1),
-            ))
+            await db.save_discovered_ticker(
+                DiscoveredTickerRow(
+                    tenant_id="default",
+                    ticker=f"DYN{i}",
+                    source="test",
+                    rationale="test",
+                    status="approved",
+                    proposed_at=date(2026, 2, 1),
+                    expires_at=date(2026, 3, 1),
+                )
+            )
 
         row = await discovery.propose_ticker("OVERFLOW", "too many", today=date(2026, 2, 5))
         assert row is None
 
     @patch("src.agent.ticker_discovery.yf.Ticker")
-    async def test_tenant_isolation_same_ticker(
-        self, mock_yf_cls, discovery: TickerDiscovery, db: Database
-    ) -> None:
+    async def test_tenant_isolation_same_ticker(self, mock_yf_cls, discovery: TickerDiscovery, db: Database) -> None:
         """Same ticker can be proposed independently for different tenants."""
         mock_ticker = MagicMock()
         mock_ticker.info = _make_yf_info()
         mock_yf_cls.return_value = mock_ticker
 
         row1 = await discovery.propose_ticker(
-            "PLTR", "tenant A reason", today=date(2026, 2, 5), tenant_id="t-a",
+            "PLTR",
+            "tenant A reason",
+            today=date(2026, 2, 5),
+            tenant_id="t-a",
         )
         row2 = await discovery.propose_ticker(
-            "PLTR", "tenant B reason", today=date(2026, 2, 5), tenant_id="t-b",
+            "PLTR",
+            "tenant B reason",
+            today=date(2026, 2, 5),
+            tenant_id="t-b",
         )
         assert row1 is not None
         assert row2 is not None
@@ -227,9 +230,7 @@ class TestProposeTicker:
         assert row2.tenant_id == "t-b"
 
     @patch("src.agent.ticker_discovery.yf.Ticker")
-    async def test_per_tenant_limit(
-        self, mock_yf_cls, discovery: TickerDiscovery, db: Database
-    ) -> None:
+    async def test_per_tenant_limit(self, mock_yf_cls, discovery: TickerDiscovery, db: Database) -> None:
         """Limit is per-tenant, not global."""
         mock_ticker = MagicMock()
         mock_ticker.info = _make_yf_info()
@@ -237,25 +238,33 @@ class TestProposeTicker:
 
         # Fill tenant-1 to the limit
         for i in range(MAX_DYNAMIC_TICKERS):
-            await db.save_discovered_ticker(DiscoveredTickerRow(
-                tenant_id="tenant-1",
-                ticker=f"T1_{i}",
-                source="test",
-                rationale="test",
-                status="approved",
-                proposed_at=date(2026, 2, 1),
-                expires_at=date(2026, 3, 1),
-            ))
+            await db.save_discovered_ticker(
+                DiscoveredTickerRow(
+                    tenant_id="tenant-1",
+                    ticker=f"T1_{i}",
+                    source="test",
+                    rationale="test",
+                    status="approved",
+                    proposed_at=date(2026, 2, 1),
+                    expires_at=date(2026, 3, 1),
+                )
+            )
 
         # tenant-1 is at limit
         row = await discovery.propose_ticker(
-            "OVER", "too many", today=date(2026, 2, 5), tenant_id="tenant-1",
+            "OVER",
+            "too many",
+            today=date(2026, 2, 5),
+            tenant_id="tenant-1",
         )
         assert row is None
 
         # tenant-2 still has room
         row2 = await discovery.propose_ticker(
-            "OVER", "has room", today=date(2026, 2, 5), tenant_id="tenant-2",
+            "OVER",
+            "has room",
+            today=date(2026, 2, 5),
+            tenant_id="tenant-2",
         )
         assert row2 is not None
 
@@ -270,38 +279,44 @@ class TestActiveTickers:
 
     async def test_returns_approved_only(self, discovery: TickerDiscovery, db: Database) -> None:
         for status in ("proposed", "approved", "rejected", "expired"):
-            await db.save_discovered_ticker(DiscoveredTickerRow(
-                tenant_id="default",
-                ticker=f"T_{status.upper()}",
-                source="test",
-                rationale="test",
-                status=status,
-                proposed_at=date(2026, 2, 1),
-                expires_at=date(2026, 3, 1),
-            ))
+            await db.save_discovered_ticker(
+                DiscoveredTickerRow(
+                    tenant_id="default",
+                    ticker=f"T_{status.upper()}",
+                    source="test",
+                    rationale="test",
+                    status=status,
+                    proposed_at=date(2026, 2, 1),
+                    expires_at=date(2026, 3, 1),
+                )
+            )
 
         tickers = await discovery.get_active_tickers()
         assert tickers == ["T_APPROVED"]
 
     async def test_returns_tenant_scoped(self, discovery: TickerDiscovery, db: Database) -> None:
-        await db.save_discovered_ticker(DiscoveredTickerRow(
-            tenant_id="t-a",
-            ticker="PLTR",
-            source="test",
-            rationale="test",
-            status="approved",
-            proposed_at=date(2026, 2, 1),
-            expires_at=date(2026, 3, 1),
-        ))
-        await db.save_discovered_ticker(DiscoveredTickerRow(
-            tenant_id="t-b",
-            ticker="ORCL",
-            source="test",
-            rationale="test",
-            status="approved",
-            proposed_at=date(2026, 2, 1),
-            expires_at=date(2026, 3, 1),
-        ))
+        await db.save_discovered_ticker(
+            DiscoveredTickerRow(
+                tenant_id="t-a",
+                ticker="PLTR",
+                source="test",
+                rationale="test",
+                status="approved",
+                proposed_at=date(2026, 2, 1),
+                expires_at=date(2026, 3, 1),
+            )
+        )
+        await db.save_discovered_ticker(
+            DiscoveredTickerRow(
+                tenant_id="t-b",
+                ticker="ORCL",
+                source="test",
+                rationale="test",
+                status="approved",
+                proposed_at=date(2026, 2, 1),
+                expires_at=date(2026, 3, 1),
+            )
+        )
 
         assert await discovery.get_active_tickers(tenant_id="t-a") == ["PLTR"]
         assert await discovery.get_active_tickers(tenant_id="t-b") == ["ORCL"]
@@ -309,24 +324,28 @@ class TestActiveTickers:
 
     async def test_dynamic_universe_includes_all_tenants(self, db: Database) -> None:
         """get_dynamic_universe merges approved tickers from ALL tenants."""
-        await db.save_discovered_ticker(DiscoveredTickerRow(
-            tenant_id="t-a",
-            ticker="PLTR",
-            source="agent",
-            rationale="test",
-            status="approved",
-            proposed_at=date(2026, 2, 1),
-            expires_at=date(2026, 3, 1),
-        ))
-        await db.save_discovered_ticker(DiscoveredTickerRow(
-            tenant_id="t-b",
-            ticker="ORCL",
-            source="agent",
-            rationale="test",
-            status="approved",
-            proposed_at=date(2026, 2, 1),
-            expires_at=date(2026, 3, 1),
-        ))
+        await db.save_discovered_ticker(
+            DiscoveredTickerRow(
+                tenant_id="t-a",
+                ticker="PLTR",
+                source="agent",
+                rationale="test",
+                status="approved",
+                proposed_at=date(2026, 2, 1),
+                expires_at=date(2026, 3, 1),
+            )
+        )
+        await db.save_discovered_ticker(
+            DiscoveredTickerRow(
+                tenant_id="t-b",
+                ticker="ORCL",
+                source="agent",
+                rationale="test",
+                status="approved",
+                proposed_at=date(2026, 2, 1),
+                expires_at=date(2026, 3, 1),
+            )
+        )
 
         universe = await get_dynamic_universe(db)
         assert "PLTR" in universe
@@ -346,15 +365,17 @@ class TestActiveTickers:
 
 class TestExpiry:
     async def test_expires_old_tickers(self, discovery: TickerDiscovery, db: Database) -> None:
-        await db.save_discovered_ticker(DiscoveredTickerRow(
-            tenant_id="default",
-            ticker="OLD",
-            source="test",
-            rationale="test",
-            status="approved",
-            proposed_at=date(2026, 1, 1),
-            expires_at=date(2026, 2, 1),
-        ))
+        await db.save_discovered_ticker(
+            DiscoveredTickerRow(
+                tenant_id="default",
+                ticker="OLD",
+                source="test",
+                rationale="test",
+                status="approved",
+                proposed_at=date(2026, 1, 1),
+                expires_at=date(2026, 2, 1),
+            )
+        )
 
         count = await discovery.expire_old(today=date(2026, 2, 5))
         assert count == 1
@@ -362,18 +383,18 @@ class TestExpiry:
         row = await db.get_discovered_ticker("OLD")
         assert row.status == "expired"
 
-    async def test_does_not_expire_future_tickers(
-        self, discovery: TickerDiscovery, db: Database
-    ) -> None:
-        await db.save_discovered_ticker(DiscoveredTickerRow(
-            tenant_id="default",
-            ticker="FRESH",
-            source="test",
-            rationale="test",
-            status="approved",
-            proposed_at=date(2026, 2, 1),
-            expires_at=date(2026, 3, 15),
-        ))
+    async def test_does_not_expire_future_tickers(self, discovery: TickerDiscovery, db: Database) -> None:
+        await db.save_discovered_ticker(
+            DiscoveredTickerRow(
+                tenant_id="default",
+                ticker="FRESH",
+                source="test",
+                rationale="test",
+                status="approved",
+                proposed_at=date(2026, 2, 1),
+                expires_at=date(2026, 3, 15),
+            )
+        )
 
         count = await discovery.expire_old(today=date(2026, 2, 5))
         assert count == 0
@@ -381,28 +402,30 @@ class TestExpiry:
         row = await db.get_discovered_ticker("FRESH")
         assert row.status == "approved"
 
-    async def test_per_tenant_expiry(
-        self, discovery: TickerDiscovery, db: Database
-    ) -> None:
+    async def test_per_tenant_expiry(self, discovery: TickerDiscovery, db: Database) -> None:
         """Expiry only affects the specified tenant."""
-        await db.save_discovered_ticker(DiscoveredTickerRow(
-            tenant_id="t-a",
-            ticker="OLD_A",
-            source="test",
-            rationale="test",
-            status="approved",
-            proposed_at=date(2026, 1, 1),
-            expires_at=date(2026, 2, 1),
-        ))
-        await db.save_discovered_ticker(DiscoveredTickerRow(
-            tenant_id="t-b",
-            ticker="OLD_B",
-            source="test",
-            rationale="test",
-            status="approved",
-            proposed_at=date(2026, 1, 1),
-            expires_at=date(2026, 2, 1),
-        ))
+        await db.save_discovered_ticker(
+            DiscoveredTickerRow(
+                tenant_id="t-a",
+                ticker="OLD_A",
+                source="test",
+                rationale="test",
+                status="approved",
+                proposed_at=date(2026, 1, 1),
+                expires_at=date(2026, 2, 1),
+            )
+        )
+        await db.save_discovered_ticker(
+            DiscoveredTickerRow(
+                tenant_id="t-b",
+                ticker="OLD_B",
+                source="test",
+                rationale="test",
+                status="approved",
+                proposed_at=date(2026, 1, 1),
+                expires_at=date(2026, 2, 1),
+            )
+        )
 
         count = await discovery.expire_old(today=date(2026, 2, 5), tenant_id="t-a")
         assert count == 1
@@ -438,15 +461,17 @@ class TestDatabaseCRUD:
         assert stored.market_cap == 50e9
 
     async def test_update_status(self, db: Database) -> None:
-        await db.save_discovered_ticker(DiscoveredTickerRow(
-            tenant_id="default",
-            ticker="PLTR",
-            source="agent",
-            rationale="test",
-            status="proposed",
-            proposed_at=date(2026, 2, 5),
-            expires_at=date(2026, 3, 7),
-        ))
+        await db.save_discovered_ticker(
+            DiscoveredTickerRow(
+                tenant_id="default",
+                ticker="PLTR",
+                source="agent",
+                rationale="test",
+                status="proposed",
+                proposed_at=date(2026, 2, 5),
+                expires_at=date(2026, 3, 7),
+            )
+        )
 
         await db.update_discovered_ticker_status("PLTR", "approved")
         row = await db.get_discovered_ticker("PLTR")
@@ -454,48 +479,56 @@ class TestDatabaseCRUD:
 
     async def test_get_approved_tickers(self, db: Database) -> None:
         for status in ("proposed", "approved", "rejected"):
-            await db.save_discovered_ticker(DiscoveredTickerRow(
-                tenant_id="default",
-                ticker=f"T{status[0].upper()}",
-                source="test",
-                rationale="test",
-                status=status,
-                proposed_at=date(2026, 2, 5),
-                expires_at=date(2026, 3, 7),
-            ))
+            await db.save_discovered_ticker(
+                DiscoveredTickerRow(
+                    tenant_id="default",
+                    ticker=f"T{status[0].upper()}",
+                    source="test",
+                    rationale="test",
+                    status=status,
+                    proposed_at=date(2026, 2, 5),
+                    expires_at=date(2026, 3, 7),
+                )
+            )
 
         approved = await db.get_approved_tickers()
         assert len(approved) == 1
         assert approved[0].ticker == "TA"
 
     async def test_get_all_approved_all_tenants(self, db: Database) -> None:
-        await db.save_discovered_ticker(DiscoveredTickerRow(
-            tenant_id="t-a",
-            ticker="PLTR",
-            source="test",
-            rationale="test",
-            status="approved",
-            proposed_at=date(2026, 2, 5),
-            expires_at=date(2026, 3, 7),
-        ))
-        await db.save_discovered_ticker(DiscoveredTickerRow(
-            tenant_id="t-b",
-            ticker="ORCL",
-            source="test",
-            rationale="test",
-            status="approved",
-            proposed_at=date(2026, 2, 5),
-            expires_at=date(2026, 3, 7),
-        ))
-        await db.save_discovered_ticker(DiscoveredTickerRow(
-            tenant_id="t-b",
-            ticker="REJECTED",
-            source="test",
-            rationale="test",
-            status="rejected",
-            proposed_at=date(2026, 2, 5),
-            expires_at=date(2026, 3, 7),
-        ))
+        await db.save_discovered_ticker(
+            DiscoveredTickerRow(
+                tenant_id="t-a",
+                ticker="PLTR",
+                source="test",
+                rationale="test",
+                status="approved",
+                proposed_at=date(2026, 2, 5),
+                expires_at=date(2026, 3, 7),
+            )
+        )
+        await db.save_discovered_ticker(
+            DiscoveredTickerRow(
+                tenant_id="t-b",
+                ticker="ORCL",
+                source="test",
+                rationale="test",
+                status="approved",
+                proposed_at=date(2026, 2, 5),
+                expires_at=date(2026, 3, 7),
+            )
+        )
+        await db.save_discovered_ticker(
+            DiscoveredTickerRow(
+                tenant_id="t-b",
+                ticker="REJECTED",
+                source="test",
+                rationale="test",
+                status="rejected",
+                proposed_at=date(2026, 2, 5),
+                expires_at=date(2026, 3, 7),
+            )
+        )
 
         all_approved = await db.get_all_approved_tickers_all_tenants()
         tickers = {r.ticker for r in all_approved}
@@ -503,15 +536,17 @@ class TestDatabaseCRUD:
 
     async def test_get_all_discovered_tickers(self, db: Database) -> None:
         for status in ("proposed", "approved", "rejected"):
-            await db.save_discovered_ticker(DiscoveredTickerRow(
-                tenant_id="default",
-                ticker=f"T{status[0].upper()}",
-                source="test",
-                rationale="test",
-                status=status,
-                proposed_at=date(2026, 2, 5),
-                expires_at=date(2026, 3, 7),
-            ))
+            await db.save_discovered_ticker(
+                DiscoveredTickerRow(
+                    tenant_id="default",
+                    ticker=f"T{status[0].upper()}",
+                    source="test",
+                    rationale="test",
+                    status=status,
+                    proposed_at=date(2026, 2, 5),
+                    expires_at=date(2026, 3, 7),
+                )
+            )
 
         # All statuses
         all_rows = await db.get_all_discovered_tickers()
@@ -523,24 +558,28 @@ class TestDatabaseCRUD:
         assert proposed[0].ticker == "TP"
 
     async def test_get_all_discovered_tenant_scoped(self, db: Database) -> None:
-        await db.save_discovered_ticker(DiscoveredTickerRow(
-            tenant_id="t-a",
-            ticker="PLTR",
-            source="test",
-            rationale="test",
-            status="proposed",
-            proposed_at=date(2026, 2, 5),
-            expires_at=date(2026, 3, 7),
-        ))
-        await db.save_discovered_ticker(DiscoveredTickerRow(
-            tenant_id="t-b",
-            ticker="ORCL",
-            source="test",
-            rationale="test",
-            status="proposed",
-            proposed_at=date(2026, 2, 5),
-            expires_at=date(2026, 3, 7),
-        ))
+        await db.save_discovered_ticker(
+            DiscoveredTickerRow(
+                tenant_id="t-a",
+                ticker="PLTR",
+                source="test",
+                rationale="test",
+                status="proposed",
+                proposed_at=date(2026, 2, 5),
+                expires_at=date(2026, 3, 7),
+            )
+        )
+        await db.save_discovered_ticker(
+            DiscoveredTickerRow(
+                tenant_id="t-b",
+                ticker="ORCL",
+                source="test",
+                rationale="test",
+                status="proposed",
+                proposed_at=date(2026, 2, 5),
+                expires_at=date(2026, 3, 7),
+            )
+        )
 
         t_a = await db.get_all_discovered_tickers(tenant_id="t-a")
         assert len(t_a) == 1
@@ -639,8 +678,11 @@ class TestSendTickerProposal:
         notifier = TelegramNotifier(bot_token="test-token", chat_id="")
         row = DiscoveredTickerRow(
             tenant_id="default",
-            ticker="PLTR", source="agent", rationale="test",
-            status="proposed", proposed_at=date(2026, 2, 5),
+            ticker="PLTR",
+            source="agent",
+            rationale="test",
+            status="proposed",
+            proposed_at=date(2026, 2, 5),
             expires_at=date(2026, 3, 7),
         )
         result = await notifier.send_ticker_proposal(row, "req123")
@@ -694,15 +736,20 @@ class TestPortfolioBExtraTickers:
 
         # Without extra_tickers, PLTR is rejected
         trades_without = strategy.agent_response_to_trades(
-            response, total_value=66_000.0, current_positions={},
+            response,
+            total_value=66_000.0,
+            current_positions={},
             latest_prices=prices,
         )
         assert len(trades_without) == 0
 
         # With extra_tickers, PLTR is accepted
         trades_with = strategy.agent_response_to_trades(
-            response, total_value=66_000.0, current_positions={},
-            latest_prices=prices, extra_tickers=["PLTR"],
+            response,
+            total_value=66_000.0,
+            current_positions={},
+            latest_prices=prices,
+            extra_tickers=["PLTR"],
         )
         assert len(trades_with) == 1
         assert trades_with[0].ticker == "PLTR"

@@ -12,8 +12,28 @@ def closes() -> pd.DataFrame:
     """Synthetic close prices for Portfolio A universe tickers."""
     np.random.seed(42)
     dates = pd.bdate_range(end="2026-02-05", periods=80)
-    tickers = ["XLK", "XLF", "XLV", "XLE", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE",
-               "QQQ", "SMH", "XBI", "IWM", "EFA", "EEM", "TLT", "HYG", "GDX", "ARKK"]
+    tickers = [
+        "XLK",
+        "XLF",
+        "XLV",
+        "XLE",
+        "XLI",
+        "XLY",
+        "XLP",
+        "XLU",
+        "XLB",
+        "XLRE",
+        "QQQ",
+        "SMH",
+        "XBI",
+        "IWM",
+        "EFA",
+        "EEM",
+        "TLT",
+        "HYG",
+        "GDX",
+        "ARKK",
+    ]
     data = {}
     for i, t in enumerate(tickers):
         drift = 0.5 - i * 0.05  # XLK has strongest trend, ARKK weakest

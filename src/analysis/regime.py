@@ -85,9 +85,7 @@ class RegimeClassifier:
         # Compute metrics
         current_price = float(spy.iloc[-1])
         sma200 = float(spy.rolling(200).mean().iloc[-1]) if len(spy) >= 200 else None
-        spy_vs_sma200 = (
-            (current_price - sma200) / sma200 if sma200 and not np.isnan(sma200) else None
-        )
+        spy_vs_sma200 = (current_price - sma200) / sma200 if sma200 and not np.isnan(sma200) else None
 
         high_252 = float(spy.tail(252).max())
         drawdown = ((current_price - high_252) / high_252) * 100
@@ -97,7 +95,11 @@ class RegimeClassifier:
 
         # Classification (priority order)
         regime, summary = self._classify_regime(
-            spy_vs_sma200, drawdown, vix, breadth_pct, sma200,
+            spy_vs_sma200,
+            drawdown,
+            vix,
+            breadth_pct,
+            sma200,
         )
 
         return RegimeResult(
@@ -131,40 +133,35 @@ class RegimeClassifier:
         if vix is not None and vix > 35 and not above_sma200:
             return (
                 MarketRegime.CRISIS,
-                f"CRISIS: VIX {vix:.0f}, SPY {spy_vs_sma200:+.1%} vs SMA200. "
-                f"Drawdown {drawdown:+.1f}%.",
+                f"CRISIS: VIX {vix:.0f}, SPY {spy_vs_sma200:+.1%} vs SMA200. Drawdown {drawdown:+.1f}%.",
             )
 
         # BEAR: below SMA200 AND VIX > 25
         if not above_sma200 and vix is not None and vix > 25:
             return (
                 MarketRegime.BEAR,
-                f"BEAR: SPY {spy_vs_sma200:+.1%} below SMA200, VIX {vix:.0f}. "
-                f"Drawdown {drawdown:+.1f}%.",
+                f"BEAR: SPY {spy_vs_sma200:+.1%} below SMA200, VIX {vix:.0f}. Drawdown {drawdown:+.1f}%.",
             )
 
         # Below SMA200 but VIX unknown → ambiguous → CONSOLIDATION
         if not above_sma200 and vix is None:
             return (
                 MarketRegime.CONSOLIDATION,
-                f"SPY below SMA200 ({spy_vs_sma200:+.1%}) but VIX unavailable "
-                f"— defaulting to CONSOLIDATION.",
+                f"SPY below SMA200 ({spy_vs_sma200:+.1%}) but VIX unavailable — defaulting to CONSOLIDATION.",
             )
 
         # Below SMA200 but VIX <= 25 → mild bear → CONSOLIDATION
         if not above_sma200:
             return (
                 MarketRegime.CONSOLIDATION,
-                f"SPY {spy_vs_sma200:+.1%} below SMA200, VIX {vix:.0f} "
-                f"(moderate) — CONSOLIDATION.",
+                f"SPY {spy_vs_sma200:+.1%} below SMA200, VIX {vix:.0f} (moderate) — CONSOLIDATION.",
             )
 
         # CORRECTION: above SMA200 but drawdown < -5%
         if drawdown < -5:
             return (
                 MarketRegime.CORRECTION,
-                f"CORRECTION: SPY above SMA200 ({spy_vs_sma200:+.1%}) but "
-                f"drawdown {drawdown:+.1f}% from 52w high.",
+                f"CORRECTION: SPY above SMA200 ({spy_vs_sma200:+.1%}) but drawdown {drawdown:+.1f}% from 52w high.",
             )
 
         # BULL: above SMA200 AND drawdown > -5% AND (VIX < 20 or unknown)
@@ -181,8 +178,7 @@ class RegimeClassifier:
         # Everything else → CONSOLIDATION (e.g. above SMA200, VIX 20-25, mild drawdown)
         return (
             MarketRegime.CONSOLIDATION,
-            f"SPY {spy_vs_sma200:+.1%} above SMA200, VIX {vix:.0f}, "
-            f"drawdown {drawdown:+.1f}% — CONSOLIDATION.",
+            f"SPY {spy_vs_sma200:+.1%} above SMA200, VIX {vix:.0f}, drawdown {drawdown:+.1f}% — CONSOLIDATION.",
         )
 
     def _compute_breadth(self, closes: pd.DataFrame) -> float | None:

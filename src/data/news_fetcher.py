@@ -60,19 +60,17 @@ class NewsFetcher:
                     seen_titles.add(title)
 
                     published_ts = article.get("providerPublishTime")
-                    published = (
-                        datetime.fromtimestamp(published_ts)
-                        if published_ts
-                        else None
-                    )
+                    published = datetime.fromtimestamp(published_ts) if published_ts else None
 
-                    all_articles.append({
-                        "ticker": ticker,
-                        "title": title,
-                        "link": article.get("link", ""),
-                        "publisher": article.get("publisher", ""),
-                        "published": published,
-                    })
+                    all_articles.append(
+                        {
+                            "ticker": ticker,
+                            "title": title,
+                            "link": article.get("link", ""),
+                            "publisher": article.get("publisher", ""),
+                            "published": published,
+                        }
+                    )
             except Exception as e:
                 log.warning("news_fetch_failed", ticker=ticker, error=str(e))
 
@@ -103,9 +101,7 @@ class NewsFetcher:
                 }
                 pub = article.get("published")
                 if pub is not None:
-                    meta["published_at"] = (
-                        pub.isoformat() if hasattr(pub, "isoformat") else str(pub)
-                    )
+                    meta["published_at"] = pub.isoformat() if hasattr(pub, "isoformat") else str(pub)
                 self.vector_store.add_news(
                     doc_id=doc_id,
                     text=title,
@@ -115,14 +111,16 @@ class NewsFetcher:
                 log.warning("chromadb_store_failed", doc_id=doc_id, error=str(e))
 
             # Build DB row
-            rows.append(NewsLogRow(
-                ticker=article["ticker"],
-                headline=title,
-                source=article.get("publisher", ""),
-                url=article.get("link", ""),
-                published_at=article.get("published"),
-                embedding_id=doc_id,
-            ))
+            rows.append(
+                NewsLogRow(
+                    ticker=article["ticker"],
+                    headline=title,
+                    source=article.get("publisher", ""),
+                    url=article.get("link", ""),
+                    published_at=article.get("published"),
+                    embedding_id=doc_id,
+                )
+            )
 
         log.info("news_stored", count=len(rows))
         return rows
@@ -146,12 +144,14 @@ class NewsFetcher:
             dists = results["distances"][0] if results.get("distances") else [0.0] * len(docs)
 
             for doc, meta, dist in zip(docs, metas, dists):
-                articles.append({
-                    "title": doc,
-                    "ticker": meta.get("ticker", ""),
-                    "publisher": meta.get("publisher", ""),
-                    "distance": dist,
-                })
+                articles.append(
+                    {
+                        "title": doc,
+                        "ticker": meta.get("ticker", ""),
+                        "publisher": meta.get("publisher", ""),
+                        "distance": dist,
+                    }
+                )
 
         return articles
 
@@ -202,7 +202,6 @@ class NewsFetcher:
 
         return "\n".join(lines)
 
-
     def get_targeted_context(
         self,
         tickers: list[str],
@@ -230,7 +229,8 @@ class NewsFetcher:
         for ticker in tickers:
             try:
                 results = self.search_relevant(
-                    f"{ticker} news", n_results=n_per_ticker,
+                    f"{ticker} news",
+                    n_results=n_per_ticker,
                 )
                 for article in results:
                     title = article.get("title", "")
@@ -240,7 +240,8 @@ class NewsFetcher:
             except Exception as e:
                 log.warning(
                     "targeted_news_search_failed",
-                    ticker=ticker, error=str(e),
+                    ticker=ticker,
+                    error=str(e),
                 )
 
         if not selected:
@@ -289,7 +290,8 @@ class NewsFetcher:
         for ticker in held_tickers:
             try:
                 results = self.search_relevant(
-                    f"{ticker} recent developments", n_results=n_per_ticker,
+                    f"{ticker} recent developments",
+                    n_results=n_per_ticker,
                 )
                 for article in results:
                     title = article.get("title", "")
@@ -306,7 +308,8 @@ class NewsFetcher:
             except Exception as e:
                 log.warning(
                     "historical_context_ticker_failed",
-                    ticker=ticker, error=str(e),
+                    ticker=ticker,
+                    error=str(e),
                 )
 
         if not selected:

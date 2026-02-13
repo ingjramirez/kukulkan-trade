@@ -23,13 +23,16 @@ def _make_market_data(tickers: list[str], days: int = 250) -> dict[str, pd.DataF
     for i, t in enumerate(tickers):
         drift = 0.2 - i * 0.01
         close = 100 + np.cumsum(np.random.normal(drift, 1.5, days))
-        df = pd.DataFrame({
-            "Open": close * 0.999,
-            "High": close * 1.01,
-            "Low": close * 0.99,
-            "Close": close,
-            "Volume": np.random.uniform(1e6, 1e8, days),
-        }, index=dates)
+        df = pd.DataFrame(
+            {
+                "Open": close * 0.999,
+                "High": close * 1.01,
+                "Low": close * 0.99,
+                "Close": close,
+                "Volume": np.random.uniform(1e6, 1e8, days),
+            },
+            index=dates,
+        )
         data[t] = df
     return data
 
@@ -47,16 +50,42 @@ async def orchestrator():
 class TestOrchestrator:
     @patch("src.orchestrator.MacroDataFetcher")
     @patch("src.data.market_data.yf")
-    async def test_run_daily_portfolios_a_and_b(
-        self, mock_yf, mock_macro_cls, orchestrator: Orchestrator
-    ) -> None:
+    async def test_run_daily_portfolios_a_and_b(self, mock_yf, mock_macro_cls, orchestrator: Orchestrator) -> None:
         """Test that portfolios A and B run through the pipeline with mocked data."""
         # Create synthetic data for A and B universe tickers
         tickers = [
-            "XLK", "XLF", "XLV", "XLE", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE",
-            "QQQ", "SMH", "XBI", "IWM", "EFA", "EEM", "TLT", "HYG", "GDX", "ARKK",
-            "SH", "PSQ", "TBF", "GLD", "SLV", "USO", "IBIT",
-            "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA",
+            "XLK",
+            "XLF",
+            "XLV",
+            "XLE",
+            "XLI",
+            "XLY",
+            "XLP",
+            "XLU",
+            "XLB",
+            "XLRE",
+            "QQQ",
+            "SMH",
+            "XBI",
+            "IWM",
+            "EFA",
+            "EEM",
+            "TLT",
+            "HYG",
+            "GDX",
+            "ARKK",
+            "SH",
+            "PSQ",
+            "TBF",
+            "GLD",
+            "SLV",
+            "USO",
+            "IBIT",
+            "AAPL",
+            "MSFT",
+            "GOOGL",
+            "AMZN",
+            "NVDA",
         ]
         fake_data = _make_market_data(tickers)
 
@@ -97,9 +126,7 @@ class TestOrchestrator:
             assert portfolio is not None
 
     @patch("src.orchestrator.MacroDataFetcher")
-    async def test_handles_empty_market_data(
-        self, mock_macro_cls, orchestrator: Orchestrator
-    ) -> None:
+    async def test_handles_empty_market_data(self, mock_macro_cls, orchestrator: Orchestrator) -> None:
         """Pipeline should handle empty market data gracefully."""
         orchestrator._market_data.fetch_universe = AsyncMock(return_value={})
 
@@ -110,9 +137,7 @@ class TestOrchestrator:
 
     @patch("src.orchestrator.MacroDataFetcher")
     @patch("src.data.market_data.yf")
-    async def test_snapshots_recorded(
-        self, mock_yf, mock_macro_cls, orchestrator: Orchestrator
-    ) -> None:
+    async def test_snapshots_recorded(self, mock_yf, mock_macro_cls, orchestrator: Orchestrator) -> None:
         """Verify that daily snapshots are taken for all portfolios."""
         tickers = ["XLK", "XLF", "QQQ", "GLD", "IBIT"]
         fake_data = _make_market_data(tickers)
@@ -144,9 +169,7 @@ class TestOrchestrator:
 
     @patch("src.orchestrator.MacroDataFetcher")
     @patch("src.data.market_data.yf")
-    async def test_agent_decision_persisted(
-        self, mock_yf, mock_macro_cls, orchestrator: Orchestrator
-    ) -> None:
+    async def test_agent_decision_persisted(self, mock_yf, mock_macro_cls, orchestrator: Orchestrator) -> None:
         """Verify that Claude's decision is saved to the database."""
         tickers = ["XLK", "XLF", "QQQ", "GLD", "IBIT"]
         fake_data = _make_market_data(tickers)
@@ -173,6 +196,7 @@ class TestOrchestrator:
         from sqlalchemy import select
 
         from src.storage.models import AgentDecisionRow
+
         async with orchestrator._db.session() as s:
             result = await s.execute(select(AgentDecisionRow))
             decisions = result.scalars().all()
@@ -189,13 +213,29 @@ class TestPortfolioAReason:
 
     @patch("src.orchestrator.MacroDataFetcher")
     @patch("src.data.market_data.yf")
-    async def test_holding_target_returns_reason(
-        self, mock_yf, mock_macro_cls, orchestrator: Orchestrator
-    ) -> None:
+    async def test_holding_target_returns_reason(self, mock_yf, mock_macro_cls, orchestrator: Orchestrator) -> None:
         """When target is already held, reason explains hold."""
         tickers = [
-            "XLK", "XLF", "XLV", "XLE", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE",
-            "QQQ", "SMH", "XBI", "IWM", "EFA", "EEM", "TLT", "HYG", "GDX", "ARKK",
+            "XLK",
+            "XLF",
+            "XLV",
+            "XLE",
+            "XLI",
+            "XLY",
+            "XLP",
+            "XLU",
+            "XLB",
+            "XLRE",
+            "QQQ",
+            "SMH",
+            "XBI",
+            "IWM",
+            "EFA",
+            "EEM",
+            "TLT",
+            "HYG",
+            "GDX",
+            "ARKK",
         ]
         fake_data = _make_market_data(tickers)
         closes = pd.DataFrame({t: df["Close"] for t, df in fake_data.items()}).sort_index()
@@ -207,24 +247,44 @@ class TestPortfolioAReason:
         # Initialize portfolio and add position for target
         await orchestrator._executor.initialize_portfolios()
         await orchestrator._db.upsert_position(
-            portfolio="A", ticker=target, shares=100, avg_price=100.0,
+            portfolio="A",
+            ticker=target,
+            shares=100,
+            avg_price=100.0,
         )
 
         trades, reason = await orchestrator._run_portfolio_a(
-            closes, date(2026, 2, 5),
+            closes,
+            date(2026, 2, 5),
         )
         assert trades == []
         assert f"Holding momentum target {target}" in reason
 
     @patch("src.orchestrator.MacroDataFetcher")
     @patch("src.data.market_data.yf")
-    async def test_rebalance_returns_reason(
-        self, mock_yf, mock_macro_cls, orchestrator: Orchestrator
-    ) -> None:
+    async def test_rebalance_returns_reason(self, mock_yf, mock_macro_cls, orchestrator: Orchestrator) -> None:
         """When trades are generated, reason mentions rebalancing."""
         tickers = [
-            "XLK", "XLF", "XLV", "XLE", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE",
-            "QQQ", "SMH", "XBI", "IWM", "EFA", "EEM", "TLT", "HYG", "GDX", "ARKK",
+            "XLK",
+            "XLF",
+            "XLV",
+            "XLE",
+            "XLI",
+            "XLY",
+            "XLP",
+            "XLU",
+            "XLB",
+            "XLRE",
+            "QQQ",
+            "SMH",
+            "XBI",
+            "IWM",
+            "EFA",
+            "EEM",
+            "TLT",
+            "HYG",
+            "GDX",
+            "ARKK",
         ]
         fake_data = _make_market_data(tickers)
         closes = pd.DataFrame({t: df["Close"] for t, df in fake_data.items()}).sort_index()
@@ -233,7 +293,8 @@ class TestPortfolioAReason:
         await orchestrator._executor.initialize_portfolios()
 
         trades, reason = await orchestrator._run_portfolio_a(
-            closes, date(2026, 2, 5),
+            closes,
+            date(2026, 2, 5),
         )
         assert len(trades) > 0
         assert "Rebalancing to" in reason
@@ -264,9 +325,7 @@ class TestComplexityRouting:
 
     @patch("src.orchestrator.MacroDataFetcher")
     @patch("src.data.market_data.yf")
-    async def test_low_complexity_uses_sonnet(
-        self, mock_yf, mock_macro_cls, orchestrator: Orchestrator
-    ) -> None:
+    async def test_low_complexity_uses_sonnet(self, mock_yf, mock_macro_cls, orchestrator: Orchestrator) -> None:
         """Low complexity → no escalation, default Sonnet used."""
         tickers = ["XLK", "XLF", "QQQ", "GLD", "IBIT"]
         self._setup_orchestrator(orchestrator, tickers)
@@ -291,12 +350,11 @@ class TestComplexityRouting:
 
         # Force high complexity via detector mock
         escalation = ComplexityResult(
-            score=70, should_escalate=True,
+            score=70,
+            should_escalate=True,
             signals=["VIX elevated at 35.0"],
         )
-        orchestrator._complexity_detector.evaluate = MagicMock(
-            return_value=escalation
-        )
+        orchestrator._complexity_detector.evaluate = MagicMock(return_value=escalation)
         # Ensure notifier is not configured
         orchestrator._notifier._token = ""
         orchestrator._notifier._chat_id = ""
@@ -309,9 +367,7 @@ class TestComplexityRouting:
 
     @patch("src.orchestrator.MacroDataFetcher")
     @patch("src.data.market_data.yf")
-    async def test_user_approves_opus(
-        self, mock_yf, mock_macro_cls, orchestrator: Orchestrator
-    ) -> None:
+    async def test_user_approves_opus(self, mock_yf, mock_macro_cls, orchestrator: Orchestrator) -> None:
         """High complexity + Telegram approval = Opus used."""
         tickers = ["XLK", "XLF", "QQQ", "GLD", "IBIT"]
         mock_response = self._setup_orchestrator(orchestrator, tickers)
@@ -319,12 +375,11 @@ class TestComplexityRouting:
 
         # Force high complexity via detector mock
         escalation = ComplexityResult(
-            score=70, should_escalate=True,
+            score=70,
+            should_escalate=True,
             signals=["VIX elevated at 35.0"],
         )
-        orchestrator._complexity_detector.evaluate = MagicMock(
-            return_value=escalation
-        )
+        orchestrator._complexity_detector.evaluate = MagicMock(return_value=escalation)
         # Configure Telegram
         orchestrator._notifier._token = "test-token"
         orchestrator._notifier._chat_id = "12345"
@@ -340,21 +395,18 @@ class TestComplexityRouting:
 
     @patch("src.orchestrator.MacroDataFetcher")
     @patch("src.data.market_data.yf")
-    async def test_user_chooses_skip(
-        self, mock_yf, mock_macro_cls, orchestrator: Orchestrator
-    ) -> None:
+    async def test_user_chooses_skip(self, mock_yf, mock_macro_cls, orchestrator: Orchestrator) -> None:
         """User chooses Skip → no trades from Portfolio B."""
         tickers = ["XLK", "XLF", "QQQ", "GLD", "IBIT"]
         self._setup_orchestrator(orchestrator, tickers)
 
         # Force high complexity via detector mock
         escalation = ComplexityResult(
-            score=70, should_escalate=True,
+            score=70,
+            should_escalate=True,
             signals=["VIX elevated at 35.0"],
         )
-        orchestrator._complexity_detector.evaluate = MagicMock(
-            return_value=escalation
-        )
+        orchestrator._complexity_detector.evaluate = MagicMock(return_value=escalation)
         orchestrator._notifier._token = "test-token"
         orchestrator._notifier._chat_id = "12345"
 
@@ -369,21 +421,18 @@ class TestComplexityRouting:
 
     @patch("src.orchestrator.MacroDataFetcher")
     @patch("src.data.market_data.yf")
-    async def test_model_used_recorded_in_decision(
-        self, mock_yf, mock_macro_cls, orchestrator: Orchestrator
-    ) -> None:
+    async def test_model_used_recorded_in_decision(self, mock_yf, mock_macro_cls, orchestrator: Orchestrator) -> None:
         """Verify that model_used in AgentDecisionRow reflects the model actually used."""
         tickers = ["XLK", "XLF", "QQQ", "GLD", "IBIT"]
         mock_response = self._setup_orchestrator(orchestrator, tickers)
         mock_response["_model"] = "claude-opus-4-6"
 
         escalation = ComplexityResult(
-            score=70, should_escalate=True,
+            score=70,
+            should_escalate=True,
             signals=["VIX elevated at 35.0"],
         )
-        orchestrator._complexity_detector.evaluate = MagicMock(
-            return_value=escalation
-        )
+        orchestrator._complexity_detector.evaluate = MagicMock(return_value=escalation)
         orchestrator._notifier._token = "test-token"
         orchestrator._notifier._chat_id = "12345"
         orchestrator._notifier.send_approval_request = AsyncMock(return_value=42)
@@ -394,6 +443,7 @@ class TestComplexityRouting:
         from sqlalchemy import select
 
         from src.storage.models import AgentDecisionRow
+
         async with orchestrator._db.session() as s:
             result = await s.execute(select(AgentDecisionRow))
             decisions = result.scalars().all()

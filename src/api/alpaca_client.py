@@ -97,7 +97,10 @@ async def get_portfolio_history(
 
     try:
         data = await asyncio.to_thread(
-            _fetch_portfolio_history, period, timeframe, extended_hours,
+            _fetch_portfolio_history,
+            period,
+            timeframe,
+            extended_hours,
         )
         _history_cache[cache_key] = data
         _history_cache_ts[cache_key] = now
@@ -107,7 +110,9 @@ async def get_portfolio_history(
 
 
 def _fetch_portfolio_history(
-    period: str, timeframe: str, extended_hours: bool,
+    period: str,
+    timeframe: str,
+    extended_hours: bool,
 ) -> dict:
     """Sync Alpaca portfolio history call (run in thread)."""
     from alpaca.trading.client import TradingClient

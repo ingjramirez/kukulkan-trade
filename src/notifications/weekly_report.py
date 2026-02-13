@@ -15,7 +15,9 @@ class WeeklyReporter:
     """Generates and sends weekly performance summaries."""
 
     def __init__(
-        self, db: Database, notifier: TelegramNotifier,
+        self,
+        db: Database,
+        notifier: TelegramNotifier,
         tenant_id: str = "default",
         allocations: TenantAllocations | None = None,
         run_portfolio_a: bool = True,
@@ -49,17 +51,16 @@ class WeeklyReporter:
 
         sections: list[str] = []
         sections.append("Weekly Report")
-        sections.append(
-            f"{week_start.strftime('%b %d')} - "
-            f"{report_date.strftime('%b %d, %Y')}"
-        )
+        sections.append(f"{week_start.strftime('%b %d')} - {report_date.strftime('%b %d, %Y')}")
         sections.append("")
 
         # Portfolio summaries (only enabled portfolios)
         active = self._active_portfolios()
         for portfolio_name in active:
             section = await self._portfolio_summary(
-                portfolio_name, week_start, report_date,
+                portfolio_name,
+                week_start,
+                report_date,
             )
             sections.append(section)
 
@@ -81,25 +82,24 @@ class WeeklyReporter:
         return report
 
     async def _portfolio_summary(
-        self, portfolio_name: str, week_start: date, week_end: date,
+        self,
+        portfolio_name: str,
+        week_start: date,
+        week_end: date,
     ) -> str:
         """Summarize a portfolio's weekly performance."""
         snapshots = await self._db.get_snapshots(
-            portfolio_name, tenant_id=self._tenant_id,
+            portfolio_name,
+            tenant_id=self._tenant_id,
         )
         if not snapshots:
             return f"Portfolio {portfolio_name}: No data yet"
 
-        week_snapshots = [
-            s for s in snapshots if week_start <= s.date <= week_end
-        ]
+        week_snapshots = [s for s in snapshots if week_start <= s.date <= week_end]
 
         if len(week_snapshots) < 2:
             latest = snapshots[-1]
-            return (
-                f"Portfolio {portfolio_name}: "
-                f"${latest.total_value:,.0f} (insufficient data for weekly return)"
-            )
+            return f"Portfolio {portfolio_name}: ${latest.total_value:,.0f} (insufficient data for weekly return)"
 
         start_val = week_snapshots[0].total_value
         end_val = week_snapshots[-1].total_value
@@ -122,23 +122,15 @@ class WeeklyReporter:
                     close = close.iloc[:, 0]  # flatten multi-level column
                 spy_start_price = float(close.iloc[0])
                 spy_end_price = float(close.iloc[-1])
-                spy_week_return = (
-                    (spy_end_price - spy_start_price) / spy_start_price
-                ) * 100
+                spy_week_return = ((spy_end_price - spy_start_price) / spy_start_price) * 100
                 alpha = week_return - spy_week_return
-                spy_text = (
-                    f"\n  vs SPY: {spy_week_return:+.2f}% | "
-                    f"Alpha: {alpha:+.2f}%"
-                )
+                spy_text = f"\n  vs SPY: {spy_week_return:+.2f}% | Alpha: {alpha:+.2f}%"
         except Exception:
             pass
 
         # Count trades this week
         trades = await self._db.get_trades(portfolio_name, tenant_id=self._tenant_id)
-        week_trades = [
-            t for t in trades
-            if week_start <= t.executed_at.date() <= week_end
-        ]
+        week_trades = [t for t in trades if week_start <= t.executed_at.date() <= week_end]
 
         return (
             f"Portfolio {portfolio_name}\n"
@@ -158,7 +150,9 @@ class WeeklyReporter:
         return active or ["A", "B"]  # fallback: show both if none set
 
     async def _trades_summary(
-        self, week_start: date, week_end: date,
+        self,
+        week_start: date,
+        week_end: date,
     ) -> str:
         """Find best and worst trades of the week across all portfolios."""
         lines = ["\nTrades of the Week"]
@@ -166,10 +160,7 @@ class WeeklyReporter:
         all_trades = []
         for pname in self._active_portfolios():
             trades = await self._db.get_trades(pname, tenant_id=self._tenant_id)
-            week_trades = [
-                t for t in trades
-                if week_start <= t.executed_at.date() <= week_end
-            ]
+            week_trades = [t for t in trades if week_start <= t.executed_at.date() <= week_end]
             all_trades.extend(week_trades)
 
         if not all_trades:
@@ -185,25 +176,24 @@ class WeeklyReporter:
         # Biggest trade by dollar amount
         biggest = max(all_trades, key=lambda t: t.shares * t.price)
         lines.append(
-            f"  Biggest: {biggest.side} {biggest.shares:.0f}x "
-            f"{biggest.ticker} (${biggest.shares * biggest.price:,.0f})"
+            f"  Biggest: {biggest.side} {biggest.shares:.0f}x {biggest.ticker} (${biggest.shares * biggest.price:,.0f})"
         )
 
         return "\n".join(lines)
 
     async def _agent_summary(
-        self, week_start: date, week_end: date,
+        self,
+        week_start: date,
+        week_end: date,
     ) -> str:
         """Summarize Claude's decisions for Portfolio B."""
         lines = ["\nAI Decisions (Portfolio B)"]
 
         decisions = await self._db.get_agent_decisions(
-            limit=50, tenant_id=self._tenant_id,
+            limit=50,
+            tenant_id=self._tenant_id,
         )
-        week_decisions = [
-            d for d in decisions
-            if week_start <= d.date <= week_end
-        ]
+        week_decisions = [d for d in decisions if week_start <= d.date <= week_end]
 
         if not week_decisions:
             lines.append("  No AI decisions this week")
@@ -245,9 +235,6 @@ class WeeklyReporter:
             initial = self._alloc.for_portfolio(pname)
             total_return = ((current - initial) / initial) * 100
 
-            lines.append(
-                f"  Portfolio {pname}: {drawdown:.1f}% from peak "
-                f"({total_return:+.1f}% total return)"
-            )
+            lines.append(f"  Portfolio {pname}: {drawdown:.1f}% from peak ({total_return:+.1f}% total return)")
 
         return "\n".join(lines)

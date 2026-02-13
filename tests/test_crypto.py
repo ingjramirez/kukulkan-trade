@@ -33,6 +33,7 @@ class TestEncryptDecrypt:
         # They may differ due to timestamp in Fernet token
         # But decrypting both should yield the same value
         from src.utils.crypto import decrypt_value
+
         assert decrypt_value(a) == decrypt_value(b) == "secret"
 
     def test_empty_string(self):
@@ -72,6 +73,7 @@ class TestMissingKey:
     def test_no_key_raises(self, monkeypatch):
         monkeypatch.setattr(settings, "tenant_encryption_key", "")
         from src.utils.crypto import encrypt_value
+
         with pytest.raises(ValueError, match="TENANT_ENCRYPTION_KEY not set"):
             encrypt_value("test")
 
@@ -79,16 +81,20 @@ class TestMissingKey:
 class TestMaskCredential:
     def test_normal_string(self):
         from src.utils.crypto import mask_credential
+
         assert mask_credential("APCA-KEY-12345abc") == "APCA...5abc"
 
     def test_short_string(self):
         from src.utils.crypto import mask_credential
+
         assert mask_credential("short") == "****"
 
     def test_exactly_8_chars(self):
         from src.utils.crypto import mask_credential
+
         assert mask_credential("12345678") == "****"
 
     def test_9_chars(self):
         from src.utils.crypto import mask_credential
+
         assert mask_credential("123456789") == "1234...6789"

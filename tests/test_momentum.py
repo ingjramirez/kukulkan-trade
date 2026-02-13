@@ -17,11 +17,11 @@ def sample_closes() -> pd.DataFrame:
 
     # Create prices with different momentum profiles
     data = {
-        "XLK": 200 + np.cumsum(np.random.normal(0.5, 1, 80)),   # strong uptrend
+        "XLK": 200 + np.cumsum(np.random.normal(0.5, 1, 80)),  # strong uptrend
         "XLF": 40 + np.cumsum(np.random.normal(0.2, 0.5, 80)),  # moderate up
-        "XLE": 80 + np.cumsum(np.random.normal(-0.1, 1, 80)),   # flat/down
-        "XLV": 150 + np.cumsum(np.random.normal(0.3, 0.8, 80)), # moderate up
-        "XLU": 70 + np.cumsum(np.random.normal(-0.3, 0.5, 80)), # downtrend
+        "XLE": 80 + np.cumsum(np.random.normal(-0.1, 1, 80)),  # flat/down
+        "XLV": 150 + np.cumsum(np.random.normal(0.3, 0.8, 80)),  # moderate up
+        "XLU": 70 + np.cumsum(np.random.normal(-0.3, 0.5, 80)),  # downtrend
     }
     return pd.DataFrame(data, index=dates)
 

@@ -14,19 +14,38 @@ from src.agent.strategy_directives import CONSERVATIVE_DIRECTIVE
 # All 28 tickers from Phase 19 (including 5 that already existed)
 PHASE_19_TICKERS = [
     # Fixed Income
-    "BIL", "SHY", "IEF", "AGG", "VTIP", "HYG",
+    "BIL",
+    "SHY",
+    "IEF",
+    "AGG",
+    "VTIP",
+    "HYG",
     # International — Broad
-    "VEA", "VWO", "EFA", "IXUS",
+    "VEA",
+    "VWO",
+    "EFA",
+    "IXUS",
     # International — Regional
-    "FXI", "KWEB", "INDA", "VGK",
+    "FXI",
+    "KWEB",
+    "INDA",
+    "VGK",
     # Real Estate
-    "VNQ", "SCHH",
+    "VNQ",
+    "SCHH",
     # Dividend / Value
-    "SCHD", "VTV", "DVY",
+    "SCHD",
+    "VTV",
+    "DVY",
     # Commodities
-    "DBC", "PDBC",
+    "DBC",
+    "PDBC",
     # Individual Stocks
-    "AVGO", "UNH", "PG", "XOM", "KO",
+    "AVGO",
+    "UNH",
+    "PG",
+    "XOM",
+    "KO",
     # Thematic
     "ICLN",
     # Volatility Hedge
@@ -78,6 +97,4 @@ def test_defensive_tickers_include_bonds():
 def test_conservative_directive_mentions_new_instruments():
     """CONSERVATIVE_DIRECTIVE should reference key new instruments."""
     for ticker in ("BIL", "VEA", "FXI", "SCHD", "VIXY"):
-        assert ticker in CONSERVATIVE_DIRECTIVE, (
-            f"{ticker} not mentioned in CONSERVATIVE_DIRECTIVE"
-        )
+        assert ticker in CONSERVATIVE_DIRECTIVE, f"{ticker} not mentioned in CONSERVATIVE_DIRECTIVE"

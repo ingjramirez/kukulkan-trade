@@ -35,12 +35,17 @@ class PaperTrader:
             existing = await self._db.get_portfolio(name, tenant_id=tenant_id)
             if existing is None:
                 await self._db.upsert_portfolio(
-                    name, cash=cash, total_value=cash, tenant_id=tenant_id,
+                    name,
+                    cash=cash,
+                    total_value=cash,
+                    tenant_id=tenant_id,
                 )
                 log.info("portfolio_initialized", portfolio=name, cash=cash)
 
     async def execute_trades(
-        self, trades: list[TradeSchema], tenant_id: str = "default",
+        self,
+        trades: list[TradeSchema],
+        tenant_id: str = "default",
     ) -> list[TradeSchema]:
         """Execute a batch of trade signals.
 
@@ -72,7 +77,9 @@ class PaperTrader:
         return executed
 
     async def _execute_single(
-        self, trade: TradeSchema, tenant_id: str = "default",
+        self,
+        trade: TradeSchema,
+        tenant_id: str = "default",
     ) -> bool:
         """Execute a single trade, updating positions and cash.
 
@@ -110,12 +117,18 @@ class PaperTrader:
                 total_cost = (existing.shares * existing.avg_price) + cost
                 new_avg = total_cost / total_shares
                 await self._db.upsert_position(
-                    portfolio_name, trade.ticker, total_shares, new_avg,
+                    portfolio_name,
+                    trade.ticker,
+                    total_shares,
+                    new_avg,
                     tenant_id=tenant_id,
                 )
             else:
                 await self._db.upsert_position(
-                    portfolio_name, trade.ticker, trade.shares, trade.price,
+                    portfolio_name,
+                    trade.ticker,
+                    trade.shares,
+                    trade.price,
                     tenant_id=tenant_id,
                 )
 
@@ -141,7 +154,10 @@ class PaperTrader:
 
             remaining = existing.shares - trade.shares
             await self._db.upsert_position(
-                portfolio_name, trade.ticker, remaining, existing.avg_price,
+                portfolio_name,
+                trade.ticker,
+                remaining,
+                existing.avg_price,
                 tenant_id=tenant_id,
             )
 
@@ -195,24 +211,25 @@ class PaperTrader:
         alloc = allocations or DEFAULT_ALLOCATIONS
 
         portfolio = await self._db.get_portfolio(
-            portfolio_name, tenant_id=tenant_id,
+            portfolio_name,
+            tenant_id=tenant_id,
         )
         if portfolio is None:
             return
 
         positions = await self._db.get_positions(
-            portfolio_name, tenant_id=tenant_id,
+            portfolio_name,
+            tenant_id=tenant_id,
         )
-        positions_value = sum(
-            p.shares * prices.get(p.ticker, p.avg_price) for p in positions
-        )
+        positions_value = sum(p.shares * prices.get(p.ticker, p.avg_price) for p in positions)
         total_value = portfolio.cash + positions_value
 
         initial_value = alloc.for_portfolio(portfolio_name)
 
         # Calculate daily return
         snapshots = await self._db.get_snapshots(
-            portfolio_name, tenant_id=tenant_id,
+            portfolio_name,
+            tenant_id=tenant_id,
         )
         daily_return_pct = None
         cumulative_return_pct = None
@@ -237,12 +254,17 @@ class PaperTrader:
 
         # Update position current prices
         await self._db.update_position_prices(
-            portfolio_name, prices, tenant_id=tenant_id,
+            portfolio_name,
+            prices,
+            tenant_id=tenant_id,
         )
 
         # Update portfolio total value
         await self._db.upsert_portfolio(
-            portfolio_name, portfolio.cash, total_value, tenant_id=tenant_id,
+            portfolio_name,
+            portfolio.cash,
+            total_value,
+            tenant_id=tenant_id,
         )
 
         log.info(

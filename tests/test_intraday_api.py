@@ -75,8 +75,12 @@ async def test_intraday_snapshots_empty(admin_client, db):
 async def test_intraday_snapshots_returns_data(admin_client, db):
     now = datetime.now(timezone.utc)
     await db.save_intraday_snapshot(
-        tenant_id="default", portfolio="A", timestamp=now,
-        total_value=35000.0, cash=30000.0, positions_value=5000.0,
+        tenant_id="default",
+        portfolio="A",
+        timestamp=now,
+        total_value=35000.0,
+        cash=30000.0,
+        positions_value=5000.0,
     )
     resp = await admin_client.get("/api/snapshots/intraday")
     assert resp.status_code == 200
@@ -89,12 +93,20 @@ async def test_intraday_snapshots_returns_data(admin_client, db):
 async def test_intraday_snapshots_filter_portfolio(admin_client, db):
     now = datetime.now(timezone.utc)
     await db.save_intraday_snapshot(
-        tenant_id="default", portfolio="A", timestamp=now,
-        total_value=35000.0, cash=30000.0, positions_value=5000.0,
+        tenant_id="default",
+        portfolio="A",
+        timestamp=now,
+        total_value=35000.0,
+        cash=30000.0,
+        positions_value=5000.0,
     )
     await db.save_intraday_snapshot(
-        tenant_id="default", portfolio="B", timestamp=now,
-        total_value=68000.0, cash=60000.0, positions_value=8000.0,
+        tenant_id="default",
+        portfolio="B",
+        timestamp=now,
+        total_value=68000.0,
+        cash=60000.0,
+        positions_value=8000.0,
     )
     resp = await admin_client.get("/api/snapshots/intraday?portfolio=B")
     assert resp.status_code == 200
@@ -109,12 +121,20 @@ async def test_intraday_snapshots_period_filter(admin_client, db):
     recent_ts = now - timedelta(hours=2)
 
     await db.save_intraday_snapshot(
-        tenant_id="default", portfolio="A", timestamp=old_ts,
-        total_value=34000.0, cash=30000.0, positions_value=4000.0,
+        tenant_id="default",
+        portfolio="A",
+        timestamp=old_ts,
+        total_value=34000.0,
+        cash=30000.0,
+        positions_value=4000.0,
     )
     await db.save_intraday_snapshot(
-        tenant_id="default", portfolio="A", timestamp=recent_ts,
-        total_value=35000.0, cash=30000.0, positions_value=5000.0,
+        tenant_id="default",
+        portfolio="A",
+        timestamp=recent_ts,
+        total_value=35000.0,
+        cash=30000.0,
+        positions_value=5000.0,
     )
 
     # period=1d should only return recent
@@ -131,12 +151,20 @@ async def test_intraday_snapshots_period_filter(admin_client, db):
 async def test_intraday_snapshots_tenant_isolation(tenant_client, db):
     now = datetime.now(timezone.utc)
     await db.save_intraday_snapshot(
-        tenant_id="t-1", portfolio="B", timestamp=now,
-        total_value=68000.0, cash=60000.0, positions_value=8000.0,
+        tenant_id="t-1",
+        portfolio="B",
+        timestamp=now,
+        total_value=68000.0,
+        cash=60000.0,
+        positions_value=8000.0,
     )
     await db.save_intraday_snapshot(
-        tenant_id="t-2", portfolio="B", timestamp=now,
-        total_value=50000.0, cash=45000.0, positions_value=5000.0,
+        tenant_id="t-2",
+        portfolio="B",
+        timestamp=now,
+        total_value=50000.0,
+        cash=45000.0,
+        positions_value=5000.0,
     )
     resp = await tenant_client.get("/api/snapshots/intraday")
     assert resp.status_code == 200
@@ -232,9 +260,7 @@ async def test_account_history_extended_hours(admin_client):
         new_callable=AsyncMock,
         return_value=mock_data,
     ) as mock_fn:
-        resp = await admin_client.get(
-            "/api/account/history?extended_hours=true"
-        )
+        resp = await admin_client.get("/api/account/history?extended_hours=true")
 
     assert resp.status_code == 200
     mock_fn.assert_awaited_once_with("1D", "5Min", True)

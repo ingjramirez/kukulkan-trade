@@ -18,55 +18,189 @@ log = structlog.get_logger()
 
 # ── Signal classification keywords ──────────────────────────────────────────
 
-_POS_KEYWORDS = frozenset({
-    "beat", "beats", "surge", "surges", "upgrade", "upgraded", "raise",
-    "raised", "rally", "rallies", "soar", "soars", "record", "strong",
-    "jumps", "gains", "outperform", "bullish", "positive", "high",
-    "all-time", "momentum", "growth", "optimism", "buy",
-})
+_POS_KEYWORDS = frozenset(
+    {
+        "beat",
+        "beats",
+        "surge",
+        "surges",
+        "upgrade",
+        "upgraded",
+        "raise",
+        "raised",
+        "rally",
+        "rallies",
+        "soar",
+        "soars",
+        "record",
+        "strong",
+        "jumps",
+        "gains",
+        "outperform",
+        "bullish",
+        "positive",
+        "high",
+        "all-time",
+        "momentum",
+        "growth",
+        "optimism",
+        "buy",
+    }
+)
 
-_NEG_KEYWORDS = frozenset({
-    "miss", "misses", "crash", "crashes", "downgrade", "downgraded",
-    "cut", "cuts", "layoff", "layoffs", "fall", "falls", "drop",
-    "drops", "decline", "declines", "plunge", "plunges", "warns",
-    "warning", "sell", "selloff", "bearish", "negative", "weak",
-    "slump", "tumble", "fear", "fears", "loss", "loses",
-})
+_NEG_KEYWORDS = frozenset(
+    {
+        "miss",
+        "misses",
+        "crash",
+        "crashes",
+        "downgrade",
+        "downgraded",
+        "cut",
+        "cuts",
+        "layoff",
+        "layoffs",
+        "fall",
+        "falls",
+        "drop",
+        "drops",
+        "decline",
+        "declines",
+        "plunge",
+        "plunges",
+        "warns",
+        "warning",
+        "sell",
+        "selloff",
+        "bearish",
+        "negative",
+        "weak",
+        "slump",
+        "tumble",
+        "fear",
+        "fears",
+        "loss",
+        "loses",
+    }
+)
 
-_MACRO_KEYWORDS = frozenset({
-    "fed", "federal reserve", "rate", "rates", "inflation", "gdp",
-    "jobs", "employment", "unemployment", "tariff", "tariffs",
-    "recession", "china", "trade war", "treasury", "yield", "cpi",
-    "ppi", "fomc", "powell", "dollar", "economy", "economic",
-})
+_MACRO_KEYWORDS = frozenset(
+    {
+        "fed",
+        "federal reserve",
+        "rate",
+        "rates",
+        "inflation",
+        "gdp",
+        "jobs",
+        "employment",
+        "unemployment",
+        "tariff",
+        "tariffs",
+        "recession",
+        "china",
+        "trade war",
+        "treasury",
+        "yield",
+        "cpi",
+        "ppi",
+        "fomc",
+        "powell",
+        "dollar",
+        "economy",
+        "economic",
+    }
+)
 
-_EVENT_KEYWORDS = frozenset({
-    "merger", "acquisition", "acquires", "acquired", "ipo",
-    "buyback", "spinoff", "spin-off", "split", "dividend",
-    "bankruptcy", "restructuring", "deal", "takeover",
-})
+_EVENT_KEYWORDS = frozenset(
+    {
+        "merger",
+        "acquisition",
+        "acquires",
+        "acquired",
+        "ipo",
+        "buyback",
+        "spinoff",
+        "spin-off",
+        "split",
+        "dividend",
+        "bankruptcy",
+        "restructuring",
+        "deal",
+        "takeover",
+    }
+)
 
-_EARNINGS_KEYWORDS = frozenset({
-    "earnings", "revenue", "profit", "eps", "quarter", "q1", "q2",
-    "q3", "q4", "guidance", "forecast", "outlook",
-})
+_EARNINGS_KEYWORDS = frozenset(
+    {
+        "earnings",
+        "revenue",
+        "profit",
+        "eps",
+        "quarter",
+        "q1",
+        "q2",
+        "q3",
+        "q4",
+        "guidance",
+        "forecast",
+        "outlook",
+    }
+)
 
 # Words to strip for headline compression
-_NOISE_WORDS = frozenset({
-    "the", "a", "an", "is", "are", "was", "were", "has", "have", "had",
-    "that", "this", "with", "for", "its", "says", "said", "in", "of",
-    "on", "to", "at", "by", "and", "or", "but", "be", "been", "will",
-    "from", "as", "it", "he", "she", "they", "we", "our", "their",
-    "his", "her", "about", "after", "before",
-})
+_NOISE_WORDS = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "has",
+        "have",
+        "had",
+        "that",
+        "this",
+        "with",
+        "for",
+        "its",
+        "says",
+        "said",
+        "in",
+        "of",
+        "on",
+        "to",
+        "at",
+        "by",
+        "and",
+        "or",
+        "but",
+        "be",
+        "been",
+        "will",
+        "from",
+        "as",
+        "it",
+        "he",
+        "she",
+        "they",
+        "we",
+        "our",
+        "their",
+        "his",
+        "her",
+        "about",
+        "after",
+        "before",
+    }
+)
 
 
 def _headline_words(headline: str) -> set[str]:
     """Extract significant words from a headline."""
-    return {
-        w for w in headline.lower().split()
-        if w not in _NOISE_WORDS and len(w) > 1
-    }
+    return {w for w in headline.lower().split() if w not in _NOISE_WORDS and len(w) > 1}
 
 
 def _headlines_overlap(h1: str, h2: str, threshold: float = 0.50) -> bool:
@@ -171,7 +305,10 @@ class NewsCompactor:
 
         # Stage 1: Relevance filter
         relevant, discovery_articles = self._filter_relevant(
-            articles, held, movers, universe_tickers,
+            articles,
+            held,
+            movers,
+            universe_tickers,
         )
 
         # Stage 2: Cluster by event
@@ -241,7 +378,8 @@ class NewsCompactor:
         return result, discovery
 
     def _cluster_by_event(
-        self, articles: list[NewsArticle],
+        self,
+        articles: list[NewsArticle],
     ) -> list[NewsCluster]:
         """Stage 2: Group articles about the same event.
 
@@ -272,11 +410,13 @@ class NewsCompactor:
                     break
 
             if not merged:
-                clusters.append(NewsCluster(
-                    representative=article,
-                    source_count=1,
-                    all_tickers=list(article.tickers),
-                ))
+                clusters.append(
+                    NewsCluster(
+                        representative=article,
+                        source_count=1,
+                        all_tickers=list(article.tickers),
+                    )
+                )
 
         # Classify signals
         for cluster in clusters:
@@ -325,9 +465,7 @@ class NewsCompactor:
                 score += 20
 
             # Macro keyword bonus
-            if headline_words & _MACRO_KEYWORDS or any(
-                kw in headline_lower for kw in _MACRO_KEYWORDS if " " in kw
-            ):
+            if headline_words & _MACRO_KEYWORDS or any(kw in headline_lower for kw in _MACRO_KEYWORDS if " " in kw):
                 score += 15
 
             # Multi-source confirmation
@@ -341,7 +479,7 @@ class NewsCompactor:
 
         # Sort by score descending, cap at max_clusters
         ranked = sorted(clusters, key=lambda c: c.score, reverse=True)
-        return ranked[:self._max_clusters]
+        return ranked[: self._max_clusters]
 
     def _rank_discovery(
         self,
@@ -384,7 +522,9 @@ class NewsCompactor:
         return ranked[:max_items]
 
     def _pick_discovery_ticker(
-        self, cluster: NewsCluster, universe_tickers: set[str],
+        self,
+        cluster: NewsCluster,
+        universe_tickers: set[str],
     ) -> str:
         """Pick the best non-universe ticker from a discovery cluster.
 
@@ -439,7 +579,8 @@ class NewsCompactor:
             lines.append("== DISCOVERY (not in universe) ==")
             for cluster in discovery_clusters:
                 ticker = self._pick_discovery_ticker(
-                    cluster, self._last_universe or set(),
+                    cluster,
+                    self._last_universe or set(),
                 )
                 signal = cluster.signal
                 headline = compress_headline(cluster.representative.headline)
@@ -467,9 +608,34 @@ class NewsCompactor:
             return "MKT"
 
         # Prefer individual stocks over ETFs for display
-        etfs = {"XLK", "XLF", "XLV", "XLE", "XLI", "XLY", "XLP", "XLU", "XLB",
-                "XLRE", "QQQ", "SMH", "XBI", "IWM", "EFA", "EEM", "TLT", "HYG",
-                "GDX", "ARKK", "SH", "PSQ", "TBF", "GLD", "SLV", "USO"}
+        etfs = {
+            "XLK",
+            "XLF",
+            "XLV",
+            "XLE",
+            "XLI",
+            "XLY",
+            "XLP",
+            "XLU",
+            "XLB",
+            "XLRE",
+            "QQQ",
+            "SMH",
+            "XBI",
+            "IWM",
+            "EFA",
+            "EEM",
+            "TLT",
+            "HYG",
+            "GDX",
+            "ARKK",
+            "SH",
+            "PSQ",
+            "TBF",
+            "GLD",
+            "SLV",
+            "USO",
+        }
         non_etf = [t for t in tickers if t not in etfs]
         if non_etf:
             return non_etf[0]

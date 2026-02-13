@@ -58,7 +58,11 @@ def _make_mock_executor(db: Database, tenant_id: str = "test-tenant"):
                 portfolio = await db.get_portfolio(pname, tenant_id=tenant_id)
                 if portfolio:
                     await db.upsert_position(
-                        pname, trade.ticker, 0, trade.price, tenant_id=tenant_id,
+                        pname,
+                        trade.ticker,
+                        0,
+                        trade.price,
+                        tenant_id=tenant_id,
                     )
                     await db.upsert_portfolio(
                         pname,
@@ -127,7 +131,10 @@ async def _seed_positions(
 
 class TestHandleRebalance:
     async def test_disable_b_liquidates_and_transfers_cash_to_a(
-        self, db, mock_notifier, closes,
+        self,
+        db,
+        mock_notifier,
+        closes,
     ):
         """Disabling B sells B positions, gives all cash to A."""
         await _create_tenant(db, run_a=True, run_b=False)
@@ -136,7 +143,10 @@ class TestHandleRebalance:
         executor = _make_mock_executor(db)
         orch = Orchestrator(db, notifier=mock_notifier, executor=executor)
         result = await orch._handle_rebalance(
-            "test-tenant", closes, run_portfolio_a=True, run_portfolio_b=False,
+            "test-tenant",
+            closes,
+            run_portfolio_a=True,
+            run_portfolio_b=False,
         )
 
         assert result is not None
@@ -153,7 +163,10 @@ class TestHandleRebalance:
         assert portfolio_a.cash > 0
 
     async def test_disable_a_liquidates_and_transfers_cash_to_b(
-        self, db, mock_notifier, closes,
+        self,
+        db,
+        mock_notifier,
+        closes,
     ):
         """Disabling A sells A positions, gives all cash to B."""
         await _create_tenant(db, run_a=False, run_b=True)
@@ -162,7 +175,10 @@ class TestHandleRebalance:
         executor = _make_mock_executor(db)
         orch = Orchestrator(db, notifier=mock_notifier, executor=executor)
         result = await orch._handle_rebalance(
-            "test-tenant", closes, run_portfolio_a=False, run_portfolio_b=True,
+            "test-tenant",
+            closes,
+            run_portfolio_a=False,
+            run_portfolio_b=True,
         )
 
         assert result is not None
@@ -179,7 +195,10 @@ class TestHandleRebalance:
         assert portfolio_b.cash > 0
 
     async def test_disable_both_liquidates_all(
-        self, db, mock_notifier, closes,
+        self,
+        db,
+        mock_notifier,
+        closes,
     ):
         """Disabling both portfolios sells everything, zeros out cash."""
         await _create_tenant(db, run_a=False, run_b=False)
@@ -188,7 +207,10 @@ class TestHandleRebalance:
         executor = _make_mock_executor(db)
         orch = Orchestrator(db, notifier=mock_notifier, executor=executor)
         result = await orch._handle_rebalance(
-            "test-tenant", closes, run_portfolio_a=False, run_portfolio_b=False,
+            "test-tenant",
+            closes,
+            run_portfolio_a=False,
+            run_portfolio_b=False,
         )
 
         assert result is not None
@@ -206,7 +228,10 @@ class TestHandleRebalance:
         assert portfolio_b.cash == 0.0
 
     async def test_enable_both_fresh_start(
-        self, db, mock_notifier, closes,
+        self,
+        db,
+        mock_notifier,
+        closes,
     ):
         """Enabling both portfolios sells everything and splits cash by pct."""
         await _create_tenant(db, run_a=True, run_b=True)
@@ -215,7 +240,10 @@ class TestHandleRebalance:
         executor = _make_mock_executor(db)
         orch = Orchestrator(db, notifier=mock_notifier, executor=executor)
         result = await orch._handle_rebalance(
-            "test-tenant", closes, run_portfolio_a=True, run_portfolio_b=True,
+            "test-tenant",
+            closes,
+            run_portfolio_a=True,
+            run_portfolio_b=True,
         )
 
         assert result is not None
@@ -236,22 +264,34 @@ class TestHandleRebalance:
         assert abs(portfolio_b.cash / total - 0.6667) < 0.01
 
     async def test_enable_one_from_both_disabled(
-        self, db, mock_notifier, closes,
+        self,
+        db,
+        mock_notifier,
+        closes,
     ):
         """Enabling one portfolio from both-off gives it all cash."""
         # Start with no positions (both were disabled), just cash
         await _create_tenant(db, run_a=False, run_b=True)
         await db.upsert_portfolio(
-            "A", cash=50_000.0, total_value=50_000.0, tenant_id="test-tenant",
+            "A",
+            cash=50_000.0,
+            total_value=50_000.0,
+            tenant_id="test-tenant",
         )
         await db.upsert_portfolio(
-            "B", cash=50_000.0, total_value=50_000.0, tenant_id="test-tenant",
+            "B",
+            cash=50_000.0,
+            total_value=50_000.0,
+            tenant_id="test-tenant",
         )
 
         executor = _make_mock_executor(db)
         orch = Orchestrator(db, notifier=mock_notifier, executor=executor)
         result = await orch._handle_rebalance(
-            "test-tenant", closes, run_portfolio_a=False, run_portfolio_b=True,
+            "test-tenant",
+            closes,
+            run_portfolio_a=False,
+            run_portfolio_b=True,
         )
 
         assert result is not None
@@ -261,7 +301,10 @@ class TestHandleRebalance:
         assert portfolio_b.cash == 100_000.0
 
     async def test_no_rebalance_when_flag_false(
-        self, db, mock_notifier, closes,
+        self,
+        db,
+        mock_notifier,
+        closes,
     ):
         """No rebalance when pending_rebalance=False."""
         await _create_tenant(db, run_a=True, run_b=True, pending_rebalance=False)
@@ -270,7 +313,10 @@ class TestHandleRebalance:
         executor = _make_mock_executor(db)
         orch = Orchestrator(db, notifier=mock_notifier, executor=executor)
         result = await orch._handle_rebalance(
-            "test-tenant", closes, run_portfolio_a=True, run_portfolio_b=True,
+            "test-tenant",
+            closes,
+            run_portfolio_a=True,
+            run_portfolio_b=True,
         )
 
         assert result is None
@@ -281,18 +327,27 @@ class TestHandleRebalance:
         assert len(active_b) == 2
 
     async def test_no_rebalance_for_default_tenant(
-        self, db, mock_notifier, closes,
+        self,
+        db,
+        mock_notifier,
+        closes,
     ):
         """Default tenant skips rebalance (no TenantRow for 'default')."""
         executor = _make_mock_executor(db)
         orch = Orchestrator(db, notifier=mock_notifier, executor=executor)
         result = await orch._handle_rebalance(
-            "default", closes, run_portfolio_a=True, run_portfolio_b=True,
+            "default",
+            closes,
+            run_portfolio_a=True,
+            run_portfolio_b=True,
         )
         assert result is None
 
     async def test_rebalance_clears_flag(
-        self, db, mock_notifier, closes,
+        self,
+        db,
+        mock_notifier,
+        closes,
     ):
         """After rebalance, pending_rebalance is set to False."""
         await _create_tenant(db, run_a=True, run_b=False)
@@ -301,14 +356,20 @@ class TestHandleRebalance:
         executor = _make_mock_executor(db)
         orch = Orchestrator(db, notifier=mock_notifier, executor=executor)
         await orch._handle_rebalance(
-            "test-tenant", closes, run_portfolio_a=True, run_portfolio_b=False,
+            "test-tenant",
+            closes,
+            run_portfolio_a=True,
+            run_portfolio_b=False,
         )
 
         tenant = await db.get_tenant("test-tenant")
         assert tenant.pending_rebalance is False
 
     async def test_rebalance_updates_allocations(
-        self, db, mock_notifier, closes,
+        self,
+        db,
+        mock_notifier,
+        closes,
     ):
         """Rebalance updates tenant initial_equity and cash fields."""
         await _create_tenant(db, run_a=True, run_b=False)
@@ -317,7 +378,10 @@ class TestHandleRebalance:
         executor = _make_mock_executor(db)
         orch = Orchestrator(db, notifier=mock_notifier, executor=executor)
         new_alloc = await orch._handle_rebalance(
-            "test-tenant", closes, run_portfolio_a=True, run_portfolio_b=False,
+            "test-tenant",
+            closes,
+            run_portfolio_a=True,
+            run_portfolio_b=False,
         )
 
         assert new_alloc is not None
@@ -328,7 +392,9 @@ class TestHandleRebalance:
         assert tenant.initial_equity > 0
 
     async def test_rebalance_telegram_notification(
-        self, db, closes,
+        self,
+        db,
+        closes,
     ):
         """Telegram is notified of the rebalance when notifier is available."""
         notifier = AsyncMock(spec=TelegramNotifier)
@@ -342,7 +408,10 @@ class TestHandleRebalance:
         executor = _make_mock_executor(db)
         orch = Orchestrator(db, notifier=notifier, executor=executor)
         await orch._handle_rebalance(
-            "test-tenant", closes, run_portfolio_a=True, run_portfolio_b=False,
+            "test-tenant",
+            closes,
+            run_portfolio_a=True,
+            run_portfolio_b=False,
         )
 
         notifier.send_message.assert_called_once()

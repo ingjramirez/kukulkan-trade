@@ -21,8 +21,10 @@ async def db():
 async def test_upsert_watchlist_item(db: Database):
     """upsert_watchlist_item creates a new row."""
     await db.upsert_watchlist_item(
-        tenant_id="t1", ticker="PLTR",
-        reason="AI rotation", conviction="high",
+        tenant_id="t1",
+        ticker="PLTR",
+        reason="AI rotation",
+        conviction="high",
         target_entry=22.50,
         expires_at=date.today() + timedelta(days=14),
     )
@@ -37,10 +39,19 @@ async def test_upsert_updates_existing(db: Database):
     """Upserting same ticker updates instead of duplicating."""
     expires = date.today() + timedelta(days=14)
     await db.upsert_watchlist_item(
-        "t1", "PLTR", "old reason", "low", expires_at=expires,
+        "t1",
+        "PLTR",
+        "old reason",
+        "low",
+        expires_at=expires,
     )
     await db.upsert_watchlist_item(
-        "t1", "PLTR", "new reason", "high", target_entry=25.0, expires_at=expires,
+        "t1",
+        "PLTR",
+        "new reason",
+        "high",
+        target_entry=25.0,
+        expires_at=expires,
     )
     items = await db.get_watchlist("t1")
     assert len(items) == 1
@@ -53,10 +64,18 @@ async def test_get_watchlist_filters_by_portfolio(db: Database):
     """get_watchlist filters by portfolio."""
     expires = date.today() + timedelta(days=14)
     await db.upsert_watchlist_item(
-        "t1", "PLTR", "reason", portfolio="B", expires_at=expires,
+        "t1",
+        "PLTR",
+        "reason",
+        portfolio="B",
+        expires_at=expires,
     )
     await db.upsert_watchlist_item(
-        "t1", "XLK", "reason", portfolio="A", expires_at=expires,
+        "t1",
+        "XLK",
+        "reason",
+        portfolio="A",
+        expires_at=expires,
     )
     b_items = await db.get_watchlist("t1", "B")
     assert len(b_items) == 1
@@ -87,10 +106,16 @@ async def test_remove_nonexistent_item_is_noop(db: Database):
 async def test_cleanup_expired_watchlist(db: Database):
     """cleanup_expired_watchlist removes items past expiry."""
     await db.upsert_watchlist_item(
-        "t1", "OLD", "expired", expires_at=date.today() - timedelta(days=1),
+        "t1",
+        "OLD",
+        "expired",
+        expires_at=date.today() - timedelta(days=1),
     )
     await db.upsert_watchlist_item(
-        "t1", "NEW", "fresh", expires_at=date.today() + timedelta(days=7),
+        "t1",
+        "NEW",
+        "fresh",
+        expires_at=date.today() + timedelta(days=7),
     )
     count = await db.cleanup_expired_watchlist("t1")
     assert count == 1

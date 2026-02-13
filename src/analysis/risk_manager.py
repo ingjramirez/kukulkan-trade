@@ -37,7 +37,10 @@ class RiskManager:
         self._rules = rules or RISK_RULES
 
     async def check_circuit_breakers(
-        self, portfolio_name: str, db: Database, today: date,
+        self,
+        portfolio_name: str,
+        db: Database,
+        today: date,
         tenant_id: str = "default",
     ) -> tuple[bool, str]:
         """Check if trading should be halted due to drawdown.
@@ -62,10 +65,7 @@ class RiskManager:
             if prev.total_value > 0:
                 daily_pct = (latest.total_value - prev.total_value) / prev.total_value
                 if daily_pct <= -self._rules.daily_loss_limit_pct:
-                    reason = (
-                        f"Daily loss {daily_pct:.1%} exceeds "
-                        f"-{self._rules.daily_loss_limit_pct:.0%} limit"
-                    )
+                    reason = f"Daily loss {daily_pct:.1%} exceeds -{self._rules.daily_loss_limit_pct:.0%} limit"
                     log.warning("circuit_breaker_daily", portfolio=portfolio_name, reason=reason)
                     return True, reason
 
@@ -76,14 +76,9 @@ class RiskManager:
             week_start = week_snapshots[0]
             week_end = week_snapshots[-1]
             if week_start.total_value > 0:
-                weekly_pct = (
-                    (week_end.total_value - week_start.total_value) / week_start.total_value
-                )
+                weekly_pct = (week_end.total_value - week_start.total_value) / week_start.total_value
                 if weekly_pct <= -self._rules.weekly_loss_limit_pct:
-                    reason = (
-                        f"Weekly loss {weekly_pct:.1%} exceeds "
-                        f"-{self._rules.weekly_loss_limit_pct:.0%} limit"
-                    )
+                    reason = f"Weekly loss {weekly_pct:.1%} exceeds -{self._rules.weekly_loss_limit_pct:.0%} limit"
                     log.warning("circuit_breaker_weekly", portfolio=portfolio_name, reason=reason)
                     return True, reason
 
@@ -164,13 +159,11 @@ class RiskManager:
             if total_denominator > 0:
                 sector_pct = sector_value / total_denominator
                 sector_limit = self._rules.sector_concentration_overrides.get(
-                    sector, self._rules.max_sector_concentration,
+                    sector,
+                    self._rules.max_sector_concentration,
                 )
                 if sector_pct > sector_limit:
-                    reason = (
-                        f"{sector} sector would be {sector_pct:.0%} "
-                        f"(limit {sector_limit:.0%})"
-                    )
+                    reason = f"{sector} sector would be {sector_pct:.0%} (limit {sector_limit:.0%})"
                     log.warning("risk_blocked_sector", trade=trade.ticker, reason=reason)
                     verdict.blocked.append((trade, reason))
                     continue
@@ -187,10 +180,7 @@ class RiskManager:
                 else:
                     # If buying non-tech, tech weight isn't increased
                     pass
-                tech_over = (
-                    total_denominator > 0
-                    and tech_value / total_denominator > self._rules.max_tech_weight
-                )
+                tech_over = total_denominator > 0 and tech_value / total_denominator > self._rules.max_tech_weight
                 if tech_over:
                     reason = (
                         f"Tech weight would be {tech_value / total_denominator:.0%} "

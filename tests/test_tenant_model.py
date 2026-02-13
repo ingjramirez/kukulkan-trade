@@ -136,6 +136,7 @@ class TestTenantIsolation:
 
     async def test_separate_snapshots(self, db: Database):
         from datetime import date
+
         today = date(2026, 2, 9)
         await db.save_snapshot("B", today, 66000, 60000, 6000, tenant_id="t1")
         await db.save_snapshot("B", today, 77000, 70000, 7000, tenant_id="t2")
@@ -148,10 +149,16 @@ class TestTenantIsolation:
 
     async def test_separate_agent_memory(self, db: Database):
         await db.upsert_agent_memory(
-            "short_term", "key1", "content-t1", tenant_id="t1",
+            "short_term",
+            "key1",
+            "content-t1",
+            tenant_id="t1",
         )
         await db.upsert_agent_memory(
-            "short_term", "key1", "content-t2", tenant_id="t2",
+            "short_term",
+            "key1",
+            "content-t2",
+            tenant_id="t2",
         )
 
         m1 = await db.get_agent_memories("short_term", tenant_id="t1")

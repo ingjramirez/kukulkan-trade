@@ -230,9 +230,7 @@ class TestNewsAggregatorDedup:
 
     def test_no_fallback_when_enough_articles(self) -> None:
         alpaca = MagicMock()
-        alpaca.fetch.return_value = [
-            _make_article(f"Article {i}", ["AAPL"]) for i in range(15)
-        ]
+        alpaca.fetch.return_value = [_make_article(f"Article {i}", ["AAPL"]) for i in range(15)]
         finnhub = MagicMock()
         finnhub.fetch.return_value = []
 
@@ -306,7 +304,9 @@ class TestNewsCompactorPipeline:
         ]
         compactor = NewsCompactor()
         result = compactor.compact(
-            articles, held_tickers=["NVDA", "AAPL"], top_movers=["TSLA"],
+            articles,
+            held_tickers=["NVDA", "AAPL"],
+            top_movers=["TSLA"],
         )
 
         assert "TICKER|SIGNAL|EVENT|#SRC" in result
@@ -363,7 +363,9 @@ class TestNewsCompactorPipeline:
         ]
         compactor = NewsCompactor()
         result = compactor.compact(
-            articles, held_tickers=["NVDA"], top_movers=["SPY"],
+            articles,
+            held_tickers=["NVDA"],
+            top_movers=["SPY"],
         )
 
         lines = [ln for ln in result.split("\n") if ln and not ln.startswith("TICKER|")]
@@ -372,10 +374,7 @@ class TestNewsCompactorPipeline:
 
     def test_compaction_under_600_tokens(self) -> None:
         """Compact output should be much shorter than raw headlines."""
-        articles = [
-            _make_article(f"Article {i} about market news today", [f"TICK{i}"])
-            for i in range(20)
-        ]
+        articles = [_make_article(f"Article {i} about market news today", [f"TICK{i}"]) for i in range(20)]
         compactor = NewsCompactor(max_clusters=8)
         # All articles are about unknown tickers and no macro keywords,
         # so the filter should remove them
@@ -409,10 +408,7 @@ class TestNewsCompactorPipeline:
         assert result == ""
 
     def test_max_clusters_cap(self) -> None:
-        articles = [
-            _make_article(f"Unique headline number {i} about earnings", [f"T{i}"])
-            for i in range(20)
-        ]
+        articles = [_make_article(f"Unique headline number {i} about earnings", [f"T{i}"]) for i in range(20)]
         compactor = NewsCompactor(max_clusters=5)
         result = compactor.compact(
             articles,

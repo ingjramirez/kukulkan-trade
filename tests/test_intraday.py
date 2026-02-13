@@ -79,9 +79,7 @@ async def test_collect_intraday_snapshot_basic(db: Database):
 
     mock_positions = [_mock_alpaca_position("AAPL", 170.0)]
 
-    with patch(
-        "src.execution.client_factory.AlpacaClientFactory"
-    ) as mock_factory:
+    with patch("src.execution.client_factory.AlpacaClientFactory") as mock_factory:
         mock_client = MagicMock()
         mock_client.get_all_positions.return_value = mock_positions
         mock_factory.get_trading_client.return_value = mock_client

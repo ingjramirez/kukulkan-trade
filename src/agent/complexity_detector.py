@@ -66,11 +66,7 @@ class ComplexityDetector:
                 signals.append(f"Drawdown {drawdown_pct:.1f}% from peak")
 
         # 2. Regime change: today != yesterday
-        if (
-            regime_today is not None
-            and regime_yesterday is not None
-            and regime_today != regime_yesterday
-        ):
+        if regime_today is not None and regime_yesterday is not None and regime_today != regime_yesterday:
             score += 20
             signals.append(f"Regime changed: {regime_yesterday} → {regime_today}")
 

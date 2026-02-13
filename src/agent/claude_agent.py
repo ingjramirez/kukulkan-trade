@@ -19,6 +19,7 @@ from src.agent.strategy_directives import SESSION_DIRECTIVES, STRATEGY_MAP
 
 log = structlog.get_logger()
 
+
 def _build_base_prompt(
     portfolio_allocation: float = 66_000.0,
     universe_size: int = 55,
@@ -139,6 +140,7 @@ Hard Rules:
         prompt += f"\n\n## Your Watchlist\n{watchlist_context}"
 
     return prompt
+
 
 ANALYSIS_PROMPT_TEMPLATE = """## Current Date: {date}
 
@@ -277,10 +279,7 @@ def build_price_table(prices: dict[str, list[float]], tickers: list[str]) -> str
     for t in tickers:
         if t in prices and len(prices[t]) >= 5:
             vals = prices[t][-5:]
-            lines.append(
-                f"{t:<8} {vals[0]:>8.2f} {vals[1]:>8.2f} {vals[2]:>8.2f} "
-                f"{vals[3]:>8.2f} {vals[4]:>8.2f}"
-            )
+            lines.append(f"{t:<8} {vals[0]:>8.2f} {vals[1]:>8.2f} {vals[2]:>8.2f} {vals[3]:>8.2f} {vals[4]:>8.2f}")
     return "\n".join(lines)
 
 
@@ -412,11 +411,8 @@ def build_recent_trades_text(trades: list[dict]) -> str:
 
     lines = []
     for t in trades[-5:]:  # last 5 trades
-        reason = t.get('reason', '')
-        lines.append(
-            f"  {t['side']} {t['shares']:.0f}x {t['ticker']}"
-            f" @ ${t['price']:.2f} — {reason}"
-        )
+        reason = t.get("reason", "")
+        lines.append(f"  {t['side']} {t['shares']:.0f}x {t['ticker']} @ ${t['price']:.2f} — {reason}")
     return "\n".join(lines)
 
 
@@ -581,7 +577,7 @@ class ClaudeAgent:
             2-3 paragraph commentary string.
         """
         prompt = f"""Date: {analysis_date.isoformat()}
-Regime: {regime or 'Unknown'}
+Regime: {regime or "Unknown"}
 
 Portfolio A (Momentum): {portfolio_a_summary}
 Portfolio B (AI Autonomy): {portfolio_b_summary}

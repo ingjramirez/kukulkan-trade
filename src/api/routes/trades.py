@@ -18,7 +18,10 @@ async def list_trades(
     db: Database = Depends(get_db),
 ) -> list[TradeResponse]:
     rows = await db.get_all_trades(
-        portfolio=portfolio, side=side, limit=limit, tenant_id=tenant_id,
+        portfolio=portfolio,
+        side=side,
+        limit=limit,
+        tenant_id=tenant_id,
     )
     return [
         TradeResponse(

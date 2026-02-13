@@ -33,20 +33,11 @@ async def add_tenant(args: argparse.Namespace) -> None:
         tenant = TenantRow(
             id=str(uuid.uuid4()),
             name=args.name,
-            alpaca_api_key_enc=(
-                encrypt_value(args.alpaca_key) if args.alpaca_key else None
-            ),
-            alpaca_api_secret_enc=(
-                encrypt_value(args.alpaca_secret) if args.alpaca_secret else None
-            ),
+            alpaca_api_key_enc=(encrypt_value(args.alpaca_key) if args.alpaca_key else None),
+            alpaca_api_secret_enc=(encrypt_value(args.alpaca_secret) if args.alpaca_secret else None),
             alpaca_base_url=args.alpaca_url,
-            telegram_bot_token_enc=(
-                encrypt_value(args.telegram_token) if args.telegram_token else None
-            ),
-            telegram_chat_id_enc=(
-                encrypt_value(args.telegram_chat_id)
-                if args.telegram_chat_id else None
-            ),
+            telegram_bot_token_enc=(encrypt_value(args.telegram_token) if args.telegram_token else None),
+            telegram_chat_id_enc=(encrypt_value(args.telegram_chat_id) if args.telegram_chat_id else None),
             strategy_mode=args.strategy,
             run_portfolio_a=not args.portfolio_b_only,
             run_portfolio_b=True,
@@ -54,18 +45,10 @@ async def add_tenant(args: argparse.Namespace) -> None:
             portfolio_b_cash=args.portfolio_b_cash,
             portfolio_a_pct=args.portfolio_a_pct,
             portfolio_b_pct=args.portfolio_b_pct,
-            ticker_additions=(
-                json.dumps(args.add_tickers.split(","))
-                if args.add_tickers else None
-            ),
-            ticker_exclusions=(
-                json.dumps(args.remove_tickers.split(","))
-                if args.remove_tickers else None
-            ),
+            ticker_additions=(json.dumps(args.add_tickers.split(",")) if args.add_tickers else None),
+            ticker_exclusions=(json.dumps(args.remove_tickers.split(",")) if args.remove_tickers else None),
             dashboard_user=args.username,
-            dashboard_password_enc=(
-                encrypt_value(args.password) if args.password else None
-            ),
+            dashboard_password_enc=(encrypt_value(args.password) if args.password else None),
         )
         await db.create_tenant(tenant)
         print(f"Tenant created: {tenant.id}")
@@ -87,10 +70,7 @@ async def list_tenants(args: argparse.Namespace) -> None:
             return
         for t in tenants:
             status = "active" if t.is_active else "INACTIVE"
-            api_key = (
-                mask_credential(decrypt_value(t.alpaca_api_key_enc))
-                if t.alpaca_api_key_enc else "not set"
-            )
+            api_key = mask_credential(decrypt_value(t.alpaca_api_key_enc)) if t.alpaca_api_key_enc else "not set"
             print(
                 f"  [{status}] {t.id[:8]}... "
                 f"{t.name} | {t.strategy_mode} | "
@@ -160,6 +140,7 @@ async def test_tenant(args: argparse.Namespace) -> None:
         print("\n  Alpaca connection...")
         try:
             from src.execution.client_factory import AlpacaClientFactory
+
             client = AlpacaClientFactory.get_trading_client(tenant)
             account = client.get_account()
             print(f"    OK — equity: ${float(account.equity):,.2f}")
@@ -170,6 +151,7 @@ async def test_tenant(args: argparse.Namespace) -> None:
         print("\n  Telegram connection...")
         try:
             from src.notifications.telegram_factory import TelegramFactory
+
             notifier = TelegramFactory.get_notifier(tenant)
             success = await notifier.send_message(
                 "🐍 Kukulkan test message — connection verified!",
@@ -203,9 +185,7 @@ async def seed_default(args: argparse.Namespace) -> None:
             alpaca_api_key_enc=encrypt_value(settings.alpaca.api_key),
             alpaca_api_secret_enc=encrypt_value(settings.alpaca.secret_key),
             alpaca_base_url=(
-                "https://paper-api.alpaca.markets"
-                if settings.alpaca.paper
-                else "https://api.alpaca.markets"
+                "https://paper-api.alpaca.markets" if settings.alpaca.paper else "https://api.alpaca.markets"
             ),
             telegram_bot_token_enc=encrypt_value(settings.telegram.bot_token),
             telegram_chat_id_enc=encrypt_value(settings.telegram.chat_id),
@@ -231,8 +211,7 @@ def main() -> None:
     add_p.add_argument("--alpaca-url", default="https://paper-api.alpaca.markets")
     add_p.add_argument("--telegram-token", default=None, help="Telegram bot token (optional)")
     add_p.add_argument("--telegram-chat-id", default=None, help="Telegram chat ID (optional)")
-    add_p.add_argument("--strategy", default="conservative",
-                        choices=["conservative", "standard", "aggressive"])
+    add_p.add_argument("--strategy", default="conservative", choices=["conservative", "standard", "aggressive"])
     add_p.add_argument("--portfolio-b-only", action="store_true")
     add_p.add_argument("--portfolio-a-cash", type=float, default=33000.0)
     add_p.add_argument("--portfolio-b-cash", type=float, default=66000.0)

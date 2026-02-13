@@ -268,8 +268,8 @@ class TrailingStopRow(Base):
     ticker = Column(String(10), nullable=False)
     entry_price = Column(Float, nullable=False)
     peak_price = Column(Float, nullable=False)
-    trail_pct = Column(Float, nullable=False)       # 0.05 = 5%
-    stop_price = Column(Float, nullable=False)       # peak * (1 - trail_pct)
+    trail_pct = Column(Float, nullable=False)  # 0.05 = 5%
+    stop_price = Column(Float, nullable=False)  # peak * (1 - trail_pct)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
@@ -332,9 +332,7 @@ class TenantRow(Base):
     # Alpaca credentials (Fernet-encrypted, nullable = not yet configured)
     alpaca_api_key_enc = Column(Text, nullable=True)
     alpaca_api_secret_enc = Column(Text, nullable=True)
-    alpaca_base_url = Column(
-        String(200), nullable=False, default="https://paper-api.alpaca.markets"
-    )
+    alpaca_base_url = Column(String(200), nullable=False, default="https://paper-api.alpaca.markets")
 
     # Telegram credentials (Fernet-encrypted, nullable = not yet configured)
     telegram_bot_token_enc = Column(Text, nullable=True)
@@ -365,8 +363,8 @@ class TenantRow(Base):
     pending_rebalance = Column(Boolean, nullable=False, default=False)
 
     # Ticker customization (JSON arrays, nullable = use defaults)
-    ticker_whitelist = Column(Text, nullable=True)   # JSON: ["AAPL","TSLA"]
-    ticker_additions = Column(Text, nullable=True)   # JSON: ["COIN","MSTR"]
+    ticker_whitelist = Column(Text, nullable=True)  # JSON: ["AAPL","TSLA"]
+    ticker_additions = Column(Text, nullable=True)  # JSON: ["COIN","MSTR"]
     ticker_exclusions = Column(Text, nullable=True)  # JSON: ["META","GOOGL"]
 
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
@@ -374,10 +372,7 @@ class TenantRow(Base):
 
     def __repr__(self) -> str:
         """Mask sensitive fields in repr to prevent credential leaks."""
-        return (
-            f"<Tenant id={self.id!r} name={self.name!r} "
-            f"active={self.is_active} strategy={self.strategy_mode!r}>"
-        )
+        return f"<Tenant id={self.id!r} name={self.name!r} active={self.is_active} strategy={self.strategy_mode!r}>"
 
 
 # ── Pydantic Schemas (for API / validation layer) ───────────────────────────
@@ -476,9 +471,7 @@ class TenantUpdate(BaseModel):
     alpaca_base_url: str | None = None
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
-    strategy_mode: str | None = Field(
-        default=None, pattern=r"^(conservative|standard|aggressive)$"
-    )
+    strategy_mode: str | None = Field(default=None, pattern=r"^(conservative|standard|aggressive)$")
     run_portfolio_a: bool | None = None
     run_portfolio_b: bool | None = None
     portfolio_a_cash: float | None = Field(default=None, gt=0)

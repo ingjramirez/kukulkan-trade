@@ -43,11 +43,13 @@ def compute_macd(
         DataFrame with columns: macd, signal, histogram.
     """
     indicator = MACD(close=closes, window_fast=fast, window_slow=slow, window_sign=signal)
-    return pd.DataFrame({
-        "macd": indicator.macd(),
-        "signal": indicator.macd_signal(),
-        "histogram": indicator.macd_diff(),
-    })
+    return pd.DataFrame(
+        {
+            "macd": indicator.macd(),
+            "signal": indicator.macd_signal(),
+            "histogram": indicator.macd_diff(),
+        }
+    )
 
 
 def compute_sma(closes: pd.Series, window: int = 20) -> pd.Series:
@@ -63,9 +65,7 @@ def compute_sma(closes: pd.Series, window: int = 20) -> pd.Series:
     return SMAIndicator(close=closes, window=window).sma_indicator()
 
 
-def compute_bollinger_bands(
-    closes: pd.Series, window: int = 20, std_dev: float = 2.0
-) -> pd.DataFrame:
+def compute_bollinger_bands(closes: pd.Series, window: int = 20, std_dev: float = 2.0) -> pd.DataFrame:
     """Calculate Bollinger Bands.
 
     Args:
@@ -77,11 +77,13 @@ def compute_bollinger_bands(
         DataFrame with columns: upper, middle, lower.
     """
     bb = BollingerBands(close=closes, window=window, window_dev=std_dev)
-    return pd.DataFrame({
-        "upper": bb.bollinger_hband(),
-        "middle": bb.bollinger_mavg(),
-        "lower": bb.bollinger_lband(),
-    })
+    return pd.DataFrame(
+        {
+            "upper": bb.bollinger_hband(),
+            "middle": bb.bollinger_mavg(),
+            "lower": bb.bollinger_lband(),
+        }
+    )
 
 
 def compute_all_indicators(closes: pd.Series) -> pd.DataFrame:
@@ -100,19 +102,21 @@ def compute_all_indicators(closes: pd.Series) -> pd.DataFrame:
     sma_200 = compute_sma(closes, window=200)
     bb = compute_bollinger_bands(closes)
 
-    result = pd.DataFrame({
-        "close": closes,
-        "rsi_14": rsi,
-        "macd": macd_df["macd"],
-        "macd_signal": macd_df["signal"],
-        "macd_hist": macd_df["histogram"],
-        "sma_20": sma_20,
-        "sma_50": sma_50,
-        "sma_200": sma_200,
-        "bb_upper": bb["upper"],
-        "bb_middle": bb["middle"],
-        "bb_lower": bb["lower"],
-    })
+    result = pd.DataFrame(
+        {
+            "close": closes,
+            "rsi_14": rsi,
+            "macd": macd_df["macd"],
+            "macd_signal": macd_df["signal"],
+            "macd_hist": macd_df["histogram"],
+            "sma_20": sma_20,
+            "sma_50": sma_50,
+            "sma_200": sma_200,
+            "bb_upper": bb["upper"],
+            "bb_middle": bb["middle"],
+            "bb_lower": bb["lower"],
+        }
+    )
 
     log.debug(
         "indicators_computed",

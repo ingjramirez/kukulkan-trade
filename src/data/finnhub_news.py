@@ -73,15 +73,17 @@ class FinnhubNewsFetcher:
                             except (ValueError, OSError):
                                 pass
 
-                        articles.append(NewsArticle(
-                            headline=item.get("headline", ""),
-                            summary=item.get("summary", ""),
-                            source="finnhub",
-                            publisher=item.get("source", ""),
-                            tickers=[ticker] + item.get("related", "").split(","),
-                            published_at=published,
-                            url=item.get("url", ""),
-                        ))
+                        articles.append(
+                            NewsArticle(
+                                headline=item.get("headline", ""),
+                                summary=item.get("summary", ""),
+                                source="finnhub",
+                                publisher=item.get("source", ""),
+                                tickers=[ticker] + item.get("related", "").split(","),
+                                published_at=published,
+                                url=item.get("url", ""),
+                            )
+                        )
                 except Exception as e:
                     log.debug("finnhub_company_news_failed", ticker=ticker, error=str(e))
 
@@ -99,15 +101,17 @@ class FinnhubNewsFetcher:
                     related = item.get("related", "")
                     article_tickers = [t.strip() for t in related.split(",") if t.strip()]
 
-                    articles.append(NewsArticle(
-                        headline=item.get("headline", ""),
-                        summary=item.get("summary", ""),
-                        source="finnhub",
-                        publisher=item.get("source", ""),
-                        tickers=article_tickers,
-                        published_at=published,
-                        url=item.get("url", ""),
-                    ))
+                    articles.append(
+                        NewsArticle(
+                            headline=item.get("headline", ""),
+                            summary=item.get("summary", ""),
+                            source="finnhub",
+                            publisher=item.get("source", ""),
+                            tickers=article_tickers,
+                            published_at=published,
+                            url=item.get("url", ""),
+                        )
+                    )
             except Exception as e:
                 log.debug("finnhub_general_news_failed", error=str(e))
 

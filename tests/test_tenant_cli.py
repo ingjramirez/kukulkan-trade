@@ -44,7 +44,10 @@ def _patch_get_db(db: Database):
 
 class TestSeedDefault:
     async def test_seed_creates_default_tenant(
-        self, db: Database, _patch_get_db, monkeypatch,
+        self,
+        db: Database,
+        _patch_get_db,
+        monkeypatch,
     ):
         """seed_default should create a tenant from env vars when no tenants exist."""
         monkeypatch.setattr(settings.alpaca, "api_key", "APCA-KEY-LONG")
@@ -62,17 +65,22 @@ class TestSeedDefault:
         assert tenants[0].name == "Default"
 
     async def test_seed_skips_if_tenants_exist(
-        self, db: Database, _patch_get_db, monkeypatch,
+        self,
+        db: Database,
+        _patch_get_db,
+        monkeypatch,
     ):
         """seed_default should not create duplicates."""
-        await db.create_tenant(TenantRow(
-            id="existing",
-            name="Existing",
-            alpaca_api_key_enc=encrypt_value("k"),
-            alpaca_api_secret_enc=encrypt_value("s"),
-            telegram_bot_token_enc=encrypt_value("t"),
-            telegram_chat_id_enc=encrypt_value("c"),
-        ))
+        await db.create_tenant(
+            TenantRow(
+                id="existing",
+                name="Existing",
+                alpaca_api_key_enc=encrypt_value("k"),
+                alpaca_api_secret_enc=encrypt_value("s"),
+                telegram_bot_token_enc=encrypt_value("t"),
+                telegram_chat_id_enc=encrypt_value("c"),
+            )
+        )
 
         from src.cli.tenant_cli import seed_default
 

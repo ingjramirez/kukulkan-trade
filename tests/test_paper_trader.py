@@ -60,15 +60,21 @@ class TestExecuteTrades:
     async def test_sell_adds_cash(self, trader: PaperTrader) -> None:
         # First buy
         buy = TradeSchema(
-            portfolio=PortfolioName.A, ticker="XLK", side=OrderSide.BUY,
-            shares=100.0, price=200.0,
+            portfolio=PortfolioName.A,
+            ticker="XLK",
+            side=OrderSide.BUY,
+            shares=100.0,
+            price=200.0,
         )
         await trader.execute_trades([buy])
 
         # Then sell
         sell = TradeSchema(
-            portfolio=PortfolioName.A, ticker="XLK", side=OrderSide.SELL,
-            shares=50.0, price=210.0,
+            portfolio=PortfolioName.A,
+            ticker="XLK",
+            side=OrderSide.SELL,
+            shares=50.0,
+            price=210.0,
         )
         executed = await trader.execute_trades([sell])
         assert len(executed) == 1
@@ -82,16 +88,22 @@ class TestExecuteTrades:
 
     async def test_insufficient_cash_rejected(self, trader: PaperTrader) -> None:
         trade = TradeSchema(
-            portfolio=PortfolioName.A, ticker="XLK", side=OrderSide.BUY,
-            shares=1000.0, price=200.0,  # $200K > $33K cash
+            portfolio=PortfolioName.A,
+            ticker="XLK",
+            side=OrderSide.BUY,
+            shares=1000.0,
+            price=200.0,  # $200K > $33K cash
         )
         executed = await trader.execute_trades([trade])
         assert len(executed) == 0
 
     async def test_insufficient_shares_rejected(self, trader: PaperTrader) -> None:
         trade = TradeSchema(
-            portfolio=PortfolioName.A, ticker="XLK", side=OrderSide.SELL,
-            shares=100.0, price=200.0,
+            portfolio=PortfolioName.A,
+            ticker="XLK",
+            side=OrderSide.SELL,
+            shares=100.0,
+            price=200.0,
         )
         executed = await trader.execute_trades([trade])
         assert len(executed) == 0
@@ -99,20 +111,29 @@ class TestExecuteTrades:
     async def test_sells_before_buys(self, trader: PaperTrader) -> None:
         # Buy first to have a position
         buy = TradeSchema(
-            portfolio=PortfolioName.A, ticker="XLF", side=OrderSide.BUY,
-            shares=100.0, price=40.0,
+            portfolio=PortfolioName.A,
+            ticker="XLF",
+            side=OrderSide.BUY,
+            shares=100.0,
+            price=40.0,
         )
         await trader.execute_trades([buy])
 
         # Now sell XLF and buy XLK in same batch
         trades = [
             TradeSchema(
-                portfolio=PortfolioName.A, ticker="XLK", side=OrderSide.BUY,
-                shares=50.0, price=200.0,
+                portfolio=PortfolioName.A,
+                ticker="XLK",
+                side=OrderSide.BUY,
+                shares=50.0,
+                price=200.0,
             ),
             TradeSchema(
-                portfolio=PortfolioName.A, ticker="XLF", side=OrderSide.SELL,
-                shares=100.0, price=42.0,
+                portfolio=PortfolioName.A,
+                ticker="XLF",
+                side=OrderSide.SELL,
+                shares=100.0,
+                price=42.0,
             ),
         ]
         executed = await trader.execute_trades(trades)
@@ -121,8 +142,12 @@ class TestExecuteTrades:
 
     async def test_trade_logged(self, trader: PaperTrader) -> None:
         trade = TradeSchema(
-            portfolio=PortfolioName.A, ticker="XLK", side=OrderSide.BUY,
-            shares=10.0, price=200.0, reason="test trade",
+            portfolio=PortfolioName.A,
+            ticker="XLK",
+            side=OrderSide.BUY,
+            shares=10.0,
+            price=200.0,
+            reason="test trade",
         )
         await trader.execute_trades([trade])
         trades = await trader._db.get_trades("A")
@@ -133,8 +158,11 @@ class TestExecuteTrades:
 class TestSnapshot:
     async def test_take_snapshot(self, trader: PaperTrader) -> None:
         buy = TradeSchema(
-            portfolio=PortfolioName.A, ticker="XLK", side=OrderSide.BUY,
-            shares=100.0, price=200.0,
+            portfolio=PortfolioName.A,
+            ticker="XLK",
+            side=OrderSide.BUY,
+            shares=100.0,
+            price=200.0,
         )
         await trader.execute_trades([buy])
 
@@ -147,8 +175,11 @@ class TestSnapshot:
 
     async def test_snapshot_updates_position_prices(self, trader: PaperTrader) -> None:
         buy = TradeSchema(
-            portfolio=PortfolioName.A, ticker="XLK", side=OrderSide.BUY,
-            shares=100.0, price=200.0,
+            portfolio=PortfolioName.A,
+            ticker="XLK",
+            side=OrderSide.BUY,
+            shares=100.0,
+            price=200.0,
         )
         await trader.execute_trades([buy])
 
@@ -165,8 +196,11 @@ class TestSnapshot:
 
     async def test_daily_return_calculation(self, trader: PaperTrader) -> None:
         buy = TradeSchema(
-            portfolio=PortfolioName.A, ticker="XLK", side=OrderSide.BUY,
-            shares=100.0, price=200.0,
+            portfolio=PortfolioName.A,
+            ticker="XLK",
+            side=OrderSide.BUY,
+            shares=100.0,
+            price=200.0,
         )
         await trader.execute_trades([buy])
 

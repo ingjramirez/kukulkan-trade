@@ -188,13 +188,15 @@ class TelegramNotifier:
             return None
 
         text = format_approval_request(complexity)
-        keyboard = InlineKeyboardMarkup([
+        keyboard = InlineKeyboardMarkup(
             [
-                InlineKeyboardButton("Use Opus", callback_data=f"{request_id}:opus"),
-                InlineKeyboardButton("Keep Sonnet", callback_data=f"{request_id}:sonnet"),
-                InlineKeyboardButton("Skip Portfolio B", callback_data=f"{request_id}:skip"),
+                [
+                    InlineKeyboardButton("Use Opus", callback_data=f"{request_id}:opus"),
+                    InlineKeyboardButton("Keep Sonnet", callback_data=f"{request_id}:sonnet"),
+                    InlineKeyboardButton("Skip Portfolio B", callback_data=f"{request_id}:skip"),
+                ]
             ]
-        ])
+        )
 
         try:
             msg = await self.bot.send_message(
@@ -289,12 +291,14 @@ class TelegramNotifier:
             return None
 
         text = format_ticker_proposal(ticker_row)
-        keyboard = InlineKeyboardMarkup([
+        keyboard = InlineKeyboardMarkup(
             [
-                InlineKeyboardButton("Approve", callback_data=f"{request_id}:approve"),
-                InlineKeyboardButton("Reject", callback_data=f"{request_id}:reject"),
+                [
+                    InlineKeyboardButton("Approve", callback_data=f"{request_id}:approve"),
+                    InlineKeyboardButton("Reject", callback_data=f"{request_id}:reject"),
+                ]
             ]
-        ])
+        )
 
         try:
             msg = await self.bot.send_message(
@@ -407,10 +411,10 @@ def format_daily_brief(
     session_label = f" ({session})" if session else ""
     strategy_label = STRATEGY_LABELS.get(strategy_mode, strategy_mode)
     regime_icons = {
-        "BULL": "\U0001f7e2",       # green circle
-        "BEAR": "\U0001f534",       # red circle
-        "CORRECTION": "\U0001f7e0", # orange circle
-        "CRISIS": "\u26a0\ufe0f",   # warning sign
+        "BULL": "\U0001f7e2",  # green circle
+        "BEAR": "\U0001f534",  # red circle
+        "CORRECTION": "\U0001f7e0",  # orange circle
+        "CRISIS": "\u26a0\ufe0f",  # warning sign
         "CONSOLIDATION": "\U0001f7e1",  # yellow circle
     }
     regime_label = ""
@@ -427,23 +431,27 @@ def format_daily_brief(
     if run_portfolio_a:
         a_ret = portfolio_a.get("daily_return_pct")
         a_ret_str = f"{a_ret:+.2f}%" if a_ret is not None else "N/A"
-        lines.extend([
-            "<b>Portfolio A</b> (Momentum)",
-            f"  Value: ${portfolio_a.get('total_value', 0):,.0f} ({a_ret_str})",
-            f"  Holding: {portfolio_a.get('top_ticker', 'cash')}",
-            "",
-        ])
+        lines.extend(
+            [
+                "<b>Portfolio A</b> (Momentum)",
+                f"  Value: ${portfolio_a.get('total_value', 0):,.0f} ({a_ret_str})",
+                f"  Holding: {portfolio_a.get('top_ticker', 'cash')}",
+                "",
+            ]
+        )
 
     # Portfolio B (only if enabled)
     if run_portfolio_b:
         b_ret = portfolio_b.get("daily_return_pct")
         b_ret_str = f"{b_ret:+.2f}%" if b_ret is not None else "N/A"
-        lines.extend([
-            "<b>Portfolio B</b> (AI Autonomy)",
-            f"  Value: ${portfolio_b.get('total_value', 0):,.0f} ({b_ret_str})",
-            f"  AI: {_escape_html(portfolio_b.get('reasoning', 'N/A')[:150])}",
-            "",
-        ])
+        lines.extend(
+            [
+                "<b>Portfolio B</b> (AI Autonomy)",
+                f"  Value: ${portfolio_b.get('total_value', 0):,.0f} ({b_ret_str})",
+                f"  AI: {_escape_html(portfolio_b.get('reasoning', 'N/A')[:150])}",
+                "",
+            ]
+        )
 
     # Total (only sum active portfolios)
     total = 0.0
@@ -453,20 +461,19 @@ def format_daily_brief(
         total += portfolio_b.get("total_value", 0)
     initial = 100_000.0  # Alpaca paper account starting balance
     total_ret = ((total - initial) / initial) * 100 if initial > 0 else 0
-    lines.extend([
-        f"<b>Combined:</b> ${total:,.0f} ({total_ret:+.2f}%)",
-        "",
-    ])
+    lines.extend(
+        [
+            f"<b>Combined:</b> ${total:,.0f} ({total_ret:+.2f}%)",
+            "",
+        ]
+    )
 
     # Proposed trades
     if proposed_trades:
         lines.append(f"<b>Proposed Trades ({len(proposed_trades)})</b>")
         for t in proposed_trades:
             emoji = "🟢" if t.side.value == "BUY" else "🔴"
-            lines.append(
-                f"  {emoji} {t.side.value} {t.shares:.0f}x {t.ticker} "
-                f"@ ${t.price:.2f} [{t.portfolio.value}]"
-            )
+            lines.append(f"  {emoji} {t.side.value} {t.shares:.0f}x {t.ticker} @ ${t.price:.2f} [{t.portfolio.value}]")
         lines.append("")
     else:
         a_reason = portfolio_a.get("reason", "")
@@ -483,17 +490,17 @@ def format_daily_brief(
         lines.append(f"<b>Trailing Stops Triggered ({len(trailing_stop_alerts)})</b>")
         for alert in trailing_stop_alerts:
             lines.append(f"  {alert['ticker']}: sold @ ${alert['price']:.2f}")
-            lines.append(
-                f"    Entry: ${alert['entry']:.2f} → Peak: ${alert['peak']:.2f}"
-            )
+            lines.append(f"    Entry: ${alert['entry']:.2f} → Peak: ${alert['peak']:.2f}")
         lines.append("")
 
     # Commentary
     if commentary:
-        lines.extend([
-            "<b>Market Commentary</b>",
-            _escape_html(commentary),
-        ])
+        lines.extend(
+            [
+                "<b>Market Commentary</b>",
+                _escape_html(commentary),
+            ]
+        )
 
     return "\n".join(lines)
 
@@ -517,10 +524,7 @@ def format_trade_confirmation(trades: list[TradeSchema]) -> str:
         lines.append(f"<b>Portfolio {portfolio}</b>")
         for t in by_portfolio[portfolio]:
             emoji = "🟢" if t.side.value == "BUY" else "🔴"
-            lines.append(
-                f"  {emoji} {t.side.value} {t.shares:.0f}x {t.ticker} "
-                f"@ ${t.price:.2f} = ${t.total:,.0f}"
-            )
+            lines.append(f"  {emoji} {t.side.value} {t.shares:.0f}x {t.ticker} @ ${t.price:.2f} = ${t.total:,.0f}")
             if t.reason:
                 lines.append(f"     ↳ {_escape_html(t.reason)}")
         lines.append("")
@@ -551,10 +555,12 @@ def format_approval_request(complexity: "ComplexityResult") -> str:
     for signal in complexity.signals:
         lines.append(f"  • {_escape_html(signal)}")
 
-    lines.extend([
-        "",
-        "Choose model for Portfolio B analysis:",
-    ])
+    lines.extend(
+        [
+            "",
+            "Choose model for Portfolio B analysis:",
+        ]
+    )
     return "\n".join(lines)
 
 

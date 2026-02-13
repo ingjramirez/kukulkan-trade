@@ -77,6 +77,7 @@ async def _get_portfolio_history(
         client = AlpacaClientFactory.get_trading_client(tenant)
 
         from alpaca.trading.requests import GetPortfolioHistoryRequest
+
         req = GetPortfolioHistoryRequest(
             period=period,
             timeframe=timeframe,
@@ -97,7 +98,8 @@ async def _get_portfolio_history(
 
 
 async def _get_account_data(
-    tenant_id: str, db: Database,
+    tenant_id: str,
+    db: Database,
 ) -> dict | None:
     """Fetch account data — uses tenant-specific client or global default."""
     if tenant_id == "default":
@@ -117,9 +119,7 @@ async def _get_account_data(
         equity = float(account.equity)
         last_equity = float(account.last_equity)
         daily_pl = equity - last_equity
-        daily_pl_pct = (
-            (daily_pl / last_equity) * 100 if last_equity else 0.0
-        )
+        daily_pl_pct = (daily_pl / last_equity) * 100 if last_equity else 0.0
 
         return {
             "equity": equity,

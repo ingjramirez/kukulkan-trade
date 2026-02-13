@@ -18,19 +18,45 @@ from src.data.news_article import NewsArticle
 log = structlog.get_logger()
 
 # Words to ignore when comparing headlines for dedup
-_STOP_WORDS = frozenset({
-    "the", "a", "an", "is", "are", "was", "were", "has", "have", "had",
-    "that", "this", "with", "for", "its", "says", "in", "of", "on", "to",
-    "at", "by", "and", "or", "but", "be", "been", "will", "from", "as",
-})
+_STOP_WORDS = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "has",
+        "have",
+        "had",
+        "that",
+        "this",
+        "with",
+        "for",
+        "its",
+        "says",
+        "in",
+        "of",
+        "on",
+        "to",
+        "at",
+        "by",
+        "and",
+        "or",
+        "but",
+        "be",
+        "been",
+        "will",
+        "from",
+        "as",
+    }
+)
 
 
 def _headline_words(headline: str) -> set[str]:
     """Extract significant words from a headline (lowercase, no stop words)."""
-    return {
-        w for w in headline.lower().split()
-        if w not in _STOP_WORDS and len(w) > 1
-    }
+    return {w for w in headline.lower().split() if w not in _STOP_WORDS and len(w) > 1}
 
 
 def _headlines_overlap(h1: str, h2: str, threshold: float = 0.50) -> bool:
@@ -136,15 +162,17 @@ class NewsAggregator:
                             published = datetime.fromtimestamp(ts)
                         except (ValueError, OSError):
                             pass
-                    articles.append(NewsArticle(
-                        headline=title,
-                        summary="",
-                        source="yfinance",
-                        publisher=item.get("publisher", ""),
-                        tickers=[ticker],
-                        published_at=published,
-                        url=item.get("link", ""),
-                    ))
+                    articles.append(
+                        NewsArticle(
+                            headline=title,
+                            summary="",
+                            source="yfinance",
+                            publisher=item.get("publisher", ""),
+                            tickers=[ticker],
+                            published_at=published,
+                            url=item.get("link", ""),
+                        )
+                    )
             except Exception as e:
                 log.debug("yfinance_news_failed", ticker=ticker, error=str(e))
         return articles

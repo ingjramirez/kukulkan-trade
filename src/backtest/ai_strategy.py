@@ -98,10 +98,7 @@ class AIBacktestStrategy:
 
     def _track_cost(self, input_tokens: int, output_tokens: int) -> float:
         """Record token usage and return cost for this call."""
-        cost = (
-            (input_tokens * INPUT_COST_PER_M / 1_000_000)
-            + (output_tokens * OUTPUT_COST_PER_M / 1_000_000)
-        )
+        cost = (input_tokens * INPUT_COST_PER_M / 1_000_000) + (output_tokens * OUTPUT_COST_PER_M / 1_000_000)
         self._total_input_tokens += input_tokens
         self._total_output_tokens += output_tokens
         self._total_cost_usd += cost
@@ -278,6 +275,7 @@ class AIBacktestStrategy:
             f"  Total Cost:     ${self._total_cost_usd:.4f}",
             f"  Budget:         ${self._budget_usd:.2f}",
             f"  Budget Used:    {(self._total_cost_usd / self._budget_usd * 100):.1f}%"
-            if self._budget_usd > 0 else "  Budget Used:    N/A",
+            if self._budget_usd > 0
+            else "  Budget Used:    N/A",
         ]
         return "\n".join(lines)

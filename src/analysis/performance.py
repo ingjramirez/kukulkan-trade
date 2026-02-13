@@ -74,10 +74,7 @@ class PerformanceTracker:
                 max_dd = dd
 
         # Best/worst day
-        daily_returns = [
-            s.daily_return_pct for s in snapshots
-            if s.daily_return_pct is not None
-        ]
+        daily_returns = [s.daily_return_pct for s in snapshots if s.daily_return_pct is not None]
         best_day = max(daily_returns) if daily_returns else None
         worst_day = min(daily_returns) if daily_returns else None
 
@@ -122,7 +119,8 @@ class PerformanceTracker:
                     end_price = float(spy_at_end.iloc[-1])
                     if start_price > 0:
                         spy_return_pct = round(
-                            ((end_price - start_price) / start_price) * 100, 2,
+                            ((end_price - start_price) / start_price) * 100,
+                            2,
                         )
                         alpha_pct = round(inception_return - spy_return_pct, 2)
             except Exception:
@@ -169,8 +167,5 @@ class PerformanceTracker:
             worst = stats.worst_day_pct
             lines.append(f"  Best day: {best:+.2f}% | Worst day: {worst:+.2f}%")
         if stats.spy_return_pct is not None:
-            lines.append(
-                f"  vs SPY: {stats.spy_return_pct:+.2f}% | "
-                f"Alpha: {stats.alpha_pct:+.2f}%"
-            )
+            lines.append(f"  vs SPY: {stats.spy_return_pct:+.2f}% | Alpha: {stats.alpha_pct:+.2f}%")
         return "\n".join(lines)

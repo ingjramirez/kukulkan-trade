@@ -94,11 +94,14 @@ class TestFormatDailyBrief:
             brief_date=date(2026, 2, 5),
             regime="BULL",
             portfolio_a={
-                "total_value": 34000, "cash": 0,
-                "top_ticker": "QQQ", "daily_return_pct": 1.5,
+                "total_value": 34000,
+                "cash": 0,
+                "top_ticker": "QQQ",
+                "daily_return_pct": 1.5,
             },
             portfolio_b={
-                "total_value": 67000, "cash": 1000,
+                "total_value": 67000,
+                "cash": 1000,
                 "reasoning": "Bullish on tech",
                 "daily_return_pct": -0.2,
             },
@@ -160,12 +163,15 @@ class TestFormatDailyBrief:
             brief_date=date(2026, 2, 5),
             regime="BULL",
             portfolio_a={
-                "total_value": 33424, "cash": 0,
-                "top_ticker": "GDX", "daily_return_pct": None,
+                "total_value": 33424,
+                "cash": 0,
+                "top_ticker": "GDX",
+                "daily_return_pct": None,
                 "reason": "Holding momentum target GDX",
             },
             portfolio_b={
-                "total_value": 66978, "cash": 1000,
+                "total_value": 66978,
+                "cash": 1000,
                 "reasoning": "Conservative hold — maintaining current positions",
                 "daily_return_pct": None,
             },
@@ -196,11 +202,13 @@ class TestFormatDailyBrief:
             brief_date=date(2026, 2, 5),
             regime="BULL",
             portfolio_a={
-                "total_value": 33000, "daily_return_pct": None,
+                "total_value": 33000,
+                "daily_return_pct": None,
                 "reason": "Rebalancing to QQQ",
             },
             portfolio_b={
-                "total_value": 66000, "daily_return_pct": None,
+                "total_value": 66000,
+                "daily_return_pct": None,
                 "reasoning": "Buying QQQ",
             },
             proposed_trades=trades,
@@ -215,7 +223,8 @@ class TestFormatDailyBrief:
             regime="BULL",
             portfolio_a={"total_value": 33000, "daily_return_pct": 1.0},
             portfolio_b={
-                "total_value": 66000, "daily_return_pct": -0.2,
+                "total_value": 66000,
+                "daily_return_pct": -0.2,
                 "reasoning": "Holding",
             },
             proposed_trades=[],
@@ -233,11 +242,13 @@ class TestFormatDailyBrief:
             brief_date=date(2026, 2, 5),
             regime="BULL",
             portfolio_a={
-                "total_value": 33000, "daily_return_pct": 1.0,
+                "total_value": 33000,
+                "daily_return_pct": 1.0,
                 "top_ticker": "QQQ",
             },
             portfolio_b={
-                "total_value": 66000, "daily_return_pct": -0.2,
+                "total_value": 66000,
+                "daily_return_pct": -0.2,
                 "reasoning": "Holding",
             },
             proposed_trades=[],
@@ -308,7 +319,8 @@ class TestTelegramNotifier:
         assert result is False
 
     async def test_send_message_api_failure_exhausts_retries(
-        self, notifier: TelegramNotifier,
+        self,
+        notifier: TelegramNotifier,
     ) -> None:
         mock_bot = AsyncMock()
         mock_bot.send_message.side_effect = Exception("API error")
@@ -319,7 +331,8 @@ class TestTelegramNotifier:
         assert mock_bot.send_message.call_count == 1
 
     async def test_send_message_retries_then_succeeds(
-        self, notifier: TelegramNotifier,
+        self,
+        notifier: TelegramNotifier,
     ) -> None:
         mock_bot = AsyncMock()
         mock_bot.send_message.side_effect = [
@@ -333,7 +346,8 @@ class TestTelegramNotifier:
         assert mock_bot.send_message.call_count == 2
 
     async def test_send_message_retries_all_fail(
-        self, notifier: TelegramNotifier,
+        self,
+        notifier: TelegramNotifier,
     ) -> None:
         mock_bot = AsyncMock()
         mock_bot.send_message.side_effect = Exception("ConnectError")
@@ -415,9 +429,7 @@ class TestTelegramNotifier:
 
 class TestFormatApprovalRequest:
     def test_contains_score(self) -> None:
-        complexity = ComplexityResult(
-            score=65, should_escalate=True, signals=["VIX elevated at 32.0"]
-        )
+        complexity = ComplexityResult(score=65, should_escalate=True, signals=["VIX elevated at 32.0"])
         msg = format_approval_request(complexity)
         assert "65/100" in msg
 
@@ -432,9 +444,7 @@ class TestFormatApprovalRequest:
         assert "Regime changed" in msg
 
     def test_html_escapes_signals(self) -> None:
-        complexity = ComplexityResult(
-            score=50, should_escalate=True, signals=["A<B & C>D"]
-        )
+        complexity = ComplexityResult(score=50, should_escalate=True, signals=["A<B & C>D"])
         msg = format_approval_request(complexity)
         assert "&lt;" in msg
         assert "&amp;" in msg
@@ -457,9 +467,7 @@ class TestSendApprovalRequest:
         mock_bot.send_message.return_value = mock_msg
         notifier._bot = mock_bot
 
-        complexity = ComplexityResult(
-            score=60, should_escalate=True, signals=["VIX elevated at 28.0"]
-        )
+        complexity = ComplexityResult(score=60, should_escalate=True, signals=["VIX elevated at 28.0"])
         result = await notifier.send_approval_request(complexity, "req123")
 
         assert result == 42

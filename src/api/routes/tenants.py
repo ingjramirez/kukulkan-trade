@@ -26,13 +26,9 @@ router = APIRouter(prefix="/api/tenants", tags=["tenants"])
 
 def _tenant_to_response(tenant: TenantRow) -> TenantReadResponse:
     """Convert a TenantRow to the safe API response schema."""
-    api_key_masked = (
-        mask_credential(decrypt_value(tenant.alpaca_api_key_enc))
-        if tenant.alpaca_api_key_enc else None
-    )
+    api_key_masked = mask_credential(decrypt_value(tenant.alpaca_api_key_enc)) if tenant.alpaca_api_key_enc else None
     chat_id_masked = (
-        mask_credential(decrypt_value(tenant.telegram_chat_id_enc))
-        if tenant.telegram_chat_id_enc else None
+        mask_credential(decrypt_value(tenant.telegram_chat_id_enc)) if tenant.telegram_chat_id_enc else None
     )
     return TenantReadResponse(
         id=tenant.id,
@@ -49,15 +45,9 @@ def _tenant_to_response(tenant: TenantRow) -> TenantReadResponse:
         initial_equity=tenant.initial_equity,
         portfolio_a_pct=tenant.portfolio_a_pct,
         portfolio_b_pct=tenant.portfolio_b_pct,
-        ticker_whitelist=(
-            json.loads(tenant.ticker_whitelist) if tenant.ticker_whitelist else None
-        ),
-        ticker_additions=(
-            json.loads(tenant.ticker_additions) if tenant.ticker_additions else None
-        ),
-        ticker_exclusions=(
-            json.loads(tenant.ticker_exclusions) if tenant.ticker_exclusions else None
-        ),
+        ticker_whitelist=(json.loads(tenant.ticker_whitelist) if tenant.ticker_whitelist else None),
+        ticker_additions=(json.loads(tenant.ticker_additions) if tenant.ticker_additions else None),
+        ticker_exclusions=(json.loads(tenant.ticker_exclusions) if tenant.ticker_exclusions else None),
         pending_rebalance=bool(tenant.pending_rebalance),
         dashboard_user=tenant.dashboard_user,
         created_at=tenant.created_at,
@@ -109,23 +99,15 @@ async def update_my_tenant(
     if body.telegram_chat_id is not None:
         updates["telegram_chat_id_enc"] = encrypt_value(body.telegram_chat_id)
     if body.ticker_whitelist is not None:
-        updates["ticker_whitelist"] = (
-            json.dumps(body.ticker_whitelist) if body.ticker_whitelist else None
-        )
+        updates["ticker_whitelist"] = json.dumps(body.ticker_whitelist) if body.ticker_whitelist else None
     if body.ticker_additions is not None:
-        updates["ticker_additions"] = (
-            json.dumps(body.ticker_additions) if body.ticker_additions else None
-        )
+        updates["ticker_additions"] = json.dumps(body.ticker_additions) if body.ticker_additions else None
     if body.ticker_exclusions is not None:
-        updates["ticker_exclusions"] = (
-            json.dumps(body.ticker_exclusions) if body.ticker_exclusions else None
-        )
+        updates["ticker_exclusions"] = json.dumps(body.ticker_exclusions) if body.ticker_exclusions else None
 
     # Portfolio config fields require credentials (same guard as admin endpoint)
     _portfolio_fields = {"run_portfolio_a", "run_portfolio_b", "strategy_mode"}
-    has_portfolio_update = any(
-        getattr(body, f) is not None for f in _portfolio_fields
-    )
+    has_portfolio_update = any(getattr(body, f) is not None for f in _portfolio_fields)
     if has_portfolio_update:
         has_alpaca = bool(
             (body.alpaca_api_key or tenant.alpaca_api_key_enc)
@@ -138,8 +120,7 @@ async def update_my_tenant(
         if not (has_alpaca and has_telegram):
             raise HTTPException(
                 status_code=422,
-                detail="Alpaca and Telegram credentials must be configured "
-                       "before setting portfolio configuration",
+                detail="Alpaca and Telegram credentials must be configured before setting portfolio configuration",
             )
 
     if body.strategy_mode is not None:
@@ -165,6 +146,7 @@ async def update_my_tenant(
     if any(k.endswith("_enc") for k in updates):
         from src.execution.client_factory import AlpacaClientFactory
         from src.notifications.telegram_factory import TelegramFactory
+
         AlpacaClientFactory.invalidate(tenant_id)
         TelegramFactory.invalidate(tenant_id)
 
@@ -192,6 +174,7 @@ async def test_my_alpaca(
         import asyncio
 
         from src.execution.client_factory import AlpacaClientFactory
+
         client = AlpacaClientFactory.get_trading_client(tenant)
         account = await asyncio.to_thread(client.get_account)
         return {"success": True, "equity": float(account.equity)}
@@ -218,6 +201,7 @@ async def test_my_telegram(
 
     try:
         from src.notifications.telegram_factory import TelegramFactory
+
         notifier = TelegramFactory.get_notifier(tenant)
         success = await notifier.send_message(
             "🐍 Kukulkan test message — connection verified!",
@@ -228,7 +212,8 @@ async def test_my_telegram(
     except Exception:
         log.error("test_telegram_failed", tenant_id=tenant_id)
         return {
-            "success": False, "error": "Connection failed. Check credentials and try again.",
+            "success": False,
+            "error": "Connection failed. Check credentials and try again.",
         }
 
 
@@ -247,25 +232,18 @@ async def create_tenant(
         existing = await db.get_tenant_by_username(body.username)
         if existing:
             raise HTTPException(
-                status_code=409, detail="Username already taken",
+                status_code=409,
+                detail="Username already taken",
             )
 
     tenant = TenantRow(
         id=str(uuid.uuid4()),
         name=body.name,
-        alpaca_api_key_enc=(
-            encrypt_value(body.alpaca_api_key) if body.alpaca_api_key else None
-        ),
-        alpaca_api_secret_enc=(
-            encrypt_value(body.alpaca_api_secret) if body.alpaca_api_secret else None
-        ),
+        alpaca_api_key_enc=(encrypt_value(body.alpaca_api_key) if body.alpaca_api_key else None),
+        alpaca_api_secret_enc=(encrypt_value(body.alpaca_api_secret) if body.alpaca_api_secret else None),
         alpaca_base_url=body.alpaca_base_url,
-        telegram_bot_token_enc=(
-            encrypt_value(body.telegram_bot_token) if body.telegram_bot_token else None
-        ),
-        telegram_chat_id_enc=(
-            encrypt_value(body.telegram_chat_id) if body.telegram_chat_id else None
-        ),
+        telegram_bot_token_enc=(encrypt_value(body.telegram_bot_token) if body.telegram_bot_token else None),
+        telegram_chat_id_enc=(encrypt_value(body.telegram_chat_id) if body.telegram_chat_id else None),
         strategy_mode=body.strategy_mode,
         run_portfolio_a=body.run_portfolio_a,
         run_portfolio_b=body.run_portfolio_b,
@@ -273,19 +251,11 @@ async def create_tenant(
         portfolio_b_cash=body.portfolio_b_cash,
         portfolio_a_pct=body.portfolio_a_pct,
         portfolio_b_pct=body.portfolio_b_pct,
-        ticker_whitelist=(
-            json.dumps(body.ticker_whitelist) if body.ticker_whitelist else None
-        ),
-        ticker_additions=(
-            json.dumps(body.ticker_additions) if body.ticker_additions else None
-        ),
-        ticker_exclusions=(
-            json.dumps(body.ticker_exclusions) if body.ticker_exclusions else None
-        ),
+        ticker_whitelist=(json.dumps(body.ticker_whitelist) if body.ticker_whitelist else None),
+        ticker_additions=(json.dumps(body.ticker_additions) if body.ticker_additions else None),
+        ticker_exclusions=(json.dumps(body.ticker_exclusions) if body.ticker_exclusions else None),
         dashboard_user=body.username,
-        dashboard_password_enc=(
-            hash_password(body.password) if body.password else None
-        ),
+        dashboard_password_enc=(hash_password(body.password) if body.password else None),
     )
     await db.create_tenant(tenant)
     return _tenant_to_response(tenant)
@@ -329,12 +299,13 @@ async def update_tenant(
     # Portfolio config fields require Alpaca + Telegram to be configured
     # (ticker lists are preferences, not trading ops — allowed without creds)
     _portfolio_fields = {
-        "run_portfolio_a", "run_portfolio_b", "portfolio_a_cash",
-        "portfolio_b_cash", "strategy_mode",
+        "run_portfolio_a",
+        "run_portfolio_b",
+        "portfolio_a_cash",
+        "portfolio_b_cash",
+        "strategy_mode",
     }
-    has_portfolio_update = any(
-        getattr(body, f) is not None for f in _portfolio_fields
-    )
+    has_portfolio_update = any(getattr(body, f) is not None for f in _portfolio_fields)
     if has_portfolio_update:
         # Check current + incoming credentials
         has_alpaca = bool(
@@ -348,8 +319,7 @@ async def update_tenant(
         if not (has_alpaca and has_telegram):
             raise HTTPException(
                 status_code=422,
-                detail="Alpaca and Telegram credentials must be configured "
-                       "before setting portfolio configuration",
+                detail="Alpaca and Telegram credentials must be configured before setting portfolio configuration",
             )
 
     updates: dict = {}
@@ -386,24 +356,19 @@ async def update_tenant(
         existing = await db.get_tenant_by_username(body.username)
         if existing and existing.id != tenant_id:
             raise HTTPException(
-                status_code=409, detail="Username already taken",
+                status_code=409,
+                detail="Username already taken",
             )
         updates["dashboard_user"] = body.username
     if body.password is not None:
         updates["dashboard_password_enc"] = hash_password(body.password)
     # Ticker lists: allow setting to empty [] or null
     if body.ticker_whitelist is not None:
-        updates["ticker_whitelist"] = (
-            json.dumps(body.ticker_whitelist) if body.ticker_whitelist else None
-        )
+        updates["ticker_whitelist"] = json.dumps(body.ticker_whitelist) if body.ticker_whitelist else None
     if body.ticker_additions is not None:
-        updates["ticker_additions"] = (
-            json.dumps(body.ticker_additions) if body.ticker_additions else None
-        )
+        updates["ticker_additions"] = json.dumps(body.ticker_additions) if body.ticker_additions else None
     if body.ticker_exclusions is not None:
-        updates["ticker_exclusions"] = (
-            json.dumps(body.ticker_exclusions) if body.ticker_exclusions else None
-        )
+        updates["ticker_exclusions"] = json.dumps(body.ticker_exclusions) if body.ticker_exclusions else None
 
     # Detect portfolio toggle changes → set pending_rebalance
     toggle_changed = False
@@ -421,6 +386,7 @@ async def update_tenant(
     if any(k.endswith("_enc") for k in updates):
         from src.execution.client_factory import AlpacaClientFactory
         from src.notifications.telegram_factory import TelegramFactory
+
         AlpacaClientFactory.invalidate(tenant_id)
         TelegramFactory.invalidate(tenant_id)
 
@@ -457,8 +423,10 @@ async def test_alpaca(
 
     try:
         from src.execution.client_factory import AlpacaClientFactory
+
         client = AlpacaClientFactory.get_trading_client(tenant)
         import asyncio
+
         account = await asyncio.to_thread(client.get_account)
         return {
             "success": True,
@@ -485,6 +453,7 @@ async def test_telegram(
 
     try:
         from src.notifications.telegram_factory import TelegramFactory
+
         notifier = TelegramFactory.get_notifier(tenant)
         success = await notifier.send_message(
             "🐍 Kukulkan test message — connection verified!",
@@ -495,5 +464,6 @@ async def test_telegram(
     except Exception:
         log.error("test_telegram_failed", tenant_id=tenant_id)
         return {
-            "success": False, "error": "Connection failed. Check credentials and try again.",
+            "success": False,
+            "error": "Connection failed. Check credentials and try again.",
         }

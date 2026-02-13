@@ -18,40 +18,55 @@ structlog.configure(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Kukulkan — Backtest Runner")
     parser.add_argument(
-        "--months", type=int, default=6,
+        "--months",
+        type=int,
+        default=6,
         help="Months of history to simulate (default: 6)",
     )
     parser.add_argument(
-        "--db", type=str, default="data/backtest.db",
+        "--db",
+        type=str,
+        default="data/backtest.db",
         help="Output database path (default: data/backtest.db)",
     )
     parser.add_argument(
-        "--clean", action="store_true",
+        "--clean",
+        action="store_true",
         help="Drop and recreate all tables before running",
     )
     parser.add_argument(
-        "--use-ai", action="store_true",
+        "--use-ai",
+        action="store_true",
         help="Use real Claude AI for Portfolio B (costs API tokens)",
     )
     parser.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Estimate token cost without running the backtest",
     )
     parser.add_argument(
-        "--ai-budget", type=float, default=1.50,
+        "--ai-budget",
+        type=float,
+        default=1.50,
         help="Maximum USD to spend on AI API calls (default: 1.50)",
     )
     parser.add_argument(
-        "--ai-strategy", type=str, default=None,
+        "--ai-strategy",
+        type=str,
+        default=None,
         choices=["conservative", "standard", "aggressive"],
         help="AI strategy persona — uses same directives as production (default: conservative)",
     )
     parser.add_argument(
-        "--ai-prompt-override", type=str, default=None,
+        "--ai-prompt-override",
+        type=str,
+        default=None,
         help="Path to a text file with custom system prompt (overrides --ai-strategy)",
     )
     parser.add_argument(
-        "--run-label", type=str, default=None,
+        "--run-label",
+        type=str,
+        default=None,
         help="Label for this run (default: auto-detected from strategy/prompt)",
     )
     args = parser.parse_args()
@@ -96,16 +111,18 @@ def main() -> None:
     )
 
     runner = BacktestRunner(db_path=args.db)
-    summary = asyncio.run(runner.run(
-        months=args.months,
-        clean=args.clean,
-        use_ai=args.use_ai,
-        dry_run=args.dry_run,
-        ai_budget=args.ai_budget,
-        prompt_override=prompt_override,
-        strategy_mode=strategy_mode,
-        run_label=run_label or "default",
-    ))
+    summary = asyncio.run(
+        runner.run(
+            months=args.months,
+            clean=args.clean,
+            use_ai=args.use_ai,
+            dry_run=args.dry_run,
+            ai_budget=args.ai_budget,
+            prompt_override=prompt_override,
+            strategy_mode=strategy_mode,
+            run_label=run_label or "default",
+        )
+    )
 
     if summary.get("dry_run"):
         print("\n=== Dry Run Estimate ===")

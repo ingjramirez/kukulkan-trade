@@ -84,8 +84,12 @@ class TestMockPortfolioB:
         trades = mock.generate_trades(
             closes=closes,
             current_positions={
-                "XLK": 100, "XLF": 100, "GLD": 100,
-                "QQQ": 100, "AAPL": 100, "MSFT": 100,
+                "XLK": 100,
+                "XLF": 100,
+                "GLD": 100,
+                "QQQ": 100,
+                "AAPL": 100,
+                "MSFT": 100,
             },
             cash=0,
             total_value=50_000.0,
@@ -211,8 +215,7 @@ class TestBacktestRunnerUnit:
         runner, db = runner_and_db
         from src.strategies.portfolio_a import MomentumStrategy
 
-        tickers = ["XLK", "XLF", "QQQ", "GLD", "XLE", "XLI", "XLV", "XLP",
-                    "XLU", "XLB", "XLRE", "AAPL", "MSFT"]
+        tickers = ["XLK", "XLF", "QQQ", "GLD", "XLE", "XLI", "XLV", "XLP", "XLU", "XLB", "XLRE", "AAPL", "MSFT"]
         closes = _make_closes(tickers, days=250)
         trading_days = closes.index.tolist()
 
@@ -226,7 +229,7 @@ class TestBacktestRunnerUnit:
         sim_dates = trading_days[-5:]
         for sim_date in sim_dates:
             day_idx = trading_days.index(sim_date)
-            closes_slice = closes.iloc[:day_idx + 1]
+            closes_slice = closes.iloc[: day_idx + 1]
 
             all_trades = []
 
@@ -297,7 +300,11 @@ class TestBacktestRunnerUnit:
         ai_bt._strategy._agent._client = MagicMock()
 
         trades = await runner._run_portfolio_b_ai(
-            ai_bt, closes, volumes, trader, date.today(),
+            ai_bt,
+            closes,
+            volumes,
+            trader,
+            date.today(),
         )
 
         assert isinstance(trades, list)

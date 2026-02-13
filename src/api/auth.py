@@ -28,7 +28,9 @@ _revoked_tokens: set[str] = set()
 
 
 def create_access_token(
-    subject: str, *, tenant_id: str | None = None,
+    subject: str,
+    *,
+    tenant_id: str | None = None,
 ) -> str:
     now = datetime.now(timezone.utc)
     expire = now + timedelta(hours=TOKEN_EXPIRE_HOURS)
@@ -69,7 +71,9 @@ def revoke_token(token: str) -> None:
 async def login(body: LoginRequest, request: Request) -> TokenResponse:
     """Authenticate via tenant credentials or global admin."""
     db: Database | None = getattr(
-        getattr(request.app, "state", None), "db", None,
+        getattr(request.app, "state", None),
+        "db",
+        None,
     )
 
     # 1. Try tenant login (if db is available)
@@ -90,7 +94,8 @@ async def login(body: LoginRequest, request: Request) -> TokenResponse:
                         # Re-hash with bcrypt for future logins
                         new_hash = hash_password(body.password)
                         await db.update_tenant(
-                            tenant.id, {"dashboard_password_enc": new_hash},
+                            tenant.id,
+                            {"dashboard_password_enc": new_hash},
                         )
                         log.info("password_migrated_to_bcrypt", tenant_id=tenant.id)
                 except Exception:
@@ -98,10 +103,12 @@ async def login(body: LoginRequest, request: Request) -> TokenResponse:
 
             if password_ok:
                 token = create_access_token(
-                    subject=body.username, tenant_id=tenant.id,
+                    subject=body.username,
+                    tenant_id=tenant.id,
                 )
                 return TokenResponse(
-                    access_token=token, tenant_id=tenant.id,
+                    access_token=token,
+                    tenant_id=tenant.id,
                 )
 
     # 2. Fall back to global admin

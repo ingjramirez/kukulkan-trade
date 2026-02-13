@@ -97,9 +97,7 @@ class TestDiscoveryFiltering:
         )
 
         discovery_section = result.split("== DISCOVERY (not in universe) ==")[1]
-        discovery_lines = [
-            line for line in discovery_section.strip().split("\n") if line.strip()
-        ]
+        discovery_lines = [line for line in discovery_section.strip().split("\n") if line.strip()]
         assert len(discovery_lines) <= 3
 
     def test_discovery_picks_non_universe_ticker(self) -> None:

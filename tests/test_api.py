@@ -44,52 +44,103 @@ async def seeded_db(db):
         s.add(PositionRow(portfolio="B", ticker="MSFT", shares=20, avg_price=400.0))
 
         # Trades
-        s.add(TradeRow(
-            portfolio="A", ticker="AAPL", side="BUY", shares=10,
-            price=180.0, total=1800.0, reason="Momentum buy",
-        ))
-        s.add(TradeRow(
-            portfolio="B", ticker="MSFT", side="BUY", shares=20,
-            price=400.0, total=8000.0, reason="AI decision",
-        ))
-        s.add(TradeRow(
-            portfolio="A", ticker="TSLA", side="SELL", shares=5,
-            price=250.0, total=1250.0, reason="Momentum rotation",
-        ))
+        s.add(
+            TradeRow(
+                portfolio="A",
+                ticker="AAPL",
+                side="BUY",
+                shares=10,
+                price=180.0,
+                total=1800.0,
+                reason="Momentum buy",
+            )
+        )
+        s.add(
+            TradeRow(
+                portfolio="B",
+                ticker="MSFT",
+                side="BUY",
+                shares=20,
+                price=400.0,
+                total=8000.0,
+                reason="AI decision",
+            )
+        )
+        s.add(
+            TradeRow(
+                portfolio="A",
+                ticker="TSLA",
+                side="SELL",
+                shares=5,
+                price=250.0,
+                total=1250.0,
+                reason="Momentum rotation",
+            )
+        )
 
         # Snapshots
-        s.add(DailySnapshotRow(
-            portfolio="A", date=date(2026, 1, 15), total_value=34000.0,
-            cash=30000.0, positions_value=4000.0, daily_return_pct=0.5,
-        ))
-        s.add(DailySnapshotRow(
-            portfolio="A", date=date(2026, 1, 16), total_value=35000.0,
-            cash=30000.0, positions_value=5000.0, daily_return_pct=2.94,
-        ))
-        s.add(DailySnapshotRow(
-            portfolio="B", date=date(2026, 1, 15), total_value=67000.0,
-            cash=60000.0, positions_value=7000.0, daily_return_pct=1.5,
-        ))
+        s.add(
+            DailySnapshotRow(
+                portfolio="A",
+                date=date(2026, 1, 15),
+                total_value=34000.0,
+                cash=30000.0,
+                positions_value=4000.0,
+                daily_return_pct=0.5,
+            )
+        )
+        s.add(
+            DailySnapshotRow(
+                portfolio="A",
+                date=date(2026, 1, 16),
+                total_value=35000.0,
+                cash=30000.0,
+                positions_value=5000.0,
+                daily_return_pct=2.94,
+            )
+        )
+        s.add(
+            DailySnapshotRow(
+                portfolio="B",
+                date=date(2026, 1, 15),
+                total_value=67000.0,
+                cash=60000.0,
+                positions_value=7000.0,
+                daily_return_pct=1.5,
+            )
+        )
 
         # Momentum rankings
-        s.add(MomentumRankingRow(
-            date=date(2026, 1, 16), ticker="AAPL", return_63d=15.2, rank=1,
-        ))
-        s.add(MomentumRankingRow(
-            date=date(2026, 1, 16), ticker="MSFT", return_63d=12.1, rank=2,
-        ))
+        s.add(
+            MomentumRankingRow(
+                date=date(2026, 1, 16),
+                ticker="AAPL",
+                return_63d=15.2,
+                rank=1,
+            )
+        )
+        s.add(
+            MomentumRankingRow(
+                date=date(2026, 1, 16),
+                ticker="MSFT",
+                return_63d=12.1,
+                rank=2,
+            )
+        )
 
         # Agent decisions
-        s.add(AgentDecisionRow(
-            date=date(2026, 1, 16),
-            prompt_summary="Market analysis",
-            response_summary="Buy MSFT",
-            proposed_trades=json.dumps([{"ticker": "MSFT", "side": "BUY", "shares": 20}]),
-            reasoning="Strong fundamentals and momentum",
-            model_used="claude-sonnet-4-5-20250929",
-            tokens_used=1500,
-            created_at=datetime(2026, 1, 16, 10, 0),
-        ))
+        s.add(
+            AgentDecisionRow(
+                date=date(2026, 1, 16),
+                prompt_summary="Market analysis",
+                response_summary="Buy MSFT",
+                proposed_trades=json.dumps([{"ticker": "MSFT", "side": "BUY", "shares": 20}]),
+                reasoning="Strong fundamentals and momentum",
+                model_used="claude-sonnet-4-5-20250929",
+                tokens_used=1500,
+                created_at=datetime(2026, 1, 16, 10, 0),
+            )
+        )
 
         await s.commit()
     return db
@@ -139,10 +190,13 @@ async def test_health(client):
 
 
 async def test_login_success(unauth_client):
-    r = await unauth_client.post("/api/auth/login", json={
-        "username": "admin",
-        "password": "",  # default empty password in test settings
-    })
+    r = await unauth_client.post(
+        "/api/auth/login",
+        json={
+            "username": "admin",
+            "password": "",  # default empty password in test settings
+        },
+    )
     # May succeed or fail depending on settings — just check structure
     if r.status_code == 200:
         data = r.json()
@@ -151,10 +205,13 @@ async def test_login_success(unauth_client):
 
 
 async def test_login_invalid_credentials(unauth_client):
-    r = await unauth_client.post("/api/auth/login", json={
-        "username": "wrong",
-        "password": "wrong",
-    })
+    r = await unauth_client.post(
+        "/api/auth/login",
+        json={
+            "username": "wrong",
+            "password": "wrong",
+        },
+    )
     assert r.status_code == 401
     assert "Invalid credentials" in r.json()["detail"]
 

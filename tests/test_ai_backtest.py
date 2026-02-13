@@ -128,9 +128,7 @@ class TestBudgetEnforcement:
     def test_api_error_returns_empty_and_logs(self) -> None:
         strategy = AIBacktestStrategy(budget_usd=10.0, run_label="test")
         # Mock the agent to raise an error
-        strategy._strategy._agent.analyze = MagicMock(
-            side_effect=Exception("API error")
-        )
+        strategy._strategy._agent.analyze = MagicMock(side_effect=Exception("API error"))
         strategy._strategy._agent._client = MagicMock()
 
         tickers = ["XLK", "XLF", "QQQ"]
@@ -238,9 +236,7 @@ class TestPromptOverride:
             prompt_override=custom_prompt,
         )
         # Mock the agent to capture the call
-        strategy._strategy._agent.analyze = MagicMock(
-            return_value=_mock_agent_response()
-        )
+        strategy._strategy._agent.analyze = MagicMock(return_value=_mock_agent_response())
         strategy._strategy._agent._client = MagicMock()
 
         tickers = ["XLK", "XLF", "QQQ"]
@@ -269,9 +265,7 @@ class TestPromptOverride:
 class TestGenerateTrades:
     def test_successful_trade_generation(self) -> None:
         strategy = AIBacktestStrategy(budget_usd=10.0, run_label="test")
-        strategy._strategy._agent.analyze = MagicMock(
-            return_value=_mock_agent_response(tokens=2000)
-        )
+        strategy._strategy._agent.analyze = MagicMock(return_value=_mock_agent_response(tokens=2000))
         strategy._strategy._agent._client = MagicMock()
 
         tickers = ["XLK", "XLF", "QQQ"]
@@ -296,9 +290,7 @@ class TestGenerateTrades:
 
     def test_sim_date_passed_to_agent(self) -> None:
         strategy = AIBacktestStrategy(budget_usd=10.0, run_label="test")
-        strategy._strategy._agent.analyze = MagicMock(
-            return_value=_mock_agent_response()
-        )
+        strategy._strategy._agent.analyze = MagicMock(return_value=_mock_agent_response())
         strategy._strategy._agent._client = MagicMock()
 
         tickers = ["XLK", "XLF", "QQQ"]
@@ -345,13 +337,15 @@ class TestRunnerIntegration:
         await trader.initialize_portfolios()
 
         ai_bt = AIBacktestStrategy(budget_usd=10.0, run_label="test")
-        ai_bt._strategy._agent.analyze = MagicMock(
-            return_value=_mock_agent_response()
-        )
+        ai_bt._strategy._agent.analyze = MagicMock(return_value=_mock_agent_response())
         ai_bt._strategy._agent._client = MagicMock()
 
         trades = await runner._run_portfolio_b_ai(
-            ai_bt, closes, volumes, trader, date.today(),
+            ai_bt,
+            closes,
+            volumes,
+            trader,
+            date.today(),
         )
 
         assert isinstance(trades, list)

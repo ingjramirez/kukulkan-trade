@@ -46,7 +46,8 @@ def next_trading_day(from_date: date | None = None) -> date:
     from_date = from_date or date.today()
     end = from_date + timedelta(days=10)
     sessions = _nyse.sessions_in_range(
-        from_date.isoformat(), end.isoformat(),
+        from_date.isoformat(),
+        end.isoformat(),
     )
     for s in sessions:
         if s.date() > from_date:

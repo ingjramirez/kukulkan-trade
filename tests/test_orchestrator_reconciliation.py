@@ -74,11 +74,16 @@ class TestAlpacaSnapshotPrices:
         # Set up the pipeline to run minimally
         orch._market_data.fetch_universe = AsyncMock(
             return_value={
-                t: pd.DataFrame({
-                    "Open": closes[t], "High": closes[t],
-                    "Low": closes[t], "Close": closes[t],
-                    "Volume": [1e6] * len(closes),
-                }, index=closes.index)
+                t: pd.DataFrame(
+                    {
+                        "Open": closes[t],
+                        "High": closes[t],
+                        "Low": closes[t],
+                        "Close": closes[t],
+                        "Volume": [1e6] * len(closes),
+                    },
+                    index=closes.index,
+                )
                 for t in closes.columns
             }
         )
@@ -109,7 +114,8 @@ class TestAlpacaSnapshotPrices:
             assert abs(prices["MSFT"] - float(closes["MSFT"].iloc[-1])) < 0.01
 
     async def test_alpaca_prices_fallback_to_yfinance(
-        self, orch: Orchestrator,
+        self,
+        orch: Orchestrator,
     ) -> None:
         """Tickers not held on Alpaca fall back to yfinance closes."""
         closes = _make_closes(["AAPL", "MSFT"])
@@ -125,11 +131,16 @@ class TestAlpacaSnapshotPrices:
 
         orch._market_data.fetch_universe = AsyncMock(
             return_value={
-                t: pd.DataFrame({
-                    "Open": closes[t], "High": closes[t],
-                    "Low": closes[t], "Close": closes[t],
-                    "Volume": [1e6] * len(closes),
-                }, index=closes.index)
+                t: pd.DataFrame(
+                    {
+                        "Open": closes[t],
+                        "High": closes[t],
+                        "Low": closes[t],
+                        "Close": closes[t],
+                        "Volume": [1e6] * len(closes),
+                    },
+                    index=closes.index,
+                )
                 for t in closes.columns
             }
         )
@@ -162,7 +173,9 @@ class TestAlpacaSnapshotPrices:
 
 class TestReconcileEquity:
     async def test_reconcile_adjusts_cash_when_drift_positive(
-        self, orch: Orchestrator, db: Database,
+        self,
+        orch: Orchestrator,
+        db: Database,
     ) -> None:
         """Tracked < Alpaca by $30 → cash increased."""
         # Set up tracked portfolios: A=33000, B=66000 → total 99000
@@ -170,7 +183,9 @@ class TestReconcileEquity:
         await db.upsert_portfolio("B", cash=20000, total_value=66000)
 
         alloc = resolve_allocations(
-            initial_equity=99000, portfolio_a_pct=33.33, portfolio_b_pct=66.67,
+            initial_equity=99000,
+            portfolio_a_pct=33.33,
+            portfolio_b_pct=66.67,
         )
 
         # Alpaca says equity = 99030 → drift = +30
@@ -180,7 +195,10 @@ class TestReconcileEquity:
         orch._executor._client = mock_client
 
         drift = await orch._reconcile_equity(
-            "default", run_portfolio_a=True, run_portfolio_b=True, allocations=alloc,
+            "default",
+            run_portfolio_a=True,
+            run_portfolio_b=True,
+            allocations=alloc,
         )
 
         assert drift is not None
@@ -196,14 +214,18 @@ class TestReconcileEquity:
         assert abs(total_adj - 30.0) < 0.01
 
     async def test_reconcile_adjusts_cash_when_drift_negative(
-        self, orch: Orchestrator, db: Database,
+        self,
+        orch: Orchestrator,
+        db: Database,
     ) -> None:
         """Tracked > Alpaca by $25 → cash decreased."""
         await db.upsert_portfolio("A", cash=10000, total_value=33000)
         await db.upsert_portfolio("B", cash=20000, total_value=66000)
 
         alloc = resolve_allocations(
-            initial_equity=99000, portfolio_a_pct=33.33, portfolio_b_pct=66.67,
+            initial_equity=99000,
+            portfolio_a_pct=33.33,
+            portfolio_b_pct=66.67,
         )
 
         # Alpaca says equity = 98975 → drift = -25
@@ -213,7 +235,10 @@ class TestReconcileEquity:
         orch._executor._client = mock_client
 
         drift = await orch._reconcile_equity(
-            "default", run_portfolio_a=True, run_portfolio_b=True, allocations=alloc,
+            "default",
+            run_portfolio_a=True,
+            run_portfolio_b=True,
+            allocations=alloc,
         )
 
         assert drift is not None
@@ -225,14 +250,18 @@ class TestReconcileEquity:
         assert pb.cash < 20000
 
     async def test_reconcile_skips_below_threshold(
-        self, orch: Orchestrator, db: Database,
+        self,
+        orch: Orchestrator,
+        db: Database,
     ) -> None:
         """Drift < $10 → no reconciliation."""
         await db.upsert_portfolio("A", cash=10000, total_value=33000)
         await db.upsert_portfolio("B", cash=20000, total_value=66000)
 
         alloc = resolve_allocations(
-            initial_equity=99000, portfolio_a_pct=33.33, portfolio_b_pct=66.67,
+            initial_equity=99000,
+            portfolio_a_pct=33.33,
+            portfolio_b_pct=66.67,
         )
 
         # Drift = +5 (below threshold)
@@ -242,7 +271,10 @@ class TestReconcileEquity:
         orch._executor._client = mock_client
 
         drift = await orch._reconcile_equity(
-            "default", run_portfolio_a=True, run_portfolio_b=True, allocations=alloc,
+            "default",
+            run_portfolio_a=True,
+            run_portfolio_b=True,
+            allocations=alloc,
         )
 
         assert drift is None
@@ -252,14 +284,18 @@ class TestReconcileEquity:
         assert pa.cash == 10000
 
     async def test_reconcile_skips_deposit_range(
-        self, orch: Orchestrator, db: Database,
+        self,
+        orch: Orchestrator,
+        db: Database,
     ) -> None:
         """Drift > $50 positive → deferred to deposit detection."""
         await db.upsert_portfolio("A", cash=10000, total_value=33000)
         await db.upsert_portfolio("B", cash=20000, total_value=66000)
 
         alloc = resolve_allocations(
-            initial_equity=99000, portfolio_a_pct=33.33, portfolio_b_pct=66.67,
+            initial_equity=99000,
+            portfolio_a_pct=33.33,
+            portfolio_b_pct=66.67,
         )
 
         # Drift = +100 (above deposit threshold)
@@ -269,13 +305,18 @@ class TestReconcileEquity:
         orch._executor._client = mock_client
 
         drift = await orch._reconcile_equity(
-            "default", run_portfolio_a=True, run_portfolio_b=True, allocations=alloc,
+            "default",
+            run_portfolio_a=True,
+            run_portfolio_b=True,
+            allocations=alloc,
         )
 
         assert drift is None
 
     async def test_reconcile_skips_paper_trader(
-        self, orch: Orchestrator, db: Database,
+        self,
+        orch: Orchestrator,
+        db: Database,
     ) -> None:
         """PaperTrader has no _client → skip reconciliation."""
         alloc = resolve_allocations(initial_equity=99000)
@@ -284,13 +325,18 @@ class TestReconcileEquity:
         assert not hasattr(orch._executor, "_client")
 
         drift = await orch._reconcile_equity(
-            "default", run_portfolio_a=True, run_portfolio_b=True, allocations=alloc,
+            "default",
+            run_portfolio_a=True,
+            run_portfolio_b=True,
+            allocations=alloc,
         )
 
         assert drift is None
 
     async def test_reconcile_splits_proportionally(
-        self, orch: Orchestrator, db: Database,
+        self,
+        orch: Orchestrator,
+        db: Database,
     ) -> None:
         """Both portfolios enabled → drift split by allocation pct."""
         await db.upsert_portfolio("A", cash=10000, total_value=33000)
@@ -298,7 +344,9 @@ class TestReconcileEquity:
 
         # 33.33% / 66.67% split
         alloc = resolve_allocations(
-            initial_equity=99000, portfolio_a_pct=33.33, portfolio_b_pct=66.67,
+            initial_equity=99000,
+            portfolio_a_pct=33.33,
+            portfolio_b_pct=66.67,
         )
 
         # Drift = +30
@@ -308,7 +356,10 @@ class TestReconcileEquity:
         orch._executor._client = mock_client
 
         await orch._reconcile_equity(
-            "default", run_portfolio_a=True, run_portfolio_b=True, allocations=alloc,
+            "default",
+            run_portfolio_a=True,
+            run_portfolio_b=True,
+            allocations=alloc,
         )
 
         pa = await db.get_portfolio("A")
@@ -321,13 +372,17 @@ class TestReconcileEquity:
         assert abs(b_adj - 20.0) < 0.5
 
     async def test_reconcile_single_portfolio(
-        self, orch: Orchestrator, db: Database,
+        self,
+        orch: Orchestrator,
+        db: Database,
     ) -> None:
         """Only B enabled → entire drift goes to B."""
         await db.upsert_portfolio("B", cash=20000, total_value=66000)
 
         alloc = resolve_allocations(
-            initial_equity=99000, portfolio_a_pct=33.33, portfolio_b_pct=66.67,
+            initial_equity=99000,
+            portfolio_a_pct=33.33,
+            portfolio_b_pct=66.67,
         )
 
         # Drift = +30 (only B tracked → broker 66030)
@@ -337,7 +392,10 @@ class TestReconcileEquity:
         orch._executor._client = mock_client
 
         drift = await orch._reconcile_equity(
-            "default", run_portfolio_a=False, run_portfolio_b=True, allocations=alloc,
+            "default",
+            run_portfolio_a=False,
+            run_portfolio_b=True,
+            allocations=alloc,
         )
 
         assert drift is not None
@@ -348,7 +406,9 @@ class TestReconcileEquity:
         assert abs(pb.cash - 20030) < 0.01
 
     async def test_reconcile_large_negative_drift(
-        self, orch: Orchestrator, db: Database,
+        self,
+        orch: Orchestrator,
+        db: Database,
     ) -> None:
         """Large negative drift (tracked > Alpaca by $200) is corrected.
 
@@ -358,7 +418,9 @@ class TestReconcileEquity:
         await db.upsert_portfolio("B", cash=20000, total_value=66000)
 
         alloc = resolve_allocations(
-            initial_equity=99000, portfolio_a_pct=33.33, portfolio_b_pct=66.67,
+            initial_equity=99000,
+            portfolio_a_pct=33.33,
+            portfolio_b_pct=66.67,
         )
 
         # Drift = -200
@@ -368,7 +430,10 @@ class TestReconcileEquity:
         orch._executor._client = mock_client
 
         drift = await orch._reconcile_equity(
-            "default", run_portfolio_a=True, run_portfolio_b=True, allocations=alloc,
+            "default",
+            run_portfolio_a=True,
+            run_portfolio_b=True,
+            allocations=alloc,
         )
 
         assert drift is not None

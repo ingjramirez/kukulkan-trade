@@ -50,11 +50,13 @@ def calculate_momentum(
     # Drop NaN tickers and sort
     returns = returns.dropna().sort_values(ascending=False)
 
-    result = pd.DataFrame({
-        "ticker": returns.index,
-        "return_63d": returns.values,
-        "rank": range(1, len(returns) + 1),
-    })
+    result = pd.DataFrame(
+        {
+            "ticker": returns.index,
+            "return_63d": returns.values,
+            "rank": range(1, len(returns) + 1),
+        }
+    )
 
     log.info(
         "momentum_calculated",
@@ -66,9 +68,7 @@ def calculate_momentum(
     return result
 
 
-def momentum_to_db_rows(
-    rankings: pd.DataFrame, ranking_date: date
-) -> list[MomentumRankingRow]:
+def momentum_to_db_rows(rankings: pd.DataFrame, ranking_date: date) -> list[MomentumRankingRow]:
     """Convert momentum DataFrame to SQLAlchemy model instances.
 
     Args:

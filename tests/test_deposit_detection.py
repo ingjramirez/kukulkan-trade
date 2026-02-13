@@ -63,10 +63,12 @@ class TestDetectDeposits:
 
         assert new_alloc.initial_equity == 101_000.0
         assert new_alloc.portfolio_a_cash == pytest.approx(
-            101_000.0 * 33.33 / 100, rel=1e-2,
+            101_000.0 * 33.33 / 100,
+            rel=1e-2,
         )
         assert new_alloc.portfolio_b_cash == pytest.approx(
-            101_000.0 * 66.67 / 100, rel=1e-2,
+            101_000.0 * 66.67 / 100,
+            rel=1e-2,
         )
 
         # Verify portfolio cash was increased in DB
@@ -244,6 +246,7 @@ class TestDetectDeposits:
         from cryptography.fernet import Fernet
 
         from config.settings import settings
+
         settings.tenant_encryption_key = Fernet.generate_key().decode()
         from src.storage.models import TenantRow
         from src.utils.crypto import encrypt_value

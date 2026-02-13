@@ -13,16 +13,18 @@ class RiskRules:
 
     # Per-sector concentration overrides (sector name -> max fraction)
     # Sectors not listed here fall back to max_sector_concentration.
-    sector_concentration_overrides: dict[str, float] = field(default_factory=lambda: {
-        "Fixed Income": 0.50,
-        "International": 0.25,
-        "Dividend/Value": 0.25,
-        "Hedge": 0.05,
-        "Thematic": 0.10,
-        "Commodities": 0.20,
-        "Real Estate": 0.15,
-        "Crypto": 0.05,
-    })
+    sector_concentration_overrides: dict[str, float] = field(
+        default_factory=lambda: {
+            "Fixed Income": 0.50,
+            "International": 0.25,
+            "Dividend/Value": 0.25,
+            "Hedge": 0.05,
+            "Thematic": 0.10,
+            "Commodities": 0.20,
+            "Real Estate": 0.15,
+            "Crypto": 0.05,
+        }
+    )
 
     # Drawdown circuit breakers
     daily_loss_limit_pct: float = 0.05  # halt trading if portfolio drops 5% in a day
@@ -34,7 +36,16 @@ class RiskRules:
 
     # Defensive assets
     defensive_tickers: tuple[str, ...] = (
-        "XLU", "XLP", "TLT", "GLD", "SH", "BIL", "SHY", "IEF", "AGG", "VTIP",
+        "XLU",
+        "XLP",
+        "TLT",
+        "GLD",
+        "SH",
+        "BIL",
+        "SHY",
+        "IEF",
+        "AGG",
+        "VTIP",
     )
 
     # BTC risk signal thresholds
@@ -51,6 +62,6 @@ RISK_RULES = RiskRules()
 # Lower trail = tighter stop = less drawdown tolerance.
 TRAIL_PCT: dict[str, dict[str, float]] = {
     "conservative": {"high": 0.05, "medium": 0.07, "low": 0.10},
-    "standard":     {"high": 0.07, "medium": 0.10, "low": 0.12},
-    "aggressive":   {"high": 0.10, "medium": 0.12, "low": 0.15},
+    "standard": {"high": 0.07, "medium": 0.10, "low": 0.12},
+    "aggressive": {"high": 0.10, "medium": 0.12, "low": 0.15},
 }

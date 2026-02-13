@@ -20,7 +20,9 @@ class EarningsCalendar:
     BATCH_DELAY_SECONDS = 1.0
 
     async def refresh_earnings(
-        self, db: Database, tickers: list[str],
+        self,
+        db: Database,
+        tickers: list[str],
     ) -> int:
         """Fetch earnings dates for tickers, upsert into DB.
 
@@ -49,7 +51,7 @@ class EarningsCalendar:
 
         count = 0
         for i in range(0, len(tickers), self.BATCH_SIZE):
-            batch = tickers[i:i + self.BATCH_SIZE]
+            batch = tickers[i : i + self.BATCH_SIZE]
             for ticker in batch:
                 try:
                     earnings_date = await self._fetch_earnings_date(ticker)
@@ -94,6 +96,7 @@ class EarningsCalendar:
         Returns:
             Next earnings date, or None if unavailable.
         """
+
         def _sync_fetch() -> date | None:
             t = yf.Ticker(ticker)
             cal = t.calendar

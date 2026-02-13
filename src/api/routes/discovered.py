@@ -32,7 +32,8 @@ async def list_discovered_tickers(
 ) -> list[DiscoveredTickerResponse]:
     """List discovered tickers for the authenticated tenant."""
     rows = await db.get_all_discovered_tickers(
-        tenant_id=tenant_id, status=status_filter,
+        tenant_id=tenant_id,
+        status=status_filter,
     )
     return [
         DiscoveredTickerResponse(
@@ -71,7 +72,9 @@ async def update_discovered_ticker(
         )
 
     await db.update_discovered_ticker_status(
-        ticker, body.status, tenant_id=tenant_id,
+        ticker,
+        body.status,
+        tenant_id=tenant_id,
     )
     return DiscoveredTickerResponse(
         ticker=row.ticker,

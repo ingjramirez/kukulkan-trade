@@ -82,15 +82,17 @@ class AlpacaNewsFetcher:
                 if hasattr(item, "symbols") and item.symbols:
                     article_tickers = [s for s in item.symbols if s]
 
-                articles.append(NewsArticle(
-                    headline=item.headline or "",
-                    summary=getattr(item, "summary", "") or "",
-                    source="alpaca",
-                    publisher=getattr(item, "source", "Benzinga") or "Benzinga",
-                    tickers=article_tickers,
-                    published_at=published,
-                    url=getattr(item, "url", "") or "",
-                ))
+                articles.append(
+                    NewsArticle(
+                        headline=item.headline or "",
+                        summary=getattr(item, "summary", "") or "",
+                        source="alpaca",
+                        publisher=getattr(item, "source", "Benzinga") or "Benzinga",
+                        tickers=article_tickers,
+                        published_at=published,
+                        url=getattr(item, "url", "") or "",
+                    )
+                )
 
             log.info("alpaca_news_fetched", count=len(articles))
             return articles

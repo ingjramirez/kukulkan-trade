@@ -14,7 +14,11 @@ from src.storage.models import OrderSide, PortfolioName, TradeSchema
 
 
 def _make_trade(
-    ticker: str, side: str, shares: float, price: float, portfolio: str = "A",
+    ticker: str,
+    side: str,
+    shares: float,
+    price: float,
+    portfolio: str = "A",
 ) -> TradeSchema:
     return TradeSchema(
         portfolio=PortfolioName(portfolio),
@@ -52,10 +56,12 @@ class TestCircuitBreakers:
     async def test_daily_loss_triggers_halt(self):
         today = date(2026, 2, 6)
         db = AsyncMock()
-        db.get_snapshots = AsyncMock(return_value=[
-            _make_snapshot(today - timedelta(days=1), 33000.0),
-            _make_snapshot(today, 31000.0),  # ~6% loss
-        ])
+        db.get_snapshots = AsyncMock(
+            return_value=[
+                _make_snapshot(today - timedelta(days=1), 33000.0),
+                _make_snapshot(today, 31000.0),  # ~6% loss
+            ]
+        )
         rm = RiskManager()
         halted, reason = await rm.check_circuit_breakers("A", db, today)
         assert halted is True
@@ -83,10 +89,12 @@ class TestCircuitBreakers:
     async def test_within_limits_no_halt(self):
         today = date(2026, 2, 6)
         db = AsyncMock()
-        db.get_snapshots = AsyncMock(return_value=[
-            _make_snapshot(today - timedelta(days=1), 33000.0),
-            _make_snapshot(today, 32700.0),  # ~0.9% loss — within limits
-        ])
+        db.get_snapshots = AsyncMock(
+            return_value=[
+                _make_snapshot(today - timedelta(days=1), 33000.0),
+                _make_snapshot(today, 32700.0),  # ~0.9% loss — within limits
+            ]
+        )
         rm = RiskManager()
         halted, reason = await rm.check_circuit_breakers("A", db, today)
         assert halted is False
@@ -195,7 +203,7 @@ class TestPreTradeRisk:
         """Some trades pass, some fail."""
         rm = RiskManager()
         trades = [
-            _make_trade("XLF", "BUY", 10, 40.0),   # small, should pass
+            _make_trade("XLF", "BUY", 10, 40.0),  # small, should pass
             _make_trade("AAPL", "BUY", 200, 200.0),  # huge, should fail
         ]
         verdict = rm.check_pre_trade(

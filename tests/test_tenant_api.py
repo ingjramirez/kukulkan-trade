@@ -178,7 +178,6 @@ class TestUpdateTenant:
         )
         assert r.status_code == 404
 
-
     async def test_update_tickers_without_credentials(self, client, auth_headers):
         """Ticker customization should work without Alpaca/Telegram credentials."""
         create = await client.post(
@@ -242,7 +241,9 @@ class TestTenantSelfService:
     """Tests for /api/tenants/me — tenant user self-service."""
 
     async def _create_tenant_and_get_headers(
-        self, client: AsyncClient, auth_headers: dict,
+        self,
+        client: AsyncClient,
+        auth_headers: dict,
     ) -> tuple[str, dict]:
         """Create a tenant with login creds and return (tenant_id, tenant_headers)."""
         r = await client.post(
@@ -256,7 +257,8 @@ class TestTenantSelfService:
 
     async def test_get_me(self, client, auth_headers):
         tid, tenant_headers = await self._create_tenant_and_get_headers(
-            client, auth_headers,
+            client,
+            auth_headers,
         )
         r = await client.get("/api/tenants/me", headers=tenant_headers)
         assert r.status_code == 200
@@ -270,7 +272,8 @@ class TestTenantSelfService:
 
     async def test_patch_me_ticker_additions(self, client, auth_headers):
         _, tenant_headers = await self._create_tenant_and_get_headers(
-            client, auth_headers,
+            client,
+            auth_headers,
         )
         r = await client.patch(
             "/api/tenants/me",
@@ -282,7 +285,8 @@ class TestTenantSelfService:
 
     async def test_patch_me_ticker_exclusions(self, client, auth_headers):
         _, tenant_headers = await self._create_tenant_and_get_headers(
-            client, auth_headers,
+            client,
+            auth_headers,
         )
         r = await client.patch(
             "/api/tenants/me",
@@ -295,7 +299,8 @@ class TestTenantSelfService:
     async def test_patch_me_no_admin_fields(self, client, auth_headers):
         """Tenant users cannot set admin-level fields like is_active via /me."""
         _, tenant_headers = await self._create_tenant_and_get_headers(
-            client, auth_headers,
+            client,
+            auth_headers,
         )
         # is_active is not in TenantSelfUpdateRequest — Pydantic ignores it
         r = await client.patch(
@@ -328,7 +333,8 @@ class TestTenantSelfService:
     async def test_patch_me_alpaca_credentials(self, client, auth_headers):
         """Tenant users can update their own Alpaca credentials via /me."""
         _, tenant_headers = await self._create_tenant_and_get_headers(
-            client, auth_headers,
+            client,
+            auth_headers,
         )
         # Initially no Alpaca key
         r = await client.get("/api/tenants/me", headers=tenant_headers)
@@ -352,7 +358,8 @@ class TestTenantSelfService:
     async def test_patch_me_telegram_credentials(self, client, auth_headers):
         """Tenant users can update their own Telegram credentials via /me."""
         _, tenant_headers = await self._create_tenant_and_get_headers(
-            client, auth_headers,
+            client,
+            auth_headers,
         )
         r = await client.patch(
             "/api/tenants/me",
@@ -369,7 +376,8 @@ class TestTenantSelfService:
     async def test_me_test_alpaca_no_creds(self, client, auth_headers):
         """Test Alpaca connection fails gracefully when no credentials."""
         _, tenant_headers = await self._create_tenant_and_get_headers(
-            client, auth_headers,
+            client,
+            auth_headers,
         )
         r = await client.post("/api/tenants/me/test-alpaca", headers=tenant_headers)
         assert r.status_code == 200
@@ -379,7 +387,8 @@ class TestTenantSelfService:
     async def test_me_test_telegram_no_creds(self, client, auth_headers):
         """Test Telegram connection fails gracefully when no credentials."""
         _, tenant_headers = await self._create_tenant_and_get_headers(
-            client, auth_headers,
+            client,
+            auth_headers,
         )
         r = await client.post("/api/tenants/me/test-telegram", headers=tenant_headers)
         assert r.status_code == 200
@@ -502,7 +511,9 @@ class TestSelfServicePortfolioConfig:
     """Tests for self-service portfolio toggle and strategy mode."""
 
     async def _create_tenant_with_creds(
-        self, client: AsyncClient, auth_headers: dict,
+        self,
+        client: AsyncClient,
+        auth_headers: dict,
     ) -> tuple[str, dict]:
         """Create a tenant with full creds and return (tenant_id, tenant_headers)."""
         r = await client.post(
@@ -547,7 +558,9 @@ class TestSelfServicePortfolioConfig:
         assert r.json()["strategy_mode"] == "aggressive"
 
     async def test_self_service_portfolio_config_requires_credentials(
-        self, client, auth_headers,
+        self,
+        client,
+        auth_headers,
     ):
         """Self-service portfolio config requires Alpaca+Telegram credentials."""
         # Create tenant with NO credentials

@@ -266,7 +266,8 @@ class TestIDORProtection:
         headers = {"Authorization": f"Bearer {token}"}
         # Try to access "default" tenant's data (IDOR attempt)
         r = await idor_client.get(
-            "/api/portfolios?tenant_id=default", headers=headers,
+            "/api/portfolios?tenant_id=default",
+            headers=headers,
         )
         assert r.status_code == 200
         # Should return empty (tenant-papa has no portfolios), NOT default's data
@@ -277,7 +278,8 @@ class TestIDORProtection:
         token = create_access_token("admin")
         headers = {"Authorization": f"Bearer {token}"}
         r = await idor_client.get(
-            "/api/portfolios?tenant_id=default", headers=headers,
+            "/api/portfolios?tenant_id=default",
+            headers=headers,
         )
         assert r.status_code == 200
         # Admin should get the seeded "default" tenant data

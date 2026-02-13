@@ -121,7 +121,10 @@ class TestTriggerRun:
 
     @patch("src.api.routes.run._run_pipeline", new_callable=AsyncMock)
     async def test_incomplete_credentials_returns_422(
-        self, mock_pipeline, client, db,
+        self,
+        mock_pipeline,
+        client,
+        db,
     ):
         tenant = await _create_unconfigured_tenant(db)
         headers = _tenant_headers(tenant.id)

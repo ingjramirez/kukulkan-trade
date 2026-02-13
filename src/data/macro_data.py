@@ -21,12 +21,12 @@ log = structlog.get_logger()
 
 # FRED series IDs for key macro indicators
 FRED_SERIES: dict[str, str] = {
-    "yield_curve_10y2y": "T10Y2Y",    # 10-Year minus 2-Year Treasury spread
-    "vix": "VIXCLS",                    # CBOE Volatility Index
-    "initial_claims": "ICSA",           # Initial jobless claims (weekly)
-    "fed_funds_rate": "FEDFUNDS",       # Effective federal funds rate
-    "unemployment_rate": "UNRATE",      # Unemployment rate
-    "cpi_yoy": "CPIAUCSL",             # CPI (for year-over-year inflation calc)
+    "yield_curve_10y2y": "T10Y2Y",  # 10-Year minus 2-Year Treasury spread
+    "vix": "VIXCLS",  # CBOE Volatility Index
+    "initial_claims": "ICSA",  # Initial jobless claims (weekly)
+    "fed_funds_rate": "FEDFUNDS",  # Effective federal funds rate
+    "unemployment_rate": "UNRATE",  # Unemployment rate
+    "cpi_yoy": "CPIAUCSL",  # CPI (for year-over-year inflation calc)
 }
 
 
@@ -118,11 +118,13 @@ class MacroDataFetcher:
             for name, series in data.items():
                 for dt, value in series.items():
                     row_date = dt.date() if hasattr(dt, "date") else dt
-                    s.add(MacroDataRow(
-                        indicator=name,
-                        date=row_date,
-                        value=float(value),
-                    ))
+                    s.add(
+                        MacroDataRow(
+                            indicator=name,
+                            date=row_date,
+                            value=float(value),
+                        )
+                    )
             await s.commit()
 
         log.info("macro_data_cached", indicators=len(data))

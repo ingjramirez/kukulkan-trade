@@ -96,11 +96,14 @@ async def _run_pipeline(db: Database, tenant_id: str) -> None:
         from src.agent.ticker_discovery import TickerDiscovery
         from src.utils.allocations import resolve_from_tenant
         from src.utils.tenant_universe import get_tenant_universe
+
         alloc = resolve_from_tenant(tenant)
         discovery = TickerDiscovery(db)
         discovered = await discovery.get_active_tickers(tenant_id=tenant_id)
         tenant_b_universe = get_tenant_universe(
-            tenant, "B", discovered_tickers=discovered,
+            tenant,
+            "B",
+            discovered_tickers=discovered,
         )
 
         orchestrator = Orchestrator(db, notifier=notifier, executor=executor)
@@ -123,9 +126,7 @@ async def _run_pipeline(db: Database, tenant_id: str) -> None:
             tenant = await db.get_tenant(tenant_id)
             if tenant:
                 notifier = TelegramFactory.get_notifier(tenant)
-                await notifier.send_message(
-                    f"Manual run failed for {tenant.name}: {e}"
-                )
+                await notifier.send_message(f"Manual run failed for {tenant.name}: {e}")
         except Exception:
             pass
     finally:

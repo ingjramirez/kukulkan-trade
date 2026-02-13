@@ -79,7 +79,9 @@ class TestRegimeClassifier:
         else:
             # If our manipulation didn't produce >5% drawdown, at least not BEAR/CRISIS
             assert result.regime in (
-                MarketRegime.BULL, MarketRegime.CORRECTION, MarketRegime.CONSOLIDATION,
+                MarketRegime.BULL,
+                MarketRegime.CORRECTION,
+                MarketRegime.CONSOLIDATION,
             )
 
     def test_consolidation_default(self, classifier: RegimeClassifier) -> None:
@@ -114,7 +116,8 @@ class TestRegimeClassifier:
     def test_breadth_computed(self, classifier: RegimeClassifier) -> None:
         """Breadth is computed when extra tickers are present."""
         closes = _make_spy_df(
-            days=252, trend=0.001,
+            days=252,
+            trend=0.001,
             extra_tickers=["AAPL", "MSFT", "XLK"],
         )
         result = classifier.classify(closes, vix=15.0)

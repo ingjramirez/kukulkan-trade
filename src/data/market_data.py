@@ -155,9 +155,7 @@ class MarketDataFetcher:
             DataFrame with tickers as columns and dates as index.
         """
         data = await self.fetch_universe(tickers=tickers, period=period)
-        closes = pd.DataFrame({
-            ticker: df["Close"] for ticker, df in data.items()
-        })
+        closes = pd.DataFrame({ticker: df["Close"] for ticker, df in data.items()})
         return closes.sort_index()
 
     @staticmethod

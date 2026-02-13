@@ -67,18 +67,14 @@ class TickerDiscovery:
 
         # Already in static universe
         if ticker in FULL_UNIVERSE:
-            return TickerValidationResult(
-                ticker=ticker, valid=False, reason="Already in universe"
-            )
+            return TickerValidationResult(ticker=ticker, valid=False, reason="Already in universe")
 
         try:
             yf_ticker = yf.Ticker(ticker)
             info = yf_ticker.info
 
             if not info or info.get("regularMarketPrice") is None:
-                return TickerValidationResult(
-                    ticker=ticker, valid=False, reason="Ticker not found or no market data"
-                )
+                return TickerValidationResult(ticker=ticker, valid=False, reason="Ticker not found or no market data")
 
             market_cap = info.get("marketCap", 0) or 0
             avg_volume = info.get("averageVolume", 0) or 0
@@ -89,10 +85,7 @@ class TickerDiscovery:
                 return TickerValidationResult(
                     ticker=ticker,
                     valid=False,
-                    reason=(
-                        f"Market cap ${market_cap / 1e9:.1f}B"
-                        f" < ${MIN_MARKET_CAP / 1e9:.0f}B minimum"
-                    ),
+                    reason=(f"Market cap ${market_cap / 1e9:.1f}B < ${MIN_MARKET_CAP / 1e9:.0f}B minimum"),
                     market_cap=market_cap,
                 )
 
@@ -114,9 +107,7 @@ class TickerDiscovery:
 
         except Exception as e:
             log.warning("ticker_validation_failed", ticker=ticker, error=str(e))
-            return TickerValidationResult(
-                ticker=ticker, valid=False, reason=f"Validation error: {e}"
-            )
+            return TickerValidationResult(ticker=ticker, valid=False, reason=f"Validation error: {e}")
 
     async def propose_ticker(
         self,
@@ -182,7 +173,8 @@ class TickerDiscovery:
         return row
 
     async def get_active_tickers(
-        self, tenant_id: str = "default",
+        self,
+        tenant_id: str = "default",
     ) -> list[str]:
         """Get all approved, non-expired dynamic tickers for a tenant.
 
@@ -193,7 +185,9 @@ class TickerDiscovery:
         return [r.ticker for r in approved]
 
     async def expire_old(
-        self, today: date | None = None, tenant_id: str = "default",
+        self,
+        today: date | None = None,
+        tenant_id: str = "default",
     ) -> int:
         """Expire tickers past their expiry date for a tenant.
 
@@ -207,7 +201,8 @@ class TickerDiscovery:
         return count
 
     async def _get_pending_tickers(
-        self, tenant_id: str = "default",
+        self,
+        tenant_id: str = "default",
     ) -> list[DiscoveredTickerRow]:
         """Get tickers with 'proposed' status for a tenant."""
         from sqlalchemy import select

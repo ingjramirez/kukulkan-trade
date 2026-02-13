@@ -63,9 +63,7 @@ class VectorStore:
         )
         log.debug("news_added", doc_id=doc_id)
 
-    def search_similar(
-        self, query: str, n_results: int = 5, ticker: str | None = None
-    ) -> dict[str, Any]:
+    def search_similar(self, query: str, n_results: int = 5, ticker: str | None = None) -> dict[str, Any]:
         """Search for news similar to a query string.
 
         Args:

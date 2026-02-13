@@ -19,21 +19,22 @@ def _make_trade(
     reason: str = "test",
 ) -> TradeSchema:
     return TradeSchema(
-        ticker=ticker, side=side, shares=shares, price=price,
-        portfolio=portfolio, reason=reason,
+        ticker=ticker,
+        side=side,
+        shares=shares,
+        price=price,
+        portfolio=portfolio,
+        reason=reason,
     )
 
 
-def _mock_order(filled_avg_price=200.0, order_id="abc123", status="filled",
-                filled_qty=None):
+def _mock_order(filled_avg_price=200.0, order_id="abc123", status="filled", filled_qty=None):
     """Create a mock Alpaca order response."""
     order = MagicMock()
     order.id = order_id
     order.status = status
     order.filled_avg_price = filled_avg_price
-    order.filled_qty = filled_qty if filled_qty is not None else (
-        10 if status == "filled" else 0
-    )
+    order.filled_qty = filled_qty if filled_qty is not None else (10 if status == "filled" else 0)
     return order
 
 
@@ -50,11 +51,15 @@ def mock_client():
     client = MagicMock()
     # submit_order returns initial order with "new" status
     client.submit_order.return_value = _mock_order(
-        filled_avg_price=None, status="new", filled_qty=0,
+        filled_avg_price=None,
+        status="new",
+        filled_qty=0,
     )
     # get_order_by_id returns filled order on first poll
     client.get_order_by_id.return_value = _mock_order(
-        filled_avg_price=200.0, status="filled", filled_qty=10,
+        filled_avg_price=200.0,
+        status="filled",
+        filled_qty=10,
     )
     return client
 
@@ -111,7 +116,9 @@ class TestAlpacaExecutorTrades:
 
     async def test_execute_sell(self, db: Database, mock_client) -> None:
         mock_client.get_order_by_id.return_value = _mock_order(
-            filled_avg_price=210.0, status="filled", filled_qty=5,
+            filled_avg_price=210.0,
+            status="filled",
+            filled_qty=5,
         )
         executor = AlpacaExecutor(db, mock_client, fill_timeout=2, fill_poll_interval=0.01)
         await executor.initialize_portfolios()
@@ -129,7 +136,9 @@ class TestAlpacaExecutorTrades:
 
     async def test_execute_sell_updates_cash(self, db: Database, mock_client) -> None:
         mock_client.get_order_by_id.return_value = _mock_order(
-            filled_avg_price=210.0, status="filled", filled_qty=5,
+            filled_avg_price=210.0,
+            status="filled",
+            filled_qty=5,
         )
         executor = AlpacaExecutor(db, mock_client, fill_timeout=2, fill_poll_interval=0.01)
         await executor.initialize_portfolios()
@@ -144,7 +153,9 @@ class TestAlpacaExecutorTrades:
 
     async def test_sells_before_buys(self, db: Database, mock_client) -> None:
         mock_client.get_order_by_id.return_value = _mock_order(
-            filled_avg_price=200.0, status="filled", filled_qty=5,
+            filled_avg_price=200.0,
+            status="filled",
+            filled_qty=5,
         )
         executor = AlpacaExecutor(db, mock_client, fill_timeout=2, fill_poll_interval=0.01)
         await executor.initialize_portfolios()
@@ -172,7 +183,9 @@ class TestAlpacaExecutorTrades:
 
     async def test_uses_fill_price(self, db: Database, mock_client) -> None:
         mock_client.get_order_by_id.return_value = _mock_order(
-            filled_avg_price=205.0, status="filled", filled_qty=10,
+            filled_avg_price=205.0,
+            status="filled",
+            filled_qty=10,
         )
         executor = AlpacaExecutor(db, mock_client, fill_timeout=2, fill_poll_interval=0.01)
         await executor.initialize_portfolios()
@@ -186,7 +199,9 @@ class TestAlpacaExecutorTrades:
 
     async def test_no_fill_price_uses_estimated(self, db: Database, mock_client) -> None:
         mock_client.get_order_by_id.return_value = _mock_order(
-            filled_avg_price=None, status="filled", filled_qty=10,
+            filled_avg_price=None,
+            status="filled",
+            filled_qty=10,
         )
         executor = AlpacaExecutor(db, mock_client, fill_timeout=2, fill_poll_interval=0.01)
         await executor.initialize_portfolios()
@@ -202,8 +217,11 @@ class TestAlpacaExecutorTrades:
         await executor.initialize_portfolios()
 
         trade = _make_trade(
-            ticker="XLK", side=OrderSide.BUY,
-            shares=10, price=200.0, reason="momentum",
+            ticker="XLK",
+            side=OrderSide.BUY,
+            shares=10,
+            price=200.0,
+            reason="momentum",
         )
         await executor.execute_trades([trade])
 
@@ -230,7 +248,9 @@ class TestAlpacaFillPolling:
     async def test_wait_for_fill_immediate(self, db: Database, mock_client) -> None:
         """Order fills on first poll."""
         mock_client.get_order_by_id.return_value = _mock_order(
-            filled_avg_price=200.0, status="filled", filled_qty=10,
+            filled_avg_price=200.0,
+            status="filled",
+            filled_qty=10,
         )
         executor = AlpacaExecutor(db, mock_client, fill_timeout=5, fill_poll_interval=0.01)
 
@@ -243,7 +263,9 @@ class TestAlpacaFillPolling:
     async def test_wait_for_fill_partial(self, db: Database, mock_client) -> None:
         """Partial fill is accepted."""
         mock_client.get_order_by_id.return_value = _mock_order(
-            filled_avg_price=200.0, status="partially_filled", filled_qty=5,
+            filled_avg_price=200.0,
+            status="partially_filled",
+            filled_qty=5,
         )
         executor = AlpacaExecutor(db, mock_client, fill_timeout=5, fill_poll_interval=0.01)
         await executor.initialize_portfolios()
@@ -258,7 +280,9 @@ class TestAlpacaFillPolling:
     async def test_wait_for_fill_rejected(self, db: Database, mock_client) -> None:
         """Rejected order returns False."""
         mock_client.get_order_by_id.return_value = _mock_order(
-            filled_avg_price=None, status="rejected", filled_qty=0,
+            filled_avg_price=None,
+            status="rejected",
+            filled_qty=0,
         )
         executor = AlpacaExecutor(db, mock_client, fill_timeout=5, fill_poll_interval=0.01)
         await executor.initialize_portfolios()
@@ -271,7 +295,9 @@ class TestAlpacaFillPolling:
     async def test_wait_for_fill_timeout(self, db: Database, mock_client) -> None:
         """Timeout when order stays in 'new' state."""
         mock_client.get_order_by_id.return_value = _mock_order(
-            filled_avg_price=None, status="new", filled_qty=0,
+            filled_avg_price=None,
+            status="new",
+            filled_qty=0,
         )
         executor = AlpacaExecutor(db, mock_client, fill_timeout=0.05, fill_poll_interval=0.01)
         await executor.initialize_portfolios()
@@ -284,7 +310,9 @@ class TestAlpacaFillPolling:
     async def test_wait_for_fill_canceled(self, db: Database, mock_client) -> None:
         """Canceled order returns False."""
         mock_client.get_order_by_id.return_value = _mock_order(
-            filled_avg_price=None, status="canceled", filled_qty=0,
+            filled_avg_price=None,
+            status="canceled",
+            filled_qty=0,
         )
         executor = AlpacaExecutor(db, mock_client, fill_timeout=5, fill_poll_interval=0.01)
         await executor.initialize_portfolios()
@@ -297,7 +325,9 @@ class TestAlpacaFillPolling:
     async def test_wait_for_fill_expired(self, db: Database, mock_client) -> None:
         """Expired order returns False."""
         mock_client.get_order_by_id.return_value = _mock_order(
-            filled_avg_price=None, status="expired", filled_qty=0,
+            filled_avg_price=None,
+            status="expired",
+            filled_qty=0,
         )
         executor = AlpacaExecutor(db, mock_client, fill_timeout=5, fill_poll_interval=0.01)
         await executor.initialize_portfolios()
@@ -396,7 +426,9 @@ class TestAlpacaExecutorSnapshot:
         assert snapshots[0].total_value == 33100.0
 
     async def test_snapshot_updates_position_prices(
-        self, db: Database, mock_client,
+        self,
+        db: Database,
+        mock_client,
     ) -> None:
         executor = AlpacaExecutor(db, mock_client)
         await executor.initialize_portfolios()
@@ -436,7 +468,10 @@ class TestAlpacaReconciliation:
         mock_client.get_order_by_id.side_effect = [new_order, filled_order]
 
         executor = AlpacaExecutor(
-            db, mock_client, fill_timeout=0.01, fill_poll_interval=0.01,
+            db,
+            mock_client,
+            fill_timeout=0.01,
+            fill_poll_interval=0.01,
         )
         await executor.initialize_portfolios()
 
@@ -450,14 +485,19 @@ class TestAlpacaReconciliation:
         assert positions[0].shares == 10
 
     async def test_timeout_still_unfilled_not_reconciled(
-        self, db: Database, mock_client,
+        self,
+        db: Database,
+        mock_client,
     ) -> None:
         """Timed-out order that stays unfilled is not logged."""
         new_order = _mock_order(status="new", filled_qty=0, filled_avg_price=None)
         mock_client.get_order_by_id.return_value = new_order
 
         executor = AlpacaExecutor(
-            db, mock_client, fill_timeout=0.01, fill_poll_interval=0.01,
+            db,
+            mock_client,
+            fill_timeout=0.01,
+            fill_poll_interval=0.01,
         )
         await executor.initialize_portfolios()
 
@@ -475,13 +515,19 @@ class TestAlpacaReconciliation:
         mock_client.get_order_by_id.side_effect = [new_order, filled_order]
 
         executor = AlpacaExecutor(
-            db, mock_client, fill_timeout=0.01, fill_poll_interval=0.01,
+            db,
+            mock_client,
+            fill_timeout=0.01,
+            fill_poll_interval=0.01,
         )
         await executor.initialize_portfolios()
 
         trade = _make_trade(
-            ticker="XLK", side=OrderSide.BUY, shares=10,
-            price=200.0, reason="AI: test",
+            ticker="XLK",
+            side=OrderSide.BUY,
+            shares=10,
+            price=200.0,
+            reason="AI: test",
         )
         await executor.execute_trades([trade])
 
@@ -497,19 +543,31 @@ class TestAlpacaReconciliation:
         filled2 = _mock_order(status="filled", filled_qty=5, filled_avg_price=150.0)
         # Two polls timeout, then two reconciliation checks succeed
         mock_client.get_order_by_id.side_effect = [
-            new_order, new_order, filled1, filled2,
+            new_order,
+            new_order,
+            filled1,
+            filled2,
         ]
 
         executor = AlpacaExecutor(
-            db, mock_client, fill_timeout=0.01, fill_poll_interval=0.01,
+            db,
+            mock_client,
+            fill_timeout=0.01,
+            fill_poll_interval=0.01,
         )
         await executor.initialize_portfolios()
 
         trade1 = _make_trade(
-            ticker="XLK", side=OrderSide.BUY, shares=10, price=200.0,
+            ticker="XLK",
+            side=OrderSide.BUY,
+            shares=10,
+            price=200.0,
         )
         trade2 = _make_trade(
-            ticker="AAPL", side=OrderSide.BUY, shares=5, price=150.0,
+            ticker="AAPL",
+            side=OrderSide.BUY,
+            shares=5,
+            price=150.0,
         )
         executed = await executor.execute_trades([trade1, trade2])
 
@@ -520,7 +578,9 @@ class TestAlpacaOrderStatusParsing:
     """Tests for handling Alpaca SDK enum status strings."""
 
     async def test_reconciliation_handles_enum_status(
-        self, db: Database, mock_client,
+        self,
+        db: Database,
+        mock_client,
     ) -> None:
         """Alpaca SDK returns 'OrderStatus.FILLED' — reconciliation must parse it."""
         new_order = _mock_order(status="pending_new", filled_qty=0, filled_avg_price=None)
@@ -530,7 +590,10 @@ class TestAlpacaOrderStatusParsing:
         mock_client.get_order_by_id.side_effect = [new_order, filled_order]
 
         executor = AlpacaExecutor(
-            db, mock_client, fill_timeout=0.01, fill_poll_interval=0.01,
+            db,
+            mock_client,
+            fill_timeout=0.01,
+            fill_poll_interval=0.01,
         )
         await executor.initialize_portfolios()
 

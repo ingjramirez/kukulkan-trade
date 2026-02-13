@@ -30,9 +30,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._general.clear()
         self._login.clear()
 
-    def _is_limited(
-        self, bucket: dict[str, list[float]], ip: str, limit: int
-    ) -> bool:
+    def _is_limited(self, bucket: dict[str, list[float]], ip: str, limit: int) -> bool:
         now = time.monotonic()
         window = now - 60.0
         # Evict expired entries

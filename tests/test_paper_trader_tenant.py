@@ -22,16 +22,22 @@ async def trader(db: Database) -> PaperTrader:
 
 def _buy(ticker: str = "AAPL", shares: float = 10, price: float = 150.0) -> TradeSchema:
     return TradeSchema(
-        portfolio=PortfolioName.B, ticker=ticker,
-        side=OrderSide.BUY, shares=shares, price=price,
+        portfolio=PortfolioName.B,
+        ticker=ticker,
+        side=OrderSide.BUY,
+        shares=shares,
+        price=price,
         reason="test buy",
     )
 
 
 def _sell(ticker: str = "AAPL", shares: float = 10, price: float = 160.0) -> TradeSchema:
     return TradeSchema(
-        portfolio=PortfolioName.B, ticker=ticker,
-        side=OrderSide.SELL, shares=shares, price=price,
+        portfolio=PortfolioName.B,
+        ticker=ticker,
+        side=OrderSide.SELL,
+        shares=shares,
+        price=price,
         reason="test sell",
     )
 
@@ -96,8 +102,11 @@ async def test_insufficient_cash_tenant_scoped(db: Database, trader: PaperTrader
     await trader.initialize_portfolios(tenant_id="tenant-1")
 
     big_buy = TradeSchema(
-        portfolio=PortfolioName.B, ticker="AAPL",
-        side=OrderSide.BUY, shares=1000, price=100.0,
+        portfolio=PortfolioName.B,
+        ticker="AAPL",
+        side=OrderSide.BUY,
+        shares=1000,
+        price=100.0,
         reason="too expensive",
     )
     executed = await trader.execute_trades([big_buy], tenant_id="tenant-1")

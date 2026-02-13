@@ -60,10 +60,7 @@ async def collect_intraday_snapshot(
             continue
 
         positions = await db.get_positions(pname, tenant_id=tenant.id)
-        positions_value = sum(
-            p.shares * live_prices.get(p.ticker, p.avg_price)
-            for p in positions
-        )
+        positions_value = sum(p.shares * live_prices.get(p.ticker, p.avg_price) for p in positions)
         total_value = portfolio.cash + positions_value
 
         await db.save_intraday_snapshot(

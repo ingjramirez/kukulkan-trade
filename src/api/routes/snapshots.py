@@ -21,7 +21,9 @@ async def list_snapshots(
     db: Database = Depends(get_db),
 ) -> list[SnapshotResponse]:
     rows = await db.get_all_snapshots(
-        portfolio=portfolio, since=since, tenant_id=tenant_id,
+        portfolio=portfolio,
+        since=since,
+        tenant_id=tenant_id,
     )
     return [
         SnapshotResponse(
@@ -47,7 +49,9 @@ async def list_intraday_snapshots(
     days = _PERIOD_DAYS[period]
     since = datetime.now(timezone.utc) - timedelta(days=days)
     rows = await db.get_intraday_snapshots(
-        tenant_id=tenant_id, portfolio=portfolio, since=since,
+        tenant_id=tenant_id,
+        portfolio=portfolio,
+        since=since,
     )
     return [
         IntradaySnapshotResponse(

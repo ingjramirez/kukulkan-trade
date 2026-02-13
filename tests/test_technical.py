@@ -89,8 +89,17 @@ class TestComputeAllIndicators:
         closes = _make_price_series(250)
         result = compute_all_indicators(closes)
         expected_cols = [
-            "close", "rsi_14", "macd", "macd_signal", "macd_hist",
-            "sma_20", "sma_50", "sma_200", "bb_upper", "bb_middle", "bb_lower",
+            "close",
+            "rsi_14",
+            "macd",
+            "macd_signal",
+            "macd_hist",
+            "sma_20",
+            "sma_50",
+            "sma_200",
+            "bb_upper",
+            "bb_middle",
+            "bb_lower",
         ]
         assert list(result.columns) == expected_cols
 

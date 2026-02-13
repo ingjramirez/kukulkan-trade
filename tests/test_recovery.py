@@ -11,7 +11,9 @@ from src.storage.database import Database
 
 
 def _make_closes(
-    tickers: list[str], start: str, end: str,
+    tickers: list[str],
+    start: str,
+    end: str,
 ) -> pd.DataFrame:
     """Generate synthetic closes aligned to business days."""
     dates = pd.bdate_range(start=start, end=end)
@@ -40,7 +42,9 @@ async def orchestrator(db):
 
 class TestRecoveryCheck:
     async def test_no_recovery_needed(
-        self, orchestrator: Orchestrator, db: Database,
+        self,
+        orchestrator: Orchestrator,
+        db: Database,
     ) -> None:
         """No missed days → empty recovery list."""
         await db.upsert_portfolio("A", cash=33_000.0, total_value=33_000.0)
@@ -49,10 +53,22 @@ class TestRecoveryCheck:
         today = date(2026, 2, 6)
         # Snapshot for yesterday (Feb 5)
         await db.save_snapshot(
-            "A", date(2026, 2, 5), 33_000.0, 33_000.0, 0.0, None, 0.0,
+            "A",
+            date(2026, 2, 5),
+            33_000.0,
+            33_000.0,
+            0.0,
+            None,
+            0.0,
         )
         await db.save_snapshot(
-            "B", date(2026, 2, 5), 66_000.0, 66_000.0, 0.0, None, 0.0,
+            "B",
+            date(2026, 2, 5),
+            66_000.0,
+            66_000.0,
+            0.0,
+            None,
+            0.0,
         )
 
         closes = _make_closes(["XLK"], "2026-01-01", "2026-02-06")
@@ -61,7 +77,9 @@ class TestRecoveryCheck:
         assert recovered == []
 
     async def test_recovers_missed_days(
-        self, orchestrator: Orchestrator, db: Database,
+        self,
+        orchestrator: Orchestrator,
+        db: Database,
     ) -> None:
         """One missed day → one snapshot backfilled."""
         await db.upsert_portfolio("A", cash=33_000.0, total_value=33_000.0)
@@ -69,10 +87,22 @@ class TestRecoveryCheck:
 
         # Snapshot for Monday Feb 2, skip Feb 3-5, today is Feb 6
         await db.save_snapshot(
-            "A", date(2026, 2, 2), 33_000.0, 33_000.0, 0.0, None, 0.0,
+            "A",
+            date(2026, 2, 2),
+            33_000.0,
+            33_000.0,
+            0.0,
+            None,
+            0.0,
         )
         await db.save_snapshot(
-            "B", date(2026, 2, 2), 66_000.0, 66_000.0, 0.0, None, 0.0,
+            "B",
+            date(2026, 2, 2),
+            66_000.0,
+            66_000.0,
+            0.0,
+            None,
+            0.0,
         )
 
         today = date(2026, 2, 6)
@@ -87,7 +117,9 @@ class TestRecoveryCheck:
             assert "2026-02-0" in d
 
     async def test_no_snapshots_skips(
-        self, orchestrator: Orchestrator, db: Database,
+        self,
+        orchestrator: Orchestrator,
+        db: Database,
     ) -> None:
         """No existing snapshots → nothing to recover from."""
         await db.upsert_portfolio("A", cash=33_000.0, total_value=33_000.0)
@@ -99,7 +131,9 @@ class TestRecoveryCheck:
         assert recovered == []
 
     async def test_backfilled_snapshots_in_db(
-        self, orchestrator: Orchestrator, db: Database,
+        self,
+        orchestrator: Orchestrator,
+        db: Database,
     ) -> None:
         """Backfilled snapshots are actually persisted."""
         await db.upsert_portfolio("A", cash=33_000.0, total_value=33_000.0)
@@ -107,10 +141,22 @@ class TestRecoveryCheck:
 
         # Only have snapshot for Feb 3
         await db.save_snapshot(
-            "A", date(2026, 2, 3), 33_000.0, 33_000.0, 0.0, None, 0.0,
+            "A",
+            date(2026, 2, 3),
+            33_000.0,
+            33_000.0,
+            0.0,
+            None,
+            0.0,
         )
         await db.save_snapshot(
-            "B", date(2026, 2, 3), 66_000.0, 66_000.0, 0.0, None, 0.0,
+            "B",
+            date(2026, 2, 3),
+            66_000.0,
+            66_000.0,
+            0.0,
+            None,
+            0.0,
         )
 
         today = date(2026, 2, 6)
@@ -125,14 +171,22 @@ class TestRecoveryCheck:
         assert date(2026, 2, 5) in a_dates
 
     async def test_recovery_with_positions(
-        self, orchestrator: Orchestrator, db: Database,
+        self,
+        orchestrator: Orchestrator,
+        db: Database,
     ) -> None:
         """Backfilled snapshots reflect position values."""
         await db.upsert_portfolio("A", cash=31_000.0, total_value=33_000.0)
         await db.upsert_position("A", "XLK", 10, 200.0)
 
         await db.save_snapshot(
-            "A", date(2026, 2, 3), 33_000.0, 31_000.0, 2_000.0, None, 0.0,
+            "A",
+            date(2026, 2, 3),
+            33_000.0,
+            31_000.0,
+            2_000.0,
+            None,
+            0.0,
         )
 
         today = date(2026, 2, 6)

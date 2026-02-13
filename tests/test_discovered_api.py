@@ -68,37 +68,43 @@ async def tenant_client(db):
 
 async def _seed_tickers(db: Database) -> None:
     """Insert test discovered tickers for t-1 and t-2."""
-    await db.save_discovered_ticker(DiscoveredTickerRow(
-        tenant_id="t-1",
-        ticker="PLTR",
-        source="agent",
-        rationale="AI defense play",
-        status="proposed",
-        proposed_at=date(2026, 2, 5),
-        expires_at=date(2026, 3, 7),
-        sector="Technology",
-        market_cap=50e9,
-    ))
-    await db.save_discovered_ticker(DiscoveredTickerRow(
-        tenant_id="t-1",
-        ticker="ORCL",
-        source="agent",
-        rationale="Cloud growth",
-        status="approved",
-        proposed_at=date(2026, 2, 3),
-        expires_at=date(2026, 3, 5),
-        sector="Technology",
-        market_cap=200e9,
-    ))
-    await db.save_discovered_ticker(DiscoveredTickerRow(
-        tenant_id="t-2",
-        ticker="UBER",
-        source="agent",
-        rationale="Mobility",
-        status="proposed",
-        proposed_at=date(2026, 2, 4),
-        expires_at=date(2026, 3, 6),
-    ))
+    await db.save_discovered_ticker(
+        DiscoveredTickerRow(
+            tenant_id="t-1",
+            ticker="PLTR",
+            source="agent",
+            rationale="AI defense play",
+            status="proposed",
+            proposed_at=date(2026, 2, 5),
+            expires_at=date(2026, 3, 7),
+            sector="Technology",
+            market_cap=50e9,
+        )
+    )
+    await db.save_discovered_ticker(
+        DiscoveredTickerRow(
+            tenant_id="t-1",
+            ticker="ORCL",
+            source="agent",
+            rationale="Cloud growth",
+            status="approved",
+            proposed_at=date(2026, 2, 3),
+            expires_at=date(2026, 3, 5),
+            sector="Technology",
+            market_cap=200e9,
+        )
+    )
+    await db.save_discovered_ticker(
+        DiscoveredTickerRow(
+            tenant_id="t-2",
+            ticker="UBER",
+            source="agent",
+            rationale="Mobility",
+            status="proposed",
+            proposed_at=date(2026, 2, 4),
+            expires_at=date(2026, 3, 6),
+        )
+    )
 
 
 class TestListDiscoveredTickers:
@@ -200,7 +206,9 @@ class TestUpdateDiscoveredTicker:
         assert resp.json()["ticker"] == "PLTR"
 
     async def test_tenant_cannot_update_other_tenants_ticker(
-        self, tenant_client, db,
+        self,
+        tenant_client,
+        db,
     ) -> None:
         """Tenant user t-1 cannot modify t-2's ticker."""
         await _seed_tickers(db)
@@ -227,7 +235,8 @@ class TestRequiresAuth:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             resp = await c.patch(
-                "/api/discovered/PLTR", json={"status": "approved"},
+                "/api/discovered/PLTR",
+                json={"status": "approved"},
             )
             assert resp.status_code in (401, 403)
         app.dependency_overrides.clear()

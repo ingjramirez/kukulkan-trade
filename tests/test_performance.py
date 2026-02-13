@@ -131,11 +131,13 @@ class TestSPYBenchmark:
 
         spy_closes = pd.Series(
             [450.0, 451.0, 452.0, 455.0, 459.0],
-            index=pd.to_datetime(["2026-01-06", "2026-01-07", "2026-01-08",
-                                  "2026-01-09", "2026-01-10"]),
+            index=pd.to_datetime(["2026-01-06", "2026-01-07", "2026-01-08", "2026-01-09", "2026-01-10"]),
         )
         stats = await tracker.get_portfolio_stats(
-            db, "B", 66_000.0, spy_closes=spy_closes,
+            db,
+            "B",
+            66_000.0,
+            spy_closes=spy_closes,
         )
 
         assert stats.spy_return_pct is not None
@@ -153,7 +155,10 @@ class TestSPYBenchmark:
             index=pd.to_datetime(["2026-01-06", "2026-01-10"]),
         )
         stats = await tracker.get_portfolio_stats(
-            db, "B", 66_000.0, spy_closes=spy_closes,
+            db,
+            "B",
+            66_000.0,
+            spy_closes=spy_closes,
         )
 
         # Portfolio: +5%, SPY: +2% → Alpha: +3%
@@ -181,7 +186,10 @@ class TestSPYBenchmark:
             index=pd.to_datetime(["2026-01-06", "2026-01-10"]),
         )
         stats = await tracker.get_portfolio_stats(
-            db, "B", 66_000.0, spy_closes=spy_closes,
+            db,
+            "B",
+            66_000.0,
+            spy_closes=spy_closes,
         )
         text = tracker.format_for_prompt(stats)
 
