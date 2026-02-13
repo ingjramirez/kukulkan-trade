@@ -305,12 +305,15 @@ class AgentRunner:
         try:
             return json.loads(cleaned)
         except json.JSONDecodeError as e:
-            log.error("agent_response_parse_failed", error=str(e), raw_text=text[:200])
+            log.warning("agent_response_parse_failed", error=str(e), raw_text=text[:200])
+            # Use the raw text as reasoning — common in agentic mode where
+            # Claude summarizes in natural language after tool use
+            reasoning = cleaned[:500] if cleaned else f"Failed to parse agent response: {e}"
             return {
-                "regime_assessment": "Parse error",
-                "reasoning": f"Failed to parse agent response: {e}",
+                "regime_assessment": "",
+                "reasoning": reasoning,
                 "trades": [],
-                "risk_notes": "Response was not valid JSON.",
+                "risk_notes": "",
             }
 
     def _build_metadata(self, turn: int, tool_calls: list[ToolCallLog]) -> dict:

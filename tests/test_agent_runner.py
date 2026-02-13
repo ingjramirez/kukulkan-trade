@@ -262,5 +262,7 @@ async def test_invalid_json_fallback():
         runner = AgentRunner(api_key="test-key")
         result = await runner.run("system", "user")
 
-    assert result.response["regime_assessment"] == "Parse error"
+    # Raw text used as reasoning when JSON parse fails
+    assert result.response["regime_assessment"] == ""
+    assert result.response["reasoning"] == "This is not JSON at all"
     assert result.response["trades"] == []
