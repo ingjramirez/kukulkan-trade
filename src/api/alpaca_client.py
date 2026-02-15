@@ -4,7 +4,11 @@ import asyncio
 import time
 from typing import Any
 
+import structlog
+
 from config.settings import settings
+
+log = structlog.get_logger()
 
 _cache: dict = {}
 _CACHE_TTL = 30  # seconds
@@ -28,7 +32,8 @@ async def get_live_account() -> dict | None:
         _cache["account"] = data
         _cache["ts"] = now
         return data
-    except Exception:
+    except Exception as e:
+        log.warning("alpaca_account_fetch_failed", error=str(e))
         return _cache.get("account")
 
 
@@ -105,7 +110,8 @@ async def get_portfolio_history(
         _history_cache[cache_key] = data
         _history_cache_ts[cache_key] = now
         return data
-    except Exception:
+    except Exception as e:
+        log.warning("alpaca_history_fetch_failed", period=period, timeframe=timeframe, error=str(e))
         return _history_cache.get(cache_key)
 
 

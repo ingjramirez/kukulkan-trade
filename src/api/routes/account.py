@@ -2,12 +2,15 @@
 
 import asyncio
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.api.alpaca_client import get_live_account, get_portfolio_history
 from src.api.deps import get_authorized_tenant_id, get_db
 from src.api.schemas import AccountResponse, PortfolioHistoryResponse, PositionResponse
 from src.storage.database import Database
+
+log = structlog.get_logger()
 
 router = APIRouter(prefix="/api", tags=["account"])
 
@@ -93,7 +96,10 @@ async def _get_portfolio_history(
             "base_value": float(result.base_value) if result.base_value else 0.0,
             "timeframe": result.timeframe or timeframe,
         }
-    except Exception:
+    except Exception as e:
+        log.warning(
+            "tenant_history_fetch_failed", tenant_id=tenant_id, period=period, timeframe=timeframe, error=str(e)
+        )
         return None
 
 
@@ -141,5 +147,6 @@ async def _get_account_data(
                 for p in positions
             ],
         }
-    except Exception:
+    except Exception as e:
+        log.warning("tenant_account_fetch_failed", tenant_id=tenant_id, error=str(e))
         return None
