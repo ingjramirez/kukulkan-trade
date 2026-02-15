@@ -76,6 +76,7 @@ class AgentRunner:
         system_prompt: str,
         user_message: str,
         model_override: str | None = None,
+        messages_override: list[dict] | None = None,
     ) -> AgentRunResult:
         """Execute the full agent loop.
 
@@ -83,6 +84,9 @@ class AgentRunner:
             system_prompt: System prompt with context.
             user_message: User message with market data and instructions.
             model_override: Optional model to use instead of default.
+            messages_override: If provided, use this messages array instead of
+                building from user_message. Used by PersistentAgent to inject
+                conversation history.
 
         Returns:
             AgentRunResult with parsed response and metadata.
@@ -91,7 +95,10 @@ class AgentRunner:
         effective_model = model_override or self._model
         tool_defs = self._registry.get_tool_definitions()
 
-        messages: list[dict] = [{"role": "user", "content": user_message}]
+        if messages_override is not None:
+            messages: list[dict] = list(messages_override)
+        else:
+            messages: list[dict] = [{"role": "user", "content": user_message}]
         tool_call_logs: list[ToolCallLog] = []
         turn = 0
 

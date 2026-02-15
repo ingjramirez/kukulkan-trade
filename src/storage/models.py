@@ -341,6 +341,23 @@ class ToolCallLogRow(Base):
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
+class AgentConversationRow(Base):
+    """Persistent agent conversation sessions."""
+
+    __tablename__ = "agent_conversations"
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(String(36), nullable=False)
+    session_id = Column(Text, nullable=False, unique=True)
+    trigger_type = Column(String(20), nullable=False)  # morning/midday/close/event/weekly_review
+    messages_json = Column(Text, nullable=False)  # Full Anthropic messages array (JSON)
+    summary = Column(Text, nullable=True)  # Haiku-compressed summary (NULL if recent)
+    token_count = Column(Integer, nullable=False, default=0)
+    cost_usd = Column(Float, nullable=False, default=0.0)
+    session_status = Column(String(20), nullable=False, default="completed")  # started/completed/crashed
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
 class TenantRow(Base):
     """Multi-tenant configuration: credentials, strategy, and universe."""
 
@@ -385,6 +402,9 @@ class TenantRow(Base):
 
     # Agent loop (agentic mode for Portfolio B)
     use_agent_loop = Column(Boolean, nullable=False, default=False)
+
+    # Persistent agent (conversation persistence for Portfolio B)
+    use_persistent_agent = Column(Boolean, nullable=False, default=False)
 
     # Ticker customization (JSON arrays, nullable = use defaults)
     ticker_whitelist = Column(Text, nullable=True)  # JSON: ["AAPL","TSLA"]

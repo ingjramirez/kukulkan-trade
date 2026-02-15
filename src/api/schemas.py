@@ -271,6 +271,16 @@ class ToolCallLogResponse(BaseModel):
     created_at: UTCDatetime
 
 
+class ConversationSessionResponse(BaseModel):
+    session_id: str
+    trigger_type: str
+    summary: str | None = None
+    token_count: int = 0
+    cost_usd: float = 0.0
+    session_status: str = "completed"
+    created_at: UTCDatetime
+
+
 class TenantReadResponse(BaseModel):
     id: str
     name: str

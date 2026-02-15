@@ -1043,9 +1043,34 @@ class Orchestrator:
 
         # ── Check agentic mode ────────────────────────────────────────────
         tenant = await self._db.get_tenant(tenant_id)
+        use_persistent = getattr(tenant, "use_persistent_agent", False) if tenant else False
         use_agent_loop = getattr(tenant, "use_agent_loop", False) if tenant else False
 
         tool_summary: dict | None = None
+
+        if use_persistent:
+            # ── Persistent agent path ────────────────────────────────────
+            return await self._run_portfolio_b_persistent(
+                tenant_id=tenant_id,
+                trigger_type=session.lower() if session else "morning",
+                dynamic_prompt=dynamic_prompt,
+                closes=closes,
+                volumes=volumes,
+                vix=vix,
+                yield_curve=yield_curve,
+                regime_str=regime_str,
+                news_context=news_context,
+                positions_for_agent=positions_for_agent,
+                cash=cash,
+                total_value=total_value,
+                recent_trades=recent_trades,
+                model_override=model_override,
+                portfolio_b_universe=portfolio_b_universe,
+                allocations=alloc,
+                today=today,
+                session=session,
+                strategy_mode=active_strategy,
+            )
 
         if use_agent_loop:
             # ── Agentic path: two-phase seed → investigate ───────────────
@@ -1296,6 +1321,183 @@ class Orchestrator:
             agentic=use_agent_loop,
         )
         return trades, response.get("reasoning", ""), tool_summary
+
+    async def _run_portfolio_b_persistent(
+        self,
+        tenant_id: str,
+        trigger_type: str,
+        dynamic_prompt: str,
+        closes,
+        volumes,
+        vix: float | None,
+        yield_curve: float | None,
+        regime_str: str | None,
+        news_context: str,
+        positions_for_agent: list[dict],
+        cash: float,
+        total_value: float,
+        recent_trades: list[dict],
+        model_override: str | None,
+        portfolio_b_universe: list[str] | None,
+        allocations: TenantAllocations | None,
+        today: date | None,
+        session: str,
+        strategy_mode: str | None,
+    ):
+        """Run Portfolio B through the persistent agent path.
+
+        Wraps the existing AgentRunner with conversation persistence.
+        Returns the same 3-tuple as _run_portfolio_b: (trades, reasoning, tool_summary).
+        """
+        from src.agent.agent_runner import AgentRunner
+        from src.agent.persistent_agent import PersistentAgent
+        from src.agent.tools.actions import ActionState, register_action_tools
+        from src.agent.tools.market import register_market_tools
+        from src.agent.tools.news import register_news_tools
+        from src.agent.tools.portfolio import register_portfolio_tools
+
+        log.info("portfolio_b_persistent_mode", tenant_id=tenant_id, trigger=trigger_type)
+
+        # Build runner (same as agentic path)
+        runner = AgentRunner(
+            api_key=settings.anthropic_api_key,
+            model=settings.agent.agent_tool_model,
+            max_turns=settings.agent.agent_max_turns,
+            max_cost_usd=settings.agent.agent_session_budget,
+        )
+
+        # Register tools
+        current_prices = {t: float(closes[t].iloc[-1]) for t in closes.columns if not pd.isna(closes[t].iloc[-1])}
+        action_state = ActionState()
+        register_portfolio_tools(runner.registry, self._db, tenant_id, current_prices)
+        register_market_tools(runner.registry, closes, vix=vix, yield_curve=yield_curve, regime=regime_str)
+        register_news_tools(runner.registry, news_context)
+        register_action_tools(runner.registry, action_state)
+
+        # Build market data for trigger message
+        market_data = {
+            "regime": regime_str or "unknown",
+            "vix": vix,
+            "spy_change_pct": (
+                round(((float(closes["SPY"].iloc[-1]) / float(closes["SPY"].iloc[-2])) - 1) * 100, 2)
+                if "SPY" in closes.columns and len(closes["SPY"].dropna()) >= 2
+                else None
+            ),
+        }
+        portfolio_data = {
+            "total_value": total_value,
+            "cash": cash,
+            "positions_count": len(positions_for_agent),
+        }
+
+        # Run persistent session
+        persistent = PersistentAgent(
+            db=self._db,
+            api_key=settings.anthropic_api_key,
+            tenant_id=tenant_id,
+        )
+        result = await persistent.run_session(
+            trigger_type=trigger_type,
+            market_data=market_data,
+            portfolio_summary=portfolio_data,
+            runner_kwargs={
+                "runner": runner,
+                "system_prompt": dynamic_prompt,
+            },
+            pinned_context="",
+            strategy_directive="",
+        )
+
+        response = result.response
+
+        # Merge action state (same as agentic path)
+        accumulated = action_state.get_accumulated_state()
+        if accumulated["trades"] and not response.get("trades"):
+            response["trades"] = accumulated["trades"]
+        if accumulated["watchlist_updates"] and not response.get("watchlist_updates"):
+            response["watchlist_updates"] = accumulated["watchlist_updates"]
+        if accumulated["memory_notes"] and not response.get("memory_notes"):
+            response["memory_notes"] = accumulated["memory_notes"]
+
+        # Convert to trades
+        position_map = {p["ticker"]: p["shares"] for p in positions_for_agent}
+        dynamic_tickers = await self._ticker_discovery.get_active_tickers(tenant_id=tenant_id)
+        trades = self._strategy_b.agent_response_to_trades(
+            response=response,
+            total_value=total_value,
+            current_positions=position_map,
+            latest_prices=closes.iloc[-1],
+            extra_tickers=dynamic_tickers,
+            universe=portfolio_b_universe,
+        )
+
+        # Save decision
+        await self._strategy_b.save_decision(
+            self._db,
+            today,
+            response,
+            trades,
+            tenant_id=tenant_id,
+            regime=regime_str,
+            session_label=session,
+        )
+
+        # Save tool call logs
+        if result.tool_calls:
+            try:
+                tool_log_entries = [
+                    {
+                        "turn": tc.turn,
+                        "tool_name": tc.tool_name,
+                        "tool_input": tc.tool_input,
+                        "tool_output_preview": tc.tool_output_preview,
+                        "success": tc.success,
+                        "error": tc.error,
+                    }
+                    for tc in result.tool_calls
+                ]
+                await self._db.save_tool_call_logs(tool_log_entries, today, session_label=session, tenant_id=tenant_id)
+            except Exception as e:
+                log.warning("tool_call_log_save_failed", error=str(e))
+
+        # Save agent memory
+        try:
+            await self._memory_manager.save_short_term(
+                self._db,
+                today.isoformat() if today else "",
+                response,
+                tenant_id=tenant_id,
+            )
+            await self._memory_manager.save_agent_notes(
+                self._db,
+                response.get("memory_notes", []),
+                tenant_id=tenant_id,
+            )
+        except Exception as e:
+            log.warning("memory_save_failed", error=str(e))
+
+        # Process suggested tickers
+        await self._process_suggested_tickers(response, today, tenant_id=tenant_id)
+
+        # Process watchlist updates
+        try:
+            await self._process_watchlist_updates(
+                response.get("watchlist_updates", []),
+                tenant_id,
+                today,
+            )
+        except Exception as e:
+            log.warning("watchlist_update_failed", error=str(e))
+
+        log.info(
+            "portfolio_b_persistent_complete",
+            trades=len(trades),
+            session_id=result.session_id,
+            compressed=result.compressed_count,
+            tokens=result.token_tracker.total_input_tokens + result.token_tracker.total_output_tokens,
+            cost_usd=round(result.token_tracker.total_cost_usd, 4),
+        )
+        return trades, response.get("reasoning", ""), result.tool_summary
 
     async def _check_trailing_stops(
         self,

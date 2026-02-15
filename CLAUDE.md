@@ -33,3 +33,13 @@ After completing any significant work (features, bug fixes, refactors, config ch
 - CORS restricted to `app.kukulkan.trade` + `localhost:3000`
 - Timing-safe password comparison (hmac.compare_digest)
 - Telegram callbacks validated against authorized chat_id
+
+## Context Files
+Domain-specific context for Claude is in `docs/claude/`:
+- `agent.md` — AI agent, tools, discovery, memory, strategy directives
+- `api.md` — FastAPI, auth, routes, rate limiting, schemas
+- `pipeline.md` — Orchestrator, strategies, execution, notifications
+- `data.md` — Market data, news pipeline, database, ChromaDB
+- `analysis.md` — Regime, momentum, risk, outcomes, track record
+- `tenants.md` — Multi-tenant, allocations, crypto, CLI, migrations
+- `infra.md` — Deploy, CI/CD, testing patterns, scripts
