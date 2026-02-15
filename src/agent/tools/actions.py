@@ -23,6 +23,7 @@ class ActionState:
     memory_notes: list[dict] = field(default_factory=list)
     executed_trades: list[dict] = field(default_factory=list)
     trailing_stop_requests: list[dict] = field(default_factory=list)
+    declared_posture: str | None = None
 
     def get_accumulated_state(self) -> dict:
         """Return all accumulated actions as a dict."""
@@ -32,6 +33,7 @@ class ActionState:
             "memory_notes": list(self.memory_notes),
             "executed_trades": list(self.executed_trades),
             "trailing_stop_requests": list(self.trailing_stop_requests),
+            "declared_posture": self.declared_posture,
         }
 
     def reset(self) -> None:
@@ -41,6 +43,7 @@ class ActionState:
         self.memory_notes.clear()
         self.executed_trades.clear()
         self.trailing_stop_requests.clear()
+        self.declared_posture = None
 
 
 # ── 1. execute_trade (new — direct execution with risk check) ────────────────
@@ -223,6 +226,40 @@ async def _save_observation(
     }
 
 
+# ── 5. declare_posture (new — risk posture declaration) ──────────────────────
+
+_VALID_POSTURES = {"balanced", "defensive", "crisis", "aggressive"}
+
+
+async def _declare_posture(
+    state: ActionState,
+    posture: str,
+    reason: str = "",
+) -> dict:
+    """Declare the risk posture for this session.
+
+    Valid postures: balanced, defensive, crisis, aggressive.
+    Aggressive requires track record gate (50+ trades, >55% WR, positive alpha).
+
+    Args:
+        state: ActionState instance.
+        posture: Posture level to declare.
+        reason: Reason for the posture choice.
+    """
+    posture_lower = posture.lower().strip()
+    if posture_lower not in _VALID_POSTURES:
+        return {"error": f"Invalid posture: {posture}. Must be one of: {', '.join(sorted(_VALID_POSTURES))}"}
+
+    state.declared_posture = posture_lower
+    return {
+        "status": "ok",
+        "posture": posture_lower,
+        "reason": reason[:200],
+        "message": f"Posture set to {posture_lower}. Risk limits will be adjusted accordingly.",
+        "note": "Aggressive posture requires track record gate — system will verify.",
+    }
+
+
 # ── Legacy functions (kept for backward compat) ─────────────────────────────
 
 
@@ -366,6 +403,28 @@ def register_action_tools(
             "required": ["key", "content"],
         },
         handler=partial(_save_observation, state),
+    )
+
+    registry.register(
+        name="declare_posture",
+        description=(
+            "Declare your risk posture for this session. "
+            "Options: balanced (default), defensive (reduce exposure), crisis (minimal risk), "
+            "aggressive (max exposure — gated behind track record)."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "posture": {
+                    "type": "string",
+                    "enum": ["balanced", "defensive", "crisis", "aggressive"],
+                    "description": "Risk posture level",
+                },
+                "reason": {"type": "string", "description": "Reason for the posture choice"},
+            },
+            "required": ["posture"],
+        },
+        handler=partial(_declare_posture, state),
     )
 
     registry.register(

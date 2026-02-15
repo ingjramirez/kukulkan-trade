@@ -358,6 +358,57 @@ class AgentConversationRow(Base):
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
+class PostureHistoryRow(Base):
+    """Posture declarations from the AI agent per session."""
+
+    __tablename__ = "posture_history"
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(String(36), nullable=False, default="default")
+    session_date = Column(Date, nullable=False)
+    session_label = Column(String(20), nullable=True)
+    posture = Column(String(20), nullable=False)  # balanced/defensive/crisis/aggressive
+    effective_posture = Column(String(20), nullable=False)  # after gate checks
+    reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
+class PlaybookSnapshotRow(Base):
+    """Empirical playbook snapshots — regime×sector win rates."""
+
+    __tablename__ = "playbook_snapshots"
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(String(36), nullable=False, default="default")
+    generated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    regime = Column(String(30), nullable=False)
+    sector = Column(String(50), nullable=False)
+    total_trades = Column(Integer, nullable=False)
+    wins = Column(Integer, nullable=False)
+    losses = Column(Integer, nullable=False)
+    win_rate_pct = Column(Float, nullable=False)
+    avg_pnl_pct = Column(Float, nullable=False)
+    recommendation = Column(String(30), nullable=False)
+
+
+class ConvictionCalibrationRow(Base):
+    """Conviction calibration snapshots — per-level accuracy stats."""
+
+    __tablename__ = "conviction_calibration"
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(String(36), nullable=False, default="default")
+    generated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    conviction_level = Column(String(10), nullable=False)
+    total_trades = Column(Integer, nullable=False)
+    wins = Column(Integer, nullable=False)
+    losses = Column(Integer, nullable=False)
+    win_rate_pct = Column(Float, nullable=False)
+    avg_pnl_pct = Column(Float, nullable=False)
+    assessment = Column(String(30), nullable=False)
+    suggested_multiplier = Column(Float, nullable=False, default=1.0)
+
+
 class TenantRow(Base):
     """Multi-tenant configuration: credentials, strategy, and universe."""
 

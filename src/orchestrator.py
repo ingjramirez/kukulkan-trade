@@ -662,8 +662,68 @@ class Orchestrator:
                 log.error("portfolio_b_failed", error=str(e))
                 summary["errors"].append(f"Portfolio B failed: {e}")
 
-        # Step 6.5: Pre-trade risk filter
+        # Step 6.5: Resolve posture + Pre-trade risk filter
         log.info("step_6_5_risk_filter")
+
+        # Resolve posture from Portfolio B tool summary
+        posture_limits_b = None
+        if b_tool_summary and isinstance(b_tool_summary, dict):
+            declared = b_tool_summary.get("declared_posture")
+            if declared:
+                try:
+                    from src.agent.posture import PostureLevel, PostureManager
+
+                    posture_mgr = PostureManager()
+                    posture_level = PostureLevel(declared)
+
+                    # For aggressive, compute track record stats for gate check
+                    tr_total, tr_wr, tr_alpha = 0, 0.0, None
+                    if posture_level == PostureLevel.AGGRESSIVE:
+                        try:
+                            from src.analysis.outcome_tracker import OutcomeTracker
+                            from src.analysis.track_record import TrackRecord
+
+                            tracker = OutcomeTracker(self._db)
+                            outcomes = await tracker.get_recent_outcomes(days=90, tenant_id=tenant_id)
+                            if outcomes:
+                                stats = TrackRecord().compute(outcomes, min_trades=1)
+                                tr_total = stats.total_trades
+                                tr_wr = stats.win_rate_pct
+                                tr_alpha = stats.avg_alpha_vs_spy
+                        except Exception as e:
+                            log.warning("posture_track_record_fetch_failed", error=str(e))
+
+                    posture_limits_b, effective_posture = posture_mgr.resolve_effective_limits(
+                        posture_level,
+                        total_trades=tr_total,
+                        win_rate_pct=tr_wr,
+                        avg_alpha_vs_spy=tr_alpha,
+                    )
+
+                    # Save posture history
+                    try:
+                        reason = b_tool_summary.get("posture_reason", "")
+                        await self._db.save_posture(
+                            tenant_id=tenant_id,
+                            session_date=today,
+                            session_label=session,
+                            posture=declared,
+                            effective_posture=effective_posture.value,
+                            reason=reason,
+                        )
+                    except Exception as e:
+                        log.warning("posture_save_failed", error=str(e))
+
+                    log.info(
+                        "posture_resolved",
+                        declared=declared,
+                        effective=effective_posture.value,
+                        limits_single=posture_limits_b.max_single_position_pct,
+                        limits_sector=posture_limits_b.max_sector_concentration,
+                    )
+                except (ValueError, KeyError) as e:
+                    log.warning("posture_resolve_failed", declared=declared, error=str(e))
+
         all_trades: list = []
         for pname, trades in [("A", trades_a), ("B", trades_b)]:
             if not trades:
@@ -682,6 +742,7 @@ class Orchestrator:
                 latest_prices=latest_prices,
                 portfolio_value=pval,
                 cash=pcash,
+                posture_limits=posture_limits_b if pname == "B" else None,
             )
             all_trades.extend(verdict.allowed)
             for blocked_trade, reason in verdict.blocked:
@@ -1213,6 +1274,7 @@ class Orchestrator:
                 "turns": result.turns,
                 "cost_usd": round(result.token_tracker.total_cost_usd, 4),
                 "trailing_stop_requests": accumulated.get("trailing_stop_requests", []),
+                "declared_posture": accumulated.get("declared_posture"),
             }
 
             # Save tool call logs (capture IDs for influenced_decision tracking)
@@ -1445,6 +1507,80 @@ class Orchestrator:
             "positions_count": len(positions_for_agent),
         }
 
+        # Build pinned context from DB (posture, playbook, calibration)
+        pinned_context = ""
+        try:
+            from src.agent.context_manager import ContextManager
+            from src.analysis.conviction_calibrator import ConvictionBucket, ConvictionCalibrator
+            from src.analysis.playbook_generator import PlaybookCell, PlaybookGenerator
+
+            ctx_mgr = ContextManager()
+
+            # Current posture
+            posture_row = await self._db.get_current_posture(tenant_id)
+            current_posture = posture_row.effective_posture if posture_row else "balanced"
+
+            # Track record
+            tr_summary = ""
+            try:
+                from src.analysis.outcome_tracker import OutcomeTracker
+                from src.analysis.track_record import TrackRecord
+
+                tracker = OutcomeTracker(self._db)
+                outcomes = await tracker.get_recent_outcomes(days=30, tenant_id=tenant_id)
+                if outcomes:
+                    stats = TrackRecord().compute(outcomes, min_trades=1)
+                    tr_summary = TrackRecord.format_for_prompt(stats)
+            except Exception as e:
+                log.warning("pinned_context_track_record_failed", error=str(e))
+
+            pinned_context = ctx_mgr.build_pinned_context(
+                current_posture=current_posture.capitalize(),
+                track_record_summary=tr_summary,
+            )
+
+            # Append playbook
+            playbook_rows = await self._db.get_latest_playbook(tenant_id)
+            if playbook_rows:
+                cells = [
+                    PlaybookCell(
+                        regime=r.regime,
+                        sector=r.sector,
+                        total=r.total_trades,
+                        wins=r.wins,
+                        losses=r.losses,
+                        win_rate_pct=r.win_rate_pct,
+                        avg_pnl_pct=r.avg_pnl_pct,
+                        recommendation=r.recommendation,
+                    )
+                    for r in playbook_rows
+                ]
+                playbook_text = PlaybookGenerator().format_for_prompt(cells)
+                if playbook_text:
+                    pinned_context += f"\n\n{playbook_text}"
+
+            # Append calibration
+            cal_rows = await self._db.get_latest_calibration(tenant_id)
+            if cal_rows:
+                buckets = [
+                    ConvictionBucket(
+                        conviction=r.conviction_level,
+                        total=r.total_trades,
+                        wins=r.wins,
+                        losses=r.losses,
+                        win_rate_pct=r.win_rate_pct,
+                        avg_pnl_pct=r.avg_pnl_pct,
+                        assessment=r.assessment,
+                        suggested_multiplier=r.suggested_multiplier,
+                    )
+                    for r in cal_rows
+                ]
+                cal_text = ConvictionCalibrator().format_for_prompt(buckets)
+                if cal_text:
+                    pinned_context += f"\n\n{cal_text}"
+        except Exception as e:
+            log.warning("pinned_context_build_failed", error=str(e))
+
         # Run persistent session
         persistent = PersistentAgent(
             db=self._db,
@@ -1459,7 +1595,7 @@ class Orchestrator:
                 "runner": runner,
                 "system_prompt": dynamic_prompt,
             },
-            pinned_context="",
+            pinned_context=pinned_context,
             strategy_directive="",
         )
 
@@ -1474,10 +1610,12 @@ class Orchestrator:
         if accumulated["memory_notes"] and not response.get("memory_notes"):
             response["memory_notes"] = accumulated["memory_notes"]
 
-        # Attach agent's trailing stop requests to tool_summary for Step 7.1
+        # Attach agent's trailing stop requests + posture to tool_summary for Step 7.1
         persistent_tool_summary = result.tool_summary or {}
         if accumulated.get("trailing_stop_requests"):
             persistent_tool_summary["trailing_stop_requests"] = accumulated["trailing_stop_requests"]
+        if accumulated.get("declared_posture"):
+            persistent_tool_summary["declared_posture"] = accumulated["declared_posture"]
 
         # Convert to trades
         position_map = {p["ticker"]: p["shares"] for p in positions_for_agent}

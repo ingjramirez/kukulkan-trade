@@ -307,7 +307,6 @@ class ContextManager:
         if track_record:
             parts.append(f"Track record:\n{track_record}")
         parts.append(
-            "Review your performance. Update your learnings and theses. "
-            "What should you do differently next week?"
+            "Review your performance. Update your learnings and theses. What should you do differently next week?"
         )
         return "\n".join(parts)

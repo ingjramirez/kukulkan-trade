@@ -281,6 +281,40 @@ class ConversationSessionResponse(BaseModel):
     created_at: UTCDatetime
 
 
+# ── Agent Insights Schemas ─────────────────────────────────────────
+
+
+class PostureHistoryResponse(BaseModel):
+    session_date: date
+    session_label: str | None = None
+    posture: str
+    effective_posture: str
+    reason: str | None = None
+    created_at: UTCDatetime
+
+
+class PlaybookCellResponse(BaseModel):
+    regime: str
+    sector: str
+    total_trades: int
+    wins: int
+    losses: int
+    win_rate_pct: float
+    avg_pnl_pct: float
+    recommendation: str
+
+
+class ConvictionCalibrationResponse(BaseModel):
+    conviction_level: str
+    total_trades: int
+    wins: int
+    losses: int
+    win_rate_pct: float
+    avg_pnl_pct: float
+    assessment: str
+    suggested_multiplier: float
+
+
 class TenantReadResponse(BaseModel):
     id: str
     name: str

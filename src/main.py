@@ -312,6 +312,85 @@ async def run_scheduled() -> None:
         name="Kukulkan Weekly Report",
     )
 
+    # Weekly playbook + calibration generation (Sunday 5 PM ET)
+    async def weekly_playbook_calibration():
+        try:
+            from src.analysis.conviction_calibrator import ConvictionCalibrator
+            from src.analysis.outcome_tracker import OutcomeTracker
+            from src.analysis.playbook_generator import PlaybookGenerator
+
+            tenants = await db.get_active_tenants()
+            targets = tenants if tenants else []
+            # Include default tenant if no tenants configured
+            if not targets:
+                targets = [None]
+
+            for tenant in targets:
+                tid = tenant.id if tenant else "default"
+                if tenant and not Orchestrator._tenant_fully_configured(tenant):
+                    continue
+                try:
+                    tracker = OutcomeTracker(db)
+                    outcomes = await tracker.get_recent_outcomes(days=90, tenant_id=tid)
+                    if not outcomes:
+                        continue
+
+                    # Generate and save playbook
+                    playbook_cells = PlaybookGenerator().generate(outcomes)
+                    if playbook_cells:
+                        cell_dicts = [
+                            {
+                                "regime": c.regime,
+                                "sector": c.sector,
+                                "total_trades": c.total,
+                                "wins": c.wins,
+                                "losses": c.losses,
+                                "win_rate_pct": c.win_rate_pct,
+                                "avg_pnl_pct": c.avg_pnl_pct,
+                                "recommendation": c.recommendation,
+                            }
+                            for c in playbook_cells
+                        ]
+                        await db.save_playbook_snapshot(cell_dicts, tenant_id=tid)
+
+                    # Generate and save calibration
+                    cal_buckets = ConvictionCalibrator().calibrate(outcomes)
+                    if cal_buckets:
+                        bucket_dicts = [
+                            {
+                                "conviction_level": b.conviction,
+                                "total_trades": b.total,
+                                "wins": b.wins,
+                                "losses": b.losses,
+                                "win_rate_pct": b.win_rate_pct,
+                                "avg_pnl_pct": b.avg_pnl_pct,
+                                "assessment": b.assessment,
+                                "suggested_multiplier": b.suggested_multiplier,
+                            }
+                            for b in cal_buckets
+                        ]
+                        await db.save_conviction_calibration(bucket_dicts, tenant_id=tid)
+
+                    log.info("playbook_calibration_generated", tenant_id=tid)
+                except Exception as e:
+                    log.error("playbook_calibration_tenant_failed", tenant_id=tid, error=str(e))
+
+            log.info("weekly_playbook_calibration_complete")
+        except Exception as e:
+            log.error("weekly_playbook_calibration_failed", error=str(e))
+
+    scheduler.add_job(
+        weekly_playbook_calibration,
+        CronTrigger(
+            day_of_week="sun",
+            hour=17,
+            minute=0,
+            timezone="US/Eastern",
+        ),
+        id="weekly_playbook_calibration",
+        name="Kukulkan Weekly Playbook & Calibration",
+    )
+
     # Weekly intraday snapshot cleanup (Sunday 7 PM ET)
     async def intraday_cleanup_job():
         try:
@@ -370,7 +449,8 @@ async def run_scheduled() -> None:
         "scheduler_started",
         schedule="Mon-Fri at 10:00, 12:30, 15:45 ET; "
         "Intraday every 15min 9-16 ET; "
-        "Fri 17:00 ET report; Sun 18:00 ET compaction; "
+        "Fri 17:00 ET report; Sun 17:00 ET playbook+calibration; "
+        "Sun 18:00 ET compaction; "
         "Sun 19:00 ET cleanup; Sun 19:30 ET conversation cleanup",
     )
 

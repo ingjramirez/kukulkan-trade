@@ -459,6 +459,9 @@ def format_daily_brief(
             turns = agent_tool_summary.get("turns", 0)
             cost = agent_tool_summary.get("cost_usd", 0)
             lines.append(f"  🤖 Investigation: {tools} tools across {turns} turns | ${cost:.2f}")
+            posture = agent_tool_summary.get("declared_posture")
+            if posture:
+                lines.append(f"  🎯 Posture: {posture.capitalize()}")
         lines.append("")
 
     # Total (only sum active portfolios)

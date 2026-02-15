@@ -13,14 +13,17 @@ from src.storage.models import (
     AgentDecisionRow,
     AgentMemoryRow,
     Base,
+    ConvictionCalibrationRow,
     DailySnapshotRow,
     DiscoveredTickerRow,
     EarningsCalendarRow,
     IntradaySnapshotRow,
     MarketDataRow,
     MomentumRankingRow,
+    PlaybookSnapshotRow,
     PortfolioRow,
     PositionRow,
+    PostureHistoryRow,
     TenantRow,
     ToolCallLogRow,
     TradeRow,
@@ -1108,6 +1111,181 @@ class Database:
                 stmt = stmt.where(ToolCallLogRow.session_date == session_date)
             stmt = stmt.order_by(ToolCallLogRow.created_at.desc()).limit(limit)
             result = await s.execute(stmt)
+            return list(result.scalars().all())
+
+    # ── Posture History ──────────────────────────────────────────────
+
+    async def save_posture(
+        self,
+        tenant_id: str,
+        session_date: date,
+        session_label: str | None,
+        posture: str,
+        effective_posture: str,
+        reason: str | None = None,
+    ) -> None:
+        """Save a posture declaration for this session."""
+        async with self.session() as s:
+            s.add(
+                PostureHistoryRow(
+                    tenant_id=tenant_id,
+                    session_date=session_date,
+                    session_label=session_label,
+                    posture=posture,
+                    effective_posture=effective_posture,
+                    reason=reason,
+                )
+            )
+            await s.commit()
+
+    async def get_current_posture(
+        self,
+        tenant_id: str = "default",
+    ) -> PostureHistoryRow | None:
+        """Get the most recent posture declaration for a tenant."""
+        async with self.session() as s:
+            result = await s.execute(
+                select(PostureHistoryRow)
+                .where(PostureHistoryRow.tenant_id == tenant_id)
+                .order_by(PostureHistoryRow.created_at.desc())
+                .limit(1)
+            )
+            return result.scalar_one_or_none()
+
+    async def get_posture_history(
+        self,
+        tenant_id: str = "default",
+        limit: int = 30,
+    ) -> list[PostureHistoryRow]:
+        """Get posture history for a tenant, most recent first."""
+        async with self.session() as s:
+            result = await s.execute(
+                select(PostureHistoryRow)
+                .where(PostureHistoryRow.tenant_id == tenant_id)
+                .order_by(PostureHistoryRow.created_at.desc())
+                .limit(limit)
+            )
+            return list(result.scalars().all())
+
+    # ── Playbook Snapshots ────────────────────────────────────────────
+
+    async def save_playbook_snapshot(
+        self,
+        cells: list[dict],
+        tenant_id: str = "default",
+    ) -> None:
+        """Save a playbook snapshot (list of regime×sector cells).
+
+        Args:
+            cells: List of dicts with regime, sector, total_trades, wins, losses,
+                   win_rate_pct, avg_pnl_pct, recommendation.
+            tenant_id: Tenant UUID.
+        """
+        if not cells:
+            return
+        now = datetime.now(timezone.utc)
+        async with self.session() as s:
+            for cell in cells:
+                s.add(
+                    PlaybookSnapshotRow(
+                        tenant_id=tenant_id,
+                        generated_at=now,
+                        regime=cell["regime"],
+                        sector=cell["sector"],
+                        total_trades=cell["total_trades"],
+                        wins=cell["wins"],
+                        losses=cell["losses"],
+                        win_rate_pct=cell["win_rate_pct"],
+                        avg_pnl_pct=cell["avg_pnl_pct"],
+                        recommendation=cell["recommendation"],
+                    )
+                )
+            await s.commit()
+
+    async def get_latest_playbook(
+        self,
+        tenant_id: str = "default",
+    ) -> list[PlaybookSnapshotRow]:
+        """Get all cells from the most recent playbook snapshot."""
+        from sqlalchemy import func
+
+        async with self.session() as s:
+            # Find the max generated_at for this tenant
+            max_dt = await s.execute(
+                select(func.max(PlaybookSnapshotRow.generated_at)).where(
+                    PlaybookSnapshotRow.tenant_id == tenant_id,
+                )
+            )
+            latest = max_dt.scalar_one_or_none()
+            if not latest:
+                return []
+
+            result = await s.execute(
+                select(PlaybookSnapshotRow).where(
+                    PlaybookSnapshotRow.tenant_id == tenant_id,
+                    PlaybookSnapshotRow.generated_at == latest,
+                )
+            )
+            return list(result.scalars().all())
+
+    # ── Conviction Calibration ────────────────────────────────────────
+
+    async def save_conviction_calibration(
+        self,
+        buckets: list[dict],
+        tenant_id: str = "default",
+    ) -> None:
+        """Save conviction calibration buckets.
+
+        Args:
+            buckets: List of dicts with conviction_level, total_trades, wins, losses,
+                     win_rate_pct, avg_pnl_pct, assessment, suggested_multiplier.
+            tenant_id: Tenant UUID.
+        """
+        if not buckets:
+            return
+        now = datetime.now(timezone.utc)
+        async with self.session() as s:
+            for bucket in buckets:
+                s.add(
+                    ConvictionCalibrationRow(
+                        tenant_id=tenant_id,
+                        generated_at=now,
+                        conviction_level=bucket["conviction_level"],
+                        total_trades=bucket["total_trades"],
+                        wins=bucket["wins"],
+                        losses=bucket["losses"],
+                        win_rate_pct=bucket["win_rate_pct"],
+                        avg_pnl_pct=bucket["avg_pnl_pct"],
+                        assessment=bucket["assessment"],
+                        suggested_multiplier=bucket["suggested_multiplier"],
+                    )
+                )
+            await s.commit()
+
+    async def get_latest_calibration(
+        self,
+        tenant_id: str = "default",
+    ) -> list[ConvictionCalibrationRow]:
+        """Get all buckets from the most recent calibration snapshot."""
+        from sqlalchemy import func
+
+        async with self.session() as s:
+            max_dt = await s.execute(
+                select(func.max(ConvictionCalibrationRow.generated_at)).where(
+                    ConvictionCalibrationRow.tenant_id == tenant_id,
+                )
+            )
+            latest = max_dt.scalar_one_or_none()
+            if not latest:
+                return []
+
+            result = await s.execute(
+                select(ConvictionCalibrationRow).where(
+                    ConvictionCalibrationRow.tenant_id == tenant_id,
+                    ConvictionCalibrationRow.generated_at == latest,
+                )
+            )
             return list(result.scalars().all())
 
     # ── Tenant CRUD ──────────────────────────────────────────────────

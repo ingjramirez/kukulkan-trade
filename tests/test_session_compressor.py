@@ -122,8 +122,7 @@ async def test_validate_compression_passes_good_summary(compressor: SessionCompr
 async def test_validate_compression_detects_missing_facts(compressor: SessionCompressor):
     """validate_compression identifies missing trading facts."""
     validation_json = (
-        '{"missing_facts": ["Missing trailing stop level of 7%"], '
-        '"fidelity_score": 0.85, "assessment": "Acceptable"}'
+        '{"missing_facts": ["Missing trailing stop level of 7%"], "fidelity_score": 0.85, "assessment": "Acceptable"}'
     )
 
     with patch.object(compressor, "_get_client") as mock_client:

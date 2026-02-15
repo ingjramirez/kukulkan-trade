@@ -289,8 +289,6 @@ def test_recent_sessions_replayed_as_conversation():
 def test_context_budget_within_limits():
     """Constant budget values are reasonable."""
     cm = make_manager()
-    total_budget = (
-        cm.SYSTEM_PROMPT_BUDGET + cm.PINNED_CONTEXT_BUDGET + cm.SUMMARY_BUDGET + cm.RECENT_HISTORY_BUDGET
-    )
+    total_budget = cm.SYSTEM_PROMPT_BUDGET + cm.PINNED_CONTEXT_BUDGET + cm.SUMMARY_BUDGET + cm.RECENT_HISTORY_BUDGET
     assert total_budget < cm.COMPRESSION_THRESHOLD
     assert total_budget < 200_000  # Stay within Anthropic context window

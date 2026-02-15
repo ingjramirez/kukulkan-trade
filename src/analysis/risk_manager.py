@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -18,6 +19,9 @@ from config.risk_rules import RISK_RULES, RiskRules
 from config.universe import SECTOR_MAP
 from src.storage.database import Database
 from src.storage.models import TradeSchema
+
+if TYPE_CHECKING:
+    from src.agent.posture import PostureLimits
 
 log = structlog.get_logger()
 
@@ -92,6 +96,7 @@ class RiskManager:
         latest_prices: dict[str, float],
         portfolio_value: float,
         cash: float,
+        posture_limits: "PostureLimits | None" = None,
     ) -> RiskVerdict:
         """Filter trades that violate risk limits.
 
@@ -114,6 +119,13 @@ class RiskManager:
             RiskVerdict with allowed and blocked lists.
         """
         verdict = RiskVerdict()
+
+        # Resolve effective limits: posture can only tighten, never loosen
+        eff_single = self._rules.max_single_position_pct
+        eff_sector = self._rules.max_sector_concentration
+        if posture_limits is not None:
+            eff_single = min(eff_single, posture_limits.max_single_position_pct)
+            eff_sector = min(eff_sector, posture_limits.max_sector_concentration)
 
         # Build projected position values from current state
         projected_values: dict[str, float] = {}
@@ -141,11 +153,8 @@ class RiskManager:
             # Rule 1: Single position concentration
             if total_denominator > 0:
                 position_pct = new_position_value / total_denominator
-                if position_pct > self._rules.max_single_position_pct:
-                    reason = (
-                        f"{trade.ticker} would be {position_pct:.0%} of portfolio "
-                        f"(limit {self._rules.max_single_position_pct:.0%})"
-                    )
+                if position_pct > eff_single:
+                    reason = f"{trade.ticker} would be {position_pct:.0%} of portfolio (limit {eff_single:.0%})"
                     log.warning("risk_blocked_position", trade=trade.ticker, reason=reason)
                     verdict.blocked.append((trade, reason))
                     continue
@@ -158,9 +167,12 @@ class RiskManager:
                     sector_value += val
             if total_denominator > 0:
                 sector_pct = sector_value / total_denominator
-                sector_limit = self._rules.sector_concentration_overrides.get(
-                    sector,
-                    self._rules.max_sector_concentration,
+                sector_limit = min(
+                    self._rules.sector_concentration_overrides.get(
+                        sector,
+                        self._rules.max_sector_concentration,
+                    ),
+                    eff_sector,
                 )
                 if sector_pct > sector_limit:
                     reason = f"{sector} sector would be {sector_pct:.0%} (limit {sector_limit:.0%})"
