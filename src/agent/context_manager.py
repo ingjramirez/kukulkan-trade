@@ -82,6 +82,48 @@ class ContextManager:
 
         return "\n".join(parts)
 
+    def build_cached_system_prompt(
+        self,
+        pinned_context: str,
+        strategy_directive: str = "",
+    ) -> list[dict]:
+        """Build system prompt with cache_control markers for Anthropic prompt caching.
+
+        Structure (stable → volatile):
+        1. Identity block (never changes) — cache_control: ephemeral
+        2. Strategy directive (changes rarely)
+        3. Pinned context (changes daily at most) — cache_control: ephemeral
+
+        Returns:
+            List of content block dicts with cache_control markers.
+        """
+        blocks: list[dict] = []
+
+        # Identity block — most stable, always cached
+        blocks.append(
+            {
+                "type": "text",
+                "text": _SYSTEM_IDENTITY,
+                "cache_control": {"type": "ephemeral"},
+            }
+        )
+
+        # Strategy directive — changes rarely
+        if strategy_directive:
+            blocks.append({"type": "text", "text": f"\n## Strategy Directive\n{strategy_directive}"})
+
+        # Pinned context — changes daily at most
+        if pinned_context:
+            blocks.append(
+                {
+                    "type": "text",
+                    "text": f"\n{pinned_context}",
+                    "cache_control": {"type": "ephemeral"},
+                }
+            )
+
+        return blocks
+
     def build_messages(
         self,
         summaries: list[dict],

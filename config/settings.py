@@ -49,6 +49,12 @@ class AgentSettings(BaseSettings):
     agent_tool_model: str = "claude-sonnet-4-5-20250929"
     agent_max_turns: int = 8
     agent_session_budget: float = 0.50
+    daily_budget: float = 3.0  # env: AGENT_DAILY_BUDGET
+    monthly_budget: float = 75.0  # env: AGENT_MONTHLY_BUDGET
+    scan_model: str = "claude-haiku-4-5-20251001"  # env: AGENT_SCAN_MODEL
+    validate_model: str = "claude-opus-4-6"  # env: AGENT_VALIDATE_MODEL
+    enable_tiered: bool = False  # env: AGENT_ENABLE_TIERED
+    enable_cache: bool = True  # env: AGENT_ENABLE_CACHE
 
     model_config = {"env_prefix": "AGENT_", "env_file": ".env", "extra": "ignore"}
 

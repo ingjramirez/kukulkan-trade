@@ -146,12 +146,38 @@ class PersistentAgent:
         # 4. Build messages array with history
         messages = self._context.build_messages(summaries, recent_sessions, trigger_message)
 
-        # 5. Run agent loop with conversation context
-        result = await runner.run(
-            system_prompt=system_prompt,
-            user_message=trigger_message,
-            messages_override=messages,
-        )
+        # 5. Run agent loop with conversation context (or tiered runner)
+        tiered_runner = runner_kwargs.get("tiered_runner")
+        if tiered_runner:
+            from src.agent.tiered_runner import TieredRunResult
+
+            tiered_result: TieredRunResult = await tiered_runner.run(
+                system_prompt=runner_kwargs.get("cached_system_prompt", system_prompt),
+                user_message=trigger_message,
+                session_profile=runner_kwargs["session_profile"],
+                market_data=runner_kwargs.get("market_data", {}),
+                portfolio_summary=runner_kwargs.get("portfolio_summary", {}),
+                posture=runner_kwargs.get("posture", "balanced"),
+                messages_override=messages,
+            )
+            # Convert TieredRunResult to AgentRunResult-like for the rest of the flow
+            result = type(
+                "AgentRunResult",
+                (),
+                {
+                    "response": tiered_result.response,
+                    "tool_calls": tiered_result.tool_calls,
+                    "turns": tiered_result.turns,
+                    "token_tracker": tiered_result.token_tracker,
+                    "raw_messages": tiered_result.raw_messages,
+                },
+            )()
+        else:
+            result = await runner.run(
+                system_prompt=system_prompt,
+                user_message=trigger_message,
+                messages_override=messages,
+            )
 
         # 6. Build full messages for storage (history + agent's new messages)
         # The agent's raw_messages starts from where we injected (our messages + agent turns)

@@ -73,7 +73,7 @@ class AgentRunner:
 
     async def run(
         self,
-        system_prompt: str,
+        system_prompt: str | list[dict],
         user_message: str,
         model_override: str | None = None,
         messages_override: list[dict] | None = None,
@@ -81,7 +81,8 @@ class AgentRunner:
         """Execute the full agent loop.
 
         Args:
-            system_prompt: System prompt with context.
+            system_prompt: System prompt with context. Can be a string or
+                a list[dict] with cache_control markers for prompt caching.
             user_message: User message with market data and instructions.
             model_override: Optional model to use instead of default.
             messages_override: If provided, use this messages array instead of
@@ -127,12 +128,14 @@ class AgentRunner:
                 tools=tool_defs if tool_defs else anthropic.NOT_GIVEN,
             )
 
-            # Record tokens
+            # Record tokens (including cache fields if present)
             self._token_tracker.record(
                 model=response.model,
                 input_tokens=response.usage.input_tokens,
                 output_tokens=response.usage.output_tokens,
                 turn=turn,
+                cache_creation_tokens=getattr(response.usage, "cache_creation_input_tokens", 0) or 0,
+                cache_read_tokens=getattr(response.usage, "cache_read_input_tokens", 0) or 0,
             )
 
             # Process response
@@ -251,7 +254,7 @@ class AgentRunner:
         self,
         client: anthropic.Anthropic,
         model: str,
-        system_prompt: str,
+        system_prompt: str | list[dict],
         messages: list[dict],
     ) -> dict:
         """Force the model to produce a final JSON response without tools.
@@ -277,6 +280,8 @@ class AgentRunner:
                 input_tokens=response.usage.input_tokens,
                 output_tokens=response.usage.output_tokens,
                 turn=self._max_turns + 1,
+                cache_creation_tokens=getattr(response.usage, "cache_creation_input_tokens", 0) or 0,
+                cache_read_tokens=getattr(response.usage, "cache_read_input_tokens", 0) or 0,
             )
             text = self._extract_text(response)
             return self._parse_response(text)

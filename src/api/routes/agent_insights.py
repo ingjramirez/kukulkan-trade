@@ -1,9 +1,12 @@
-"""API routes for agent insights: posture, playbook, calibration."""
+"""API routes for agent insights: posture, playbook, calibration, budget."""
+
+from datetime import date
 
 from fastapi import APIRouter, Depends
 
 from src.api.deps import get_authorized_tenant_id, get_db
 from src.api.schemas import (
+    BudgetStatusResponse,
     ConvictionCalibrationResponse,
     PlaybookCellResponse,
     PostureHistoryResponse,
@@ -75,3 +78,31 @@ async def get_latest_calibration(
         )
         for r in rows
     ]
+
+
+@router.get("/budget", response_model=BudgetStatusResponse)
+async def get_budget_status(
+    tenant_id: str = Depends(get_authorized_tenant_id),
+    db: Database = Depends(get_db),
+) -> BudgetStatusResponse:
+    """Get current daily/monthly agent budget status for a tenant."""
+    from config.settings import settings
+
+    today = date.today()
+    daily_spent = await db.get_daily_spend(tenant_id, today)
+    monthly_spent = await db.get_monthly_spend(tenant_id, today.year, today.month)
+
+    daily_limit = settings.agent.daily_budget
+    monthly_limit = settings.agent.monthly_budget
+
+    return BudgetStatusResponse(
+        daily_spent=round(daily_spent, 4),
+        daily_limit=daily_limit,
+        daily_remaining=round(max(0.0, daily_limit - daily_spent), 4),
+        monthly_spent=round(monthly_spent, 4),
+        monthly_limit=monthly_limit,
+        monthly_remaining=round(max(0.0, monthly_limit - monthly_spent), 4),
+        daily_exhausted=daily_spent >= daily_limit,
+        monthly_exhausted=monthly_spent >= monthly_limit,
+        haiku_only=monthly_spent >= monthly_limit * 0.80,
+    )

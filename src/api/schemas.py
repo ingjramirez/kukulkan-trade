@@ -315,6 +315,18 @@ class ConvictionCalibrationResponse(BaseModel):
     suggested_multiplier: float
 
 
+class BudgetStatusResponse(BaseModel):
+    daily_spent: float
+    daily_limit: float
+    daily_remaining: float
+    monthly_spent: float
+    monthly_limit: float
+    monthly_remaining: float
+    daily_exhausted: bool
+    monthly_exhausted: bool
+    haiku_only: bool
+
+
 class TenantReadResponse(BaseModel):
     id: str
     name: str

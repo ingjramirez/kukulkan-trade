@@ -157,6 +157,51 @@ async def _get_portfolio_a_status(
     }
 
 
+# ── get_portfolio_a_history (rotation history for correlation) ─────────────────
+
+
+async def _get_portfolio_a_history(
+    db: Any,
+    tenant_id: str,
+    n_trades: int = 10,
+) -> dict:
+    """Read Portfolio A's recent momentum rotation trades.
+
+    Returns the last N trades: date, ticker, side, shares, price, reason.
+    Useful for cross-portfolio correlation analysis.
+    """
+    all_trades = await db.get_trades("A", tenant_id=tenant_id)
+    trades = all_trades[:n_trades]  # Already sorted desc by executed_at
+    history = []
+    for t in trades:
+        history.append(
+            {
+                "date": str(t.executed_at.date()) if t.executed_at else "",
+                "ticker": t.ticker,
+                "side": t.side,
+                "shares": t.shares,
+                "price": round(t.price, 2),
+                "reason": (t.reason or "")[:200],
+            }
+        )
+
+    # Also get latest momentum rankings
+    rankings = await db.get_latest_momentum_rankings()
+    top_rankings = [
+        {"ticker": r.ticker, "return_63d": round(r.return_63d, 2), "rank": r.rank}
+        for r in sorted(rankings, key=lambda x: x.rank)[:5]
+    ]
+
+    return {
+        "portfolio": "A",
+        "strategy": "Momentum rotation (mechanical, rule-based)",
+        "recent_trades": history,
+        "momentum_rankings_top5": top_rankings,
+        "total_entries": len(history),
+        "note": "Read-only. Claude cannot modify Portfolio A.",
+    }
+
+
 # ── Registration ──────────────────────────────────────────────────────────────
 
 
@@ -226,4 +271,23 @@ def register_news_tools(
             ),
             input_schema={"type": "object", "properties": {}},
             handler=partial(_get_portfolio_a_status, db, tenant_id, current_prices),
+        )
+
+    if db is not None:
+        registry.register(
+            name="get_portfolio_a_history",
+            description=(
+                "Read Portfolio A's recent momentum rotation trades and current momentum rankings. "
+                "Use for cross-portfolio correlation analysis."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "n_trades": {
+                        "type": "integer",
+                        "description": "Number of recent trades to return (1-20, default: 10)",
+                    },
+                },
+            },
+            handler=partial(_get_portfolio_a_history, db, tenant_id),
         )

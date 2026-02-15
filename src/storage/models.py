@@ -409,6 +409,25 @@ class ConvictionCalibrationRow(Base):
     suggested_multiplier = Column(Float, nullable=False, default=1.0)
 
 
+class AgentBudgetLogRow(Base):
+    """Per-session agent cost log for daily/monthly budget tracking."""
+
+    __tablename__ = "agent_budget_log"
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(String(36), nullable=False, default="default")
+    session_date = Column(Date, nullable=False)
+    session_label = Column(String(50), nullable=False)
+    session_id = Column(Text, nullable=True)
+    input_tokens = Column(Integer, nullable=False, default=0)
+    output_tokens = Column(Integer, nullable=False, default=0)
+    cache_read_tokens = Column(Integer, nullable=False, default=0)
+    cache_creation_tokens = Column(Integer, nullable=False, default=0)
+    cost_usd = Column(Float, nullable=False, default=0.0)
+    session_profile = Column(String(20), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
 class TenantRow(Base):
     """Multi-tenant configuration: credentials, strategy, and universe."""
 
@@ -456,6 +475,9 @@ class TenantRow(Base):
 
     # Persistent agent (conversation persistence for Portfolio B)
     use_persistent_agent = Column(Boolean, nullable=False, default=False)
+
+    # Tiered model runner (Haiku scan → Sonnet investigate → Opus validate)
+    use_tiered_models = Column(Boolean, nullable=False, default=False)
 
     # Ticker customization (JSON arrays, nullable = use defaults)
     ticker_whitelist = Column(Text, nullable=True)  # JSON: ["AAPL","TSLA"]

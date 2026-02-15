@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.storage.models import (
+    AgentBudgetLogRow,
     AgentDecisionRow,
     AgentMemoryRow,
     Base,
@@ -1287,6 +1288,75 @@ class Database:
                 )
             )
             return list(result.scalars().all())
+
+    # ── Budget Log CRUD ─────────────────────────────────────────────
+
+    async def save_budget_log(
+        self,
+        tenant_id: str,
+        session_date: date,
+        session_label: str,
+        session_id: str | None,
+        input_tokens: int,
+        output_tokens: int,
+        cache_read_tokens: int,
+        cache_creation_tokens: int,
+        cost_usd: float,
+        session_profile: str | None = None,
+    ) -> None:
+        """Save a single session's cost record."""
+        async with self.session() as s:
+            s.add(
+                AgentBudgetLogRow(
+                    tenant_id=tenant_id,
+                    session_date=session_date,
+                    session_label=session_label,
+                    session_id=session_id,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cache_read_tokens=cache_read_tokens,
+                    cache_creation_tokens=cache_creation_tokens,
+                    cost_usd=cost_usd,
+                    session_profile=session_profile,
+                )
+            )
+            await s.commit()
+
+    async def get_daily_spend(
+        self,
+        tenant_id: str,
+        target_date: date,
+    ) -> float:
+        """Get total spend for a tenant on a given date."""
+        from sqlalchemy import func
+
+        async with self.session() as s:
+            result = await s.execute(
+                select(func.coalesce(func.sum(AgentBudgetLogRow.cost_usd), 0.0)).where(
+                    AgentBudgetLogRow.tenant_id == tenant_id,
+                    AgentBudgetLogRow.session_date == target_date,
+                )
+            )
+            return float(result.scalar_one())
+
+    async def get_monthly_spend(
+        self,
+        tenant_id: str,
+        year: int,
+        month: int,
+    ) -> float:
+        """Get total spend for a tenant in a given month."""
+        from sqlalchemy import extract, func
+
+        async with self.session() as s:
+            result = await s.execute(
+                select(func.coalesce(func.sum(AgentBudgetLogRow.cost_usd), 0.0)).where(
+                    AgentBudgetLogRow.tenant_id == tenant_id,
+                    extract("year", AgentBudgetLogRow.session_date) == year,
+                    extract("month", AgentBudgetLogRow.session_date) == month,
+                )
+            )
+            return float(result.scalar_one())
 
     # ── Tenant CRUD ──────────────────────────────────────────────────
 

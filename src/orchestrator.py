@@ -1581,6 +1581,65 @@ class Orchestrator:
         except Exception as e:
             log.warning("pinned_context_build_failed", error=str(e))
 
+        # ── Tiered model + budget integration ─────────────────────────────
+        extra_runner_kwargs: dict = {}
+        budget_tracker = None
+        session_profile_str: str | None = None
+
+        tenant_row = await self._db.get_tenant(tenant_id)
+        use_tiered = (
+            (settings.agent.enable_tiered and getattr(tenant_row, "use_tiered_models", False)) if tenant_row else False
+        )
+
+        if use_tiered:
+            from src.agent.budget_tracker import BudgetTracker
+            from src.agent.haiku_scanner import HaikuScanner
+            from src.agent.opus_validator import OpusValidator
+            from src.agent.session_profiles import get_session_profile
+            from src.agent.tiered_runner import TieredModelRunner
+
+            budget_tracker = BudgetTracker(
+                self._db,
+                daily_limit=settings.agent.daily_budget,
+                monthly_limit=settings.agent.monthly_budget,
+            )
+            budget_status = await budget_tracker.check_budget(tenant_id, today)
+
+            if budget_status.daily_exhausted:
+                log.warning("daily_budget_exhausted", tenant_id=tenant_id, spent=budget_status.daily_spent)
+                return [], "Daily budget exhausted — session skipped", None
+
+            session_profile = get_session_profile(trigger_type, budget_exhausted=budget_status.monthly_exhausted)
+            session_profile_str = session_profile.value
+
+            scanner = HaikuScanner(api_key=settings.anthropic_api_key)
+            validator = OpusValidator(api_key=settings.anthropic_api_key)
+            tiered_runner = TieredModelRunner(
+                scanner=scanner,
+                validator=validator,
+                agent_runner=runner,
+                token_tracker=runner._token_tracker,
+            )
+            extra_runner_kwargs["tiered_runner"] = tiered_runner
+            extra_runner_kwargs["session_profile"] = session_profile
+            extra_runner_kwargs["market_data"] = market_data
+            extra_runner_kwargs["portfolio_summary"] = portfolio_data
+            try:
+                _posture_val = posture_row.effective_posture if posture_row else "balanced"
+            except NameError:
+                _posture_val = "balanced"
+            extra_runner_kwargs["posture"] = _posture_val
+
+        # Build system prompt (cached if enabled and tiered)
+        if use_tiered and settings.agent.enable_cache:
+            from src.agent.context_manager import ContextManager as CtxCached
+
+            cached_prompt = CtxCached().build_cached_system_prompt(
+                pinned_context=pinned_context,
+                strategy_directive="",
+            )
+            extra_runner_kwargs["cached_system_prompt"] = cached_prompt
+
         # Run persistent session
         persistent = PersistentAgent(
             db=self._db,
@@ -1594,6 +1653,7 @@ class Orchestrator:
             runner_kwargs={
                 "runner": runner,
                 "system_prompt": dynamic_prompt,
+                **extra_runner_kwargs,
             },
             pinned_context=pinned_context,
             strategy_directive="",
@@ -1686,6 +1746,24 @@ class Orchestrator:
             )
         except Exception as e:
             log.warning("watchlist_update_failed", error=str(e))
+
+        # Record budget spend (if tiered mode active)
+        if budget_tracker is not None:
+            try:
+                await budget_tracker.record_session(
+                    tenant_id=tenant_id,
+                    session_date=today or date.today(),
+                    session_label=trigger_type,
+                    session_id=result.session_id,
+                    token_tracker=result.token_tracker,
+                    session_profile=session_profile_str,
+                )
+            except Exception as e:
+                log.warning("budget_record_failed", error=str(e))
+
+        # Add tiered info to tool summary for Telegram
+        if session_profile_str:
+            persistent_tool_summary["session_profile"] = session_profile_str
 
         log.info(
             "portfolio_b_persistent_complete",
