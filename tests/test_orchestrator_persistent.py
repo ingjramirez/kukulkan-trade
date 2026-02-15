@@ -278,7 +278,7 @@ class TestRunPortfolioBPersistent:
             assert len(result) == 3
             trades, reasoning, tool_summary = result
             assert reasoning == "Persistent analysis done."
-            assert tool_summary is None  # No tools used
+            assert tool_summary == {}  # No tools used — empty dict (no trailing_stop_requests)
 
     async def test_persistent_method_registers_tools(self, orchestrator: Orchestrator, db: Database):
         """_run_portfolio_b_persistent registers all 4 tool sets."""

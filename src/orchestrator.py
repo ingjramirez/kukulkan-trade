@@ -705,9 +705,16 @@ class Orchestrator:
             summary["trades_executed"] = 0
 
         # Step 7.1: Create trailing stops for new buys + auto-remove from watchlist
+        # Build lookup of agent-requested trail_pcts (from set_trailing_stop tool)
+        agent_stop_requests: dict[str, float] = {}
+        if b_tool_summary and isinstance(b_tool_summary, dict):
+            for req in b_tool_summary.get("trailing_stop_requests", []):
+                agent_stop_requests[req["ticker"]] = req["trail_pct"]
+
         for trade in executed:
             if trade.side.value == "BUY":
-                trail_pct = _get_trail_pct(active_strategy, trade)
+                # Use agent's requested trail_pct if available, otherwise default
+                trail_pct = agent_stop_requests.pop(trade.ticker, _get_trail_pct(active_strategy, trade))
                 try:
                     await self._db.create_trailing_stop(
                         tenant_id=tenant_id,
@@ -722,6 +729,14 @@ class Orchestrator:
                     await self._db.remove_watchlist_if_traded(tenant_id, trade.ticker)
                 except Exception as e:
                     log.warning("watchlist_auto_remove_failed", error=str(e))
+
+        # Step 7.1.1: Apply agent stop requests for existing positions (not newly bought)
+        for ticker, trail_pct in agent_stop_requests.items():
+            try:
+                await self._db.update_trailing_stop_pct(tenant_id, "B", ticker, trail_pct)
+                log.info("agent_trailing_stop_updated", ticker=ticker, trail_pct=trail_pct)
+            except Exception as e:
+                log.warning("agent_trailing_stop_update_failed", ticker=ticker, error=str(e))
 
         # Step 7.2: Deactivate trailing stops for sold positions
         for trade in executed:
@@ -1138,10 +1153,26 @@ class Orchestrator:
             current_prices = {t: float(closes[t].iloc[-1]) for t in closes.columns if not pd.isna(closes[t].iloc[-1])}
 
             action_state = ActionState()
-            register_portfolio_tools(runner.registry, self._db, tenant_id, current_prices)
-            register_market_tools(runner.registry, closes, vix=vix, yield_curve=yield_curve, regime=regime_str)
-            register_news_tools(runner.registry, news_context)
-            register_action_tools(runner.registry, action_state)
+            register_portfolio_tools(runner.registry, self._db, tenant_id, current_prices, closes=closes)
+            held_tickers = [p["ticker"] for p in positions_for_agent] if positions_for_agent else []
+            register_market_tools(
+                runner.registry,
+                closes,
+                vix=vix,
+                yield_curve=yield_curve,
+                regime=regime_str,
+                db=self._db,
+                held_tickers=held_tickers,
+            )
+            register_news_tools(
+                runner.registry,
+                news_context,
+                news_fetcher=getattr(self, "_news_fetcher", None),
+                db=self._db,
+                tenant_id=tenant_id,
+                current_prices=current_prices,
+            )
+            register_action_tools(runner.registry, action_state, db=self._db, tenant_id=tenant_id)
 
             result = await runner.run(
                 system_prompt=investigation_prompt,
@@ -1181,6 +1212,7 @@ class Orchestrator:
                 "tools_used": len(result.tool_calls),
                 "turns": result.turns,
                 "cost_usd": round(result.token_tracker.total_cost_usd, 4),
+                "trailing_stop_requests": accumulated.get("trailing_stop_requests", []),
             }
 
             # Save tool call logs (capture IDs for influenced_decision tracking)
@@ -1258,6 +1290,13 @@ class Orchestrator:
             try:
                 traded_tickers = {t.ticker for t in trades}
                 always_influential = {
+                    # Phase 2 tools
+                    "execute_trade",
+                    "set_trailing_stop",
+                    "save_observation",
+                    "get_portfolio_state",
+                    "get_market_overview",
+                    # Legacy aliases
                     "propose_trades",
                     "update_watchlist",
                     "save_memory_note",
@@ -1369,10 +1408,26 @@ class Orchestrator:
         # Register tools
         current_prices = {t: float(closes[t].iloc[-1]) for t in closes.columns if not pd.isna(closes[t].iloc[-1])}
         action_state = ActionState()
-        register_portfolio_tools(runner.registry, self._db, tenant_id, current_prices)
-        register_market_tools(runner.registry, closes, vix=vix, yield_curve=yield_curve, regime=regime_str)
-        register_news_tools(runner.registry, news_context)
-        register_action_tools(runner.registry, action_state)
+        register_portfolio_tools(runner.registry, self._db, tenant_id, current_prices, closes=closes)
+        held_tickers = [p["ticker"] for p in positions_for_agent] if positions_for_agent else []
+        register_market_tools(
+            runner.registry,
+            closes,
+            vix=vix,
+            yield_curve=yield_curve,
+            regime=regime_str,
+            db=self._db,
+            held_tickers=held_tickers,
+        )
+        register_news_tools(
+            runner.registry,
+            news_context,
+            news_fetcher=getattr(self, "_news_fetcher", None),
+            db=self._db,
+            tenant_id=tenant_id,
+            current_prices=current_prices,
+        )
+        register_action_tools(runner.registry, action_state, db=self._db, tenant_id=tenant_id)
 
         # Build market data for trigger message
         market_data = {
@@ -1418,6 +1473,11 @@ class Orchestrator:
             response["watchlist_updates"] = accumulated["watchlist_updates"]
         if accumulated["memory_notes"] and not response.get("memory_notes"):
             response["memory_notes"] = accumulated["memory_notes"]
+
+        # Attach agent's trailing stop requests to tool_summary for Step 7.1
+        persistent_tool_summary = result.tool_summary or {}
+        if accumulated.get("trailing_stop_requests"):
+            persistent_tool_summary["trailing_stop_requests"] = accumulated["trailing_stop_requests"]
 
         # Convert to trades
         position_map = {p["ticker"]: p["shares"] for p in positions_for_agent}
@@ -1497,7 +1557,7 @@ class Orchestrator:
             tokens=result.token_tracker.total_input_tokens + result.token_tracker.total_output_tokens,
             cost_usd=round(result.token_tracker.total_cost_usd, 4),
         )
-        return trades, response.get("reasoning", ""), result.tool_summary
+        return trades, response.get("reasoning", ""), persistent_tool_summary
 
     async def _check_trailing_stops(
         self,

@@ -737,6 +737,35 @@ class Database:
                 row.updated_at = datetime.now(timezone.utc)
             await s.commit()
 
+    async def update_trailing_stop_pct(
+        self,
+        tenant_id: str,
+        portfolio: str,
+        ticker: str,
+        trail_pct: float,
+    ) -> None:
+        """Update trail_pct on the active trailing stop for a tenant/portfolio/ticker.
+
+        Recalculates stop_price based on current peak and new trail_pct.
+        """
+        async with self.session() as s:
+            row = (
+                await s.execute(
+                    select(TrailingStopRow).where(
+                        TrailingStopRow.tenant_id == tenant_id,
+                        TrailingStopRow.portfolio == portfolio,
+                        TrailingStopRow.ticker == ticker,
+                        TrailingStopRow.is_active.is_(True),
+                    )
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                return
+            row.trail_pct = trail_pct
+            row.stop_price = round(row.peak_price * (1 - trail_pct), 2)
+            row.updated_at = datetime.now(timezone.utc)
+            await s.commit()
+
     # ── Earnings Calendar ────────────────────────────────────────
 
     async def upsert_earnings(
