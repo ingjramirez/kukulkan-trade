@@ -14,6 +14,7 @@ import yfinance as yf
 from src.data.alpaca_news import AlpacaNewsFetcher
 from src.data.finnhub_news import FinnhubNewsFetcher
 from src.data.news_article import NewsArticle
+from src.utils.retry import retry_news_api
 
 log = structlog.get_logger()
 
@@ -137,6 +138,13 @@ class NewsAggregator:
 
         return deduped[:max_articles]
 
+    @staticmethod
+    @retry_news_api
+    def _fetch_yf_ticker_news(ticker: str) -> list[dict]:
+        """Fetch news for a single ticker from yfinance (with retry)."""
+        t = yf.Ticker(ticker)
+        return t.news or []
+
     def _fetch_yfinance(self, tickers: list[str]) -> list[NewsArticle]:
         """Fetch from yfinance as a fallback source.
 
@@ -149,8 +157,7 @@ class NewsAggregator:
         articles: list[NewsArticle] = []
         for ticker in tickers[:15]:
             try:
-                t = yf.Ticker(ticker)
-                news = t.news or []
+                news = self._fetch_yf_ticker_news(ticker)
                 for item in news[:3]:
                     title = item.get("title", "")
                     if not title:

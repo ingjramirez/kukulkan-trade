@@ -66,6 +66,7 @@ def build_system_prompt(
     watchlist_context: str | None = None,
     decision_review: str | None = None,
     track_record: str | None = None,
+    inverse_etf_context: str | None = None,
 ) -> str:
     """Build an enhanced system prompt with performance context and memory.
 
@@ -95,6 +96,7 @@ def build_system_prompt(
         watchlist_context: Current AI watchlist.
         decision_review: Recent decision outcomes text.
         track_record: Win rate analysis text.
+        inverse_etf_context: Current inverse ETF positions and hold time alerts.
 
     Returns:
         Full system prompt string.
@@ -121,7 +123,17 @@ Hard Rules:
 - If VIX > 30, hold at least 20% cash or inverse/hedge exposure.
 - IBIT (Bitcoin proxy): treat as a momentum/sentiment signal, not a core holding.
   Size max 10% unless strong trend confirmation.
-- Avoid round-tripping: don't sell and rebuy the same ticker within 3 days."""
+- Avoid round-tripping: don't sell and rebuy the same ticker within 3 days.
+
+Inverse ETF Rules:
+- Available hedges: SH (Short S&P 500), PSQ (Short Nasdaq 100), RWM (Short Russell 2000), TBF (Short Treasury)
+- Equity hedges (SH, PSQ, RWM) only allowed in CORRECTION or CRISIS regimes with defensive/crisis posture
+- TBF (interest rate hedge) is allowed in any regime and posture
+- Max 10% per inverse position, 15% total inverse exposure, max 2 inverse positions
+- Inverse ETFs decay over time — plan to exit within 3-5 trading days
+- Every inverse BUY requires Telegram approval before execution
+- When proposing an inverse trade, state: hedge target, exit criteria, planned hold period
+- Do NOT use inverse ETFs for speculative short-term bets — only for hedging identified risks"""
 
     # 1. Regime summary (highest priority)
     if regime_summary:
@@ -164,6 +176,10 @@ Hard Rules:
     # 8. Watchlist context
     if watchlist_context:
         prompt += f"\n\n## Your Watchlist\n{watchlist_context}"
+
+    # 9. Inverse ETF context (current positions + hold alerts)
+    if inverse_etf_context:
+        prompt += f"\n\n## Inverse ETF Positions\n{inverse_etf_context}"
 
     return prompt
 
@@ -418,7 +434,8 @@ def build_compact_indicators(
             macd_val = macd_df["macd"].iloc[-1]
             if pd.notna(rsi_val) and pd.notna(macd_val):
                 lines.append(f"{t},{rsi_val:.1f},{macd_val:.2f}")
-        except Exception:
+        except (ValueError, KeyError, IndexError) as e:
+            log.debug("compact_indicator_failed", ticker=t, error=str(e))
             continue
     return "\n".join(lines)
 

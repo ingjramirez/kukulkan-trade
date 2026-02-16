@@ -12,7 +12,7 @@ from functools import partial
 
 import pandas as pd
 
-from config.universe import SECTOR_MAP
+from config.universe import INVERSE_ETF_META, SECTOR_MAP, classify_instrument, is_equity_hedge
 from src.agent.tools import ToolRegistry
 from src.storage.database import Database
 
@@ -51,6 +51,7 @@ async def _get_portfolio_state(
             "market_value": round(value, 2),
             "pnl_pct": round(pnl_pct, 2),
             "sector": sector,
+            "instrument_type": classify_instrument(p.ticker).value,
         }
 
         stop = stop_map.get(p.ticker)
@@ -386,6 +387,34 @@ async def _get_risk_assessment(
     # Positions without stops
     unprotected = [p.ticker for p in positions if p.ticker not in stop_map]
 
+    # Inverse exposure breakdown
+    inverse_positions = []
+    inverse_total_value = 0.0
+    for p in positions:
+        if p.ticker in INVERSE_ETF_META:
+            price = current_prices.get(p.ticker, p.avg_price)
+            value = p.shares * price
+            inverse_total_value += value
+            inverse_positions.append(
+                {
+                    "ticker": p.ticker,
+                    "value": round(value, 2),
+                    "pct": round(value / total_value * 100, 1) if total_value > 0 else 0.0,
+                    "equity_hedge": is_equity_hedge(p.ticker),
+                }
+            )
+
+    equity_hedge_value = sum(ip["value"] for ip in inverse_positions if ip["equity_hedge"])
+    equity_invested = total_positions_value - inverse_total_value
+    net_equity_pct = round((equity_invested - equity_hedge_value) / total_value * 100, 1) if total_value > 0 else 0.0
+
+    inverse_exposure = {
+        "total_value": round(inverse_total_value, 2),
+        "total_pct": round(inverse_total_value / total_value * 100, 1) if total_value > 0 else 0.0,
+        "positions": inverse_positions,
+        "net_equity_pct": net_equity_pct,
+    }
+
     return {
         "total_value": round(total_value, 2),
         "cash_pct": round(cash / total_value * 100, 1) if total_value > 0 else 100.0,
@@ -396,6 +425,7 @@ async def _get_risk_assessment(
         "positions_without_stops": unprotected,
         "annualized_vol_pct": vol_estimate,
         "position_risks": sorted(position_risks, key=lambda x: -x["weight_pct"]),
+        "inverse_exposure": inverse_exposure,
     }
 
 

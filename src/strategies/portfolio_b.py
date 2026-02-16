@@ -75,7 +75,8 @@ def filter_interesting_tickers(
                 val = rsi.iloc[-1]
                 if val < 30 or val > 70:
                     interesting.add(t)
-        except Exception:
+        except (ValueError, KeyError, IndexError) as e:
+            log.debug("rsi_filter_failed", ticker=t, error=str(e))
             continue
 
     # Filter to valid tickers only
@@ -155,8 +156,8 @@ class AIAutonomyStrategy:
                         "sma_20": float(latest["sma_20"]) if pd.notna(latest["sma_20"]) else None,
                         "sma_50": float(latest["sma_50"]) if pd.notna(latest["sma_50"]) else None,
                     }
-                except Exception:
-                    pass
+                except (ValueError, KeyError, IndexError) as e:
+                    log.debug("technical_context_failed", ticker=t, error=str(e))
 
         ctx = {
             "analysis_date": date.today(),

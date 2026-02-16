@@ -8,6 +8,7 @@ import yfinance as yf
 
 from src.storage.database import Database
 from src.storage.models import EarningsCalendarRow
+from src.utils.retry import retry_market_data
 
 log = structlog.get_logger()
 
@@ -97,6 +98,7 @@ class EarningsCalendar:
             Next earnings date, or None if unavailable.
         """
 
+        @retry_market_data
         def _sync_fetch() -> date | None:
             t = yf.Ticker(ticker)
             cal = t.calendar

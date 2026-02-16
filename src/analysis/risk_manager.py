@@ -16,7 +16,7 @@ import pandas as pd
 import structlog
 
 from config.risk_rules import RISK_RULES, RiskRules
-from config.universe import SECTOR_MAP
+from config.universe import INVERSE_ETF_META, SECTOR_MAP, is_equity_hedge
 from src.storage.database import Database
 from src.storage.models import TradeSchema
 
@@ -32,6 +32,17 @@ class RiskVerdict:
 
     allowed: list[TradeSchema] = field(default_factory=list)
     blocked: list[tuple[TradeSchema, str]] = field(default_factory=list)
+    requires_approval: list[TradeSchema] = field(default_factory=list)
+
+
+# Inverse ETF risk constants
+MAX_SINGLE_INVERSE_PCT = 0.10  # 10% max single inverse position
+MAX_TOTAL_INVERSE_PCT = 0.15  # 15% max total inverse exposure
+MAX_INVERSE_POSITIONS = 2  # Max 2 inverse positions at once
+
+# Regimes and postures where equity hedges are allowed
+HEDGE_ALLOWED_REGIMES = {"CORRECTION", "CRISIS"}
+HEDGE_ALLOWED_POSTURES = {"defensive", "crisis"}
 
 
 class RiskManager:
@@ -97,10 +108,13 @@ class RiskManager:
         portfolio_value: float,
         cash: float,
         posture_limits: "PostureLimits | None" = None,
+        regime: str | None = None,
+        current_posture: str | None = None,
     ) -> RiskVerdict:
         """Filter trades that violate risk limits.
 
         SELLs always pass (reducing risk). BUYs checked against:
+        - Inverse-specific rules (regime gate, posture gate, exposure limits)
         - Max single position concentration (35%)
         - Max sector concentration (50%)
         - Max tech weight (40%) for Portfolio B
@@ -114,9 +128,12 @@ class RiskManager:
             latest_prices: Dict ticker -> price.
             portfolio_value: Current total portfolio value.
             cash: Available cash.
+            posture_limits: Optional posture limits (can only tighten).
+            regime: Current market regime string (e.g. "BULL", "CORRECTION").
+            current_posture: Current agent posture string (e.g. "defensive", "crisis").
 
         Returns:
-            RiskVerdict with allowed and blocked lists.
+            RiskVerdict with allowed, blocked, and requires_approval lists.
         """
         verdict = RiskVerdict()
 
@@ -149,6 +166,74 @@ class RiskManager:
             new_position_value = projected_values.get(trade.ticker, 0) + buy_value
             # Use portfolio_value as denominator (accounts for cash + all positions)
             total_denominator = max(portfolio_value, sum(projected_values.values()) + buy_value)
+
+            # ── Inverse ETF-specific rules (before standard rules) ────────
+            is_inverse_buy = trade.ticker in INVERSE_ETF_META
+            if is_inverse_buy:
+                ticker_is_equity_hedge = is_equity_hedge(trade.ticker)
+
+                # Rule 0a: Regime gate — equity hedges blocked unless CORRECTION/CRISIS
+                if ticker_is_equity_hedge:
+                    if regime is None or regime.upper() not in HEDGE_ALLOWED_REGIMES:
+                        reason = (
+                            f"{trade.ticker} equity hedge blocked: "
+                            f"regime={regime or 'unknown'} (requires CORRECTION or CRISIS)"
+                        )
+                        log.warning("risk_blocked_inverse_regime", trade=trade.ticker, reason=reason)
+                        verdict.blocked.append((trade, reason))
+                        continue
+
+                # Rule 0b: Posture gate — equity hedges blocked unless defensive/crisis
+                if ticker_is_equity_hedge:
+                    if current_posture is None or current_posture.lower() not in HEDGE_ALLOWED_POSTURES:
+                        reason = (
+                            f"{trade.ticker} equity hedge blocked: "
+                            f"posture={current_posture or 'unknown'} (requires defensive or crisis)"
+                        )
+                        log.warning("risk_blocked_inverse_posture", trade=trade.ticker, reason=reason)
+                        verdict.blocked.append((trade, reason))
+                        continue
+
+                # Rule 0c: Max 10% single inverse position
+                if total_denominator > 0:
+                    inv_position_pct = new_position_value / total_denominator
+                    if inv_position_pct > MAX_SINGLE_INVERSE_PCT:
+                        reason = (
+                            f"{trade.ticker} inverse position would be {inv_position_pct:.0%} "
+                            f"(limit {MAX_SINGLE_INVERSE_PCT:.0%})"
+                        )
+                        log.warning("risk_blocked_inverse_single", trade=trade.ticker, reason=reason)
+                        verdict.blocked.append((trade, reason))
+                        continue
+
+                # Rule 0d: Max 15% total inverse exposure
+                projected_inverse_total = (
+                    sum(v for t, v in projected_values.items() if t in INVERSE_ETF_META) + buy_value
+                )
+                if total_denominator > 0:
+                    inv_total_pct = projected_inverse_total / total_denominator
+                    if inv_total_pct > MAX_TOTAL_INVERSE_PCT:
+                        reason = (
+                            f"Total inverse exposure would be {inv_total_pct:.0%} (limit {MAX_TOTAL_INVERSE_PCT:.0%})"
+                        )
+                        log.warning("risk_blocked_inverse_total", trade=trade.ticker, reason=reason)
+                        verdict.blocked.append((trade, reason))
+                        continue
+
+                # Rule 0e: Max 2 inverse positions
+                current_inverse_count = sum(1 for t in projected_values if t in INVERSE_ETF_META)
+                # If this is a new inverse position (not adding to existing)
+                if trade.ticker not in projected_values:
+                    if current_inverse_count >= MAX_INVERSE_POSITIONS:
+                        reason = (
+                            f"Max {MAX_INVERSE_POSITIONS} inverse positions reached ({current_inverse_count} existing)"
+                        )
+                        log.warning("risk_blocked_inverse_count", trade=trade.ticker, reason=reason)
+                        verdict.blocked.append((trade, reason))
+                        continue
+
+                # Inverse BUY passed all inverse-specific checks → flag for approval
+                verdict.requires_approval.append(trade)
 
             # Rule 1: Single position concentration
             if total_denominator > 0:
@@ -267,3 +352,76 @@ class RiskManager:
             "high_pairs": high_pairs[:5],
             "matrix_size": n,
         }
+
+    async def check_inverse_hold_times(
+        self,
+        db: Database,
+        portfolio_name: str,
+        tenant_id: str = "default",
+    ) -> list[dict]:
+        """Check hold times for inverse ETF positions.
+
+        Inverse ETFs decay over time, so prolonged holding is risky.
+        Returns alerts for positions held too long.
+
+        Args:
+            db: Database instance.
+            portfolio_name: Portfolio name (typically "B").
+            tenant_id: Tenant UUID.
+
+        Returns:
+            List of alert dicts with ticker, days_held, alert_level, message.
+        """
+        from config.universe import INVERSE_ETF_META
+
+        positions = await db.get_positions(portfolio_name, tenant_id=tenant_id)
+        inverse_positions = [p for p in positions if p.ticker in INVERSE_ETF_META]
+
+        if not inverse_positions:
+            return []
+
+        alerts: list[dict] = []
+        for pos in inverse_positions:
+            # Find most recent BUY for this ticker
+            trades = await db.get_trades(portfolio_name, tenant_id=tenant_id)
+            buy_trades = [t for t in trades if t.ticker == pos.ticker and t.side == "BUY"]
+            if not buy_trades:
+                continue
+
+            # Most recent BUY
+            latest_buy = buy_trades[0]  # trades are returned most recent first
+            if not latest_buy.executed_at:
+                continue
+
+            from datetime import datetime, timezone
+
+            executed = latest_buy.executed_at
+            # SQLite returns naive datetimes — handle both
+            now = datetime.now(timezone.utc)
+            if executed.tzinfo is None:
+                now = now.replace(tzinfo=None)
+            days_held = (now - executed).days
+
+            meta = INVERSE_ETF_META.get(pos.ticker, {})
+            description = meta.get("description", pos.ticker)
+
+            if days_held >= 5:
+                alerts.append(
+                    {
+                        "ticker": pos.ticker,
+                        "days_held": days_held,
+                        "alert_level": "review",
+                        "message": f"{description} held {days_held}d — review for time decay risk",
+                    }
+                )
+            elif days_held >= 3:
+                alerts.append(
+                    {
+                        "ticker": pos.ticker,
+                        "days_held": days_held,
+                        "alert_level": "warning",
+                        "message": f"{description} held {days_held}d — approaching decay threshold",
+                    }
+                )
+
+        return alerts

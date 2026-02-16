@@ -43,10 +43,7 @@ async def fix():
     alpaca_positions = client.get_all_positions()
     market_prices = {p.symbol: float(p.current_price) for p in alpaca_positions}
 
-    b_pos_value = sum(
-        p.shares * market_prices.get(p.ticker, p.avg_price)
-        for p in positions_b
-    )
+    b_pos_value = sum(p.shares * market_prices.get(p.ticker, p.avg_price) for p in positions_b)
     print(f"B positions (market value): ${b_pos_value:.2f}")
 
     # A has no positions → A cash = A target

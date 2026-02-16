@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 import structlog
-from sqlalchemy import delete, select
+from sqlalchemy import delete, event, select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -43,6 +43,13 @@ class Database:
         self._engine = create_async_engine(url, echo=False)
         self._session_factory = sessionmaker(self._engine, class_=AsyncSession, expire_on_commit=False)
 
+        # Enable foreign key enforcement for SQLite connections
+        @event.listens_for(self._engine.sync_engine, "connect")
+        def _set_sqlite_fk(dbapi_connection, connection_record):  # noqa: ARG001
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
     async def init_db(self) -> None:
         """Create all tables if they don't exist."""
         db_path = self._url.replace("sqlite+aiosqlite:///", "")
@@ -50,8 +57,25 @@ class Database:
 
         async with self._engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+
+        # Ensure default tenant exists (FK anchor for tenant_id columns)
+        await self.ensure_tenant("default", name="Default")
+
         db_type = self._url.split(":")[0].split("+")[0]
         log.info("database_initialized", type=db_type)
+
+    async def ensure_tenant(self, tenant_id: str, *, name: str | None = None) -> None:
+        """Create a tenant row if it doesn't exist (idempotent).
+
+        Args:
+            tenant_id: Tenant UUID to ensure exists.
+            name: Display name (defaults to tenant_id).
+        """
+        async with self.session() as s:
+            existing = await s.get(TenantRow, tenant_id)
+            if not existing:
+                s.add(TenantRow(id=tenant_id, name=name or tenant_id))
+                await s.commit()
 
     def session(self) -> AsyncSession:
         """Create a new async session."""

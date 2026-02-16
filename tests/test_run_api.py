@@ -177,10 +177,10 @@ class TestTriggerRun:
         mock_pipeline.assert_called_once_with(db, tenant.id)
 
     @patch("src.api.routes.run._run_pipeline", new_callable=AsyncMock)
-    async def test_admin_default_tenant_not_found(self, mock_pipeline, client, db):
-        """Admin without tenant_id param uses 'default', which may not exist."""
+    async def test_admin_default_tenant_not_configured(self, mock_pipeline, client, db):
+        """Admin without tenant_id param uses 'default', which has no credentials."""
         r = await client.post("/api/run", headers=self._admin_headers())
-        assert r.status_code == 404
+        assert r.status_code == 422  # default tenant exists but has no credentials
 
     @staticmethod
     def _admin_headers() -> dict:

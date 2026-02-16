@@ -13,6 +13,7 @@ from src.storage.models import TenantRow
 async def db():
     test_db = Database(url="sqlite+aiosqlite:///:memory:")
     await test_db.init_db()
+    await test_db.ensure_tenant("t-1")
     yield test_db
     await test_db.close()
 

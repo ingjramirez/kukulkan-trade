@@ -10,6 +10,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     Float,
+    ForeignKey,
     Integer,
     String,
     Text,
@@ -54,7 +55,7 @@ class PortfolioRow(Base):
     __table_args__ = (UniqueConstraint("tenant_id", "name"),)
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(36), nullable=False, default="default")
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
     name = Column(String(1), nullable=False)  # A, B
     cash = Column(Float, nullable=False, default=33_000.0)
     total_value = Column(Float, nullable=False, default=33_000.0)
@@ -68,7 +69,7 @@ class PositionRow(Base):
     __table_args__ = (UniqueConstraint("tenant_id", "portfolio", "ticker"),)
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(36), nullable=False, default="default")
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
     portfolio = Column(String(1), nullable=False)
     ticker = Column(String(10), nullable=False)
     shares = Column(Float, nullable=False)
@@ -84,7 +85,7 @@ class TradeRow(Base):
     __tablename__ = "trades"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(36), nullable=False, default="default")
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
     portfolio = Column(String(1), nullable=False)
     ticker = Column(String(10), nullable=False)
     side = Column(String(4), nullable=False)  # BUY / SELL
@@ -102,7 +103,7 @@ class DailySnapshotRow(Base):
     __table_args__ = (UniqueConstraint("tenant_id", "portfolio", "date"),)
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(36), nullable=False, default="default")
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
     portfolio = Column(String(1), nullable=False)
     date = Column(Date, nullable=False)
     total_value = Column(Float, nullable=False)
@@ -131,7 +132,7 @@ class AgentDecisionRow(Base):
     __tablename__ = "agent_decisions"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(36), nullable=False, default="default")
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
     date = Column(Date, nullable=False)
     prompt_summary = Column(Text)
     response_summary = Column(Text)
@@ -216,7 +217,7 @@ class DiscoveredTickerRow(Base):
     __table_args__ = (UniqueConstraint("tenant_id", "ticker"),)
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(36), nullable=False, default="default")
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
     ticker = Column(String(10), nullable=False)
     source = Column(String(20), nullable=False)  # "agent", "news", "screener"
     rationale = Column(Text)
@@ -235,7 +236,7 @@ class AgentMemoryRow(Base):
     __table_args__ = (UniqueConstraint("tenant_id", "category", "key"),)
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(36), nullable=False, default="default")
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
     category = Column(String(20), nullable=False)  # short_term, weekly_summary, agent_note
     key = Column(String(100), nullable=False)
     content = Column(Text, nullable=False)
@@ -265,7 +266,7 @@ class TrailingStopRow(Base):
     __table_args__ = (UniqueConstraint("tenant_id", "portfolio", "ticker"),)
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(36), nullable=False, default="default")
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
     portfolio = Column(String(1), nullable=False)
     ticker = Column(String(10), nullable=False)
     entry_price = Column(Float, nullable=False)
@@ -297,7 +298,7 @@ class WatchlistRow(Base):
     __table_args__ = (UniqueConstraint("tenant_id", "ticker"),)
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(36), nullable=False, default="default")
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
     portfolio = Column(String(1), nullable=False, default="B")
     ticker = Column(String(10), nullable=False)
     reason = Column(Text)
@@ -314,7 +315,7 @@ class IntradaySnapshotRow(Base):
     __table_args__ = (UniqueConstraint("tenant_id", "portfolio", "timestamp"),)
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(36), nullable=False, default="default")
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
     portfolio = Column(String(1), nullable=False)
     timestamp = Column(DateTime, nullable=False)
     total_value = Column(Float, nullable=False)
@@ -328,7 +329,7 @@ class ToolCallLogRow(Base):
     __tablename__ = "tool_call_logs"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(36), nullable=False, default="default")
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
     session_date = Column(Date, nullable=False)
     session_label = Column(String(20), nullable=True)
     turn = Column(Integer, nullable=False)
@@ -347,7 +348,7 @@ class AgentConversationRow(Base):
     __tablename__ = "agent_conversations"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(36), nullable=False)
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
     session_id = Column(Text, nullable=False, unique=True)
     trigger_type = Column(String(20), nullable=False)  # morning/midday/close/event/weekly_review
     messages_json = Column(Text, nullable=False)  # Full Anthropic messages array (JSON)
@@ -364,7 +365,7 @@ class PostureHistoryRow(Base):
     __tablename__ = "posture_history"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(36), nullable=False, default="default")
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
     session_date = Column(Date, nullable=False)
     session_label = Column(String(20), nullable=True)
     posture = Column(String(20), nullable=False)  # balanced/defensive/crisis/aggressive
@@ -379,7 +380,7 @@ class PlaybookSnapshotRow(Base):
     __tablename__ = "playbook_snapshots"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(36), nullable=False, default="default")
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
     generated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     regime = Column(String(30), nullable=False)
     sector = Column(String(50), nullable=False)
@@ -397,7 +398,7 @@ class ConvictionCalibrationRow(Base):
     __tablename__ = "conviction_calibration"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(36), nullable=False, default="default")
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
     generated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     conviction_level = Column(String(10), nullable=False)
     total_trades = Column(Integer, nullable=False)
@@ -415,7 +416,7 @@ class AgentBudgetLogRow(Base):
     __tablename__ = "agent_budget_log"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(String(36), nullable=False, default="default")
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
     session_date = Column(Date, nullable=False)
     session_label = Column(String(50), nullable=False)
     session_id = Column(Text, nullable=True)

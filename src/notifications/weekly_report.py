@@ -125,8 +125,8 @@ class WeeklyReporter:
                 spy_week_return = ((spy_end_price - spy_start_price) / spy_start_price) * 100
                 alpha = week_return - spy_week_return
                 spy_text = f"\n  vs SPY: {spy_week_return:+.2f}% | Alpha: {alpha:+.2f}%"
-        except Exception:
-            pass
+        except (ValueError, KeyError, IndexError, IOError) as e:
+            log.warning("weekly_spy_benchmark_failed", error=str(e))
 
         # Count trades this week
         trades = await self._db.get_trades(portfolio_name, tenant_id=self._tenant_id)

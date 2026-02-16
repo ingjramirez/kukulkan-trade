@@ -12,10 +12,12 @@ async def fix():
     await db.init_db()
 
     async with db.session() as s:
-        result = await s.execute(text(
-            "SELECT id, ticker, side, shares, price, reason, executed_at "
-            "FROM trades WHERE reason LIKE '%reconciled%' ORDER BY id"
-        ))
+        result = await s.execute(
+            text(
+                "SELECT id, ticker, side, shares, price, reason, executed_at "
+                "FROM trades WHERE reason LIKE '%reconciled%' ORDER BY id"
+            )
+        )
         rows = result.fetchall()
         print(f"Found {len(rows)} reconciled trades:")
         for r in rows:

@@ -127,7 +127,7 @@ async def _run_pipeline(db: Database, tenant_id: str) -> None:
             if tenant:
                 notifier = TelegramFactory.get_notifier(tenant)
                 await notifier.send_message(f"Manual run failed for {tenant.name}: {e}")
-        except Exception:
-            pass
+        except (ConnectionError, TimeoutError, OSError) as notify_err:
+            log.warning("run_error_notification_failed", tenant_id=tenant_id, error=str(notify_err))
     finally:
         _running.pop(tenant_id, None)

@@ -46,17 +46,19 @@ def _make_tenant(
 
 
 class TestRunAllTenants:
-    async def test_no_tenants_falls_back_to_default(self, db: Database):
-        """With no tenants, run_all_tenants runs the default pipeline."""
+    async def test_no_configured_tenants_skips_default(self, db: Database):
+        """With only 'default' tenant (no credentials), it is skipped as incomplete."""
         orchestrator = Orchestrator(db)
         with patch.object(orchestrator, "run_daily", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = {"date": "2026-02-09"}
             results = await orchestrator.run_all_tenants()
+            # "default" exists but has no credentials → skipped
             assert len(results) == 1
-            mock_run.assert_called_once()
+            assert results[0]["skipped"] == "incomplete_credentials"
+            assert results[0]["tenant_id"] == "default"
+            mock_run.assert_not_called()
 
     async def test_iterates_active_tenants(self, db: Database):
-        """With active tenants, iterates each one."""
+        """With active tenants, iterates each fully-configured one."""
         await db.create_tenant(_make_tenant("t1", "Tenant A"))
         await db.create_tenant(_make_tenant("t2", "Tenant B"))
 
@@ -68,7 +70,8 @@ class TestRunAllTenants:
         ) as mock_session:
             mock_session.return_value = {"date": "2026-02-09"}
             results = await orchestrator.run_all_tenants()
-            assert len(results) == 2
+            # "default" skipped (incomplete) + t1 + t2 processed = 3 results
+            assert len(results) == 3
             assert mock_session.call_count == 2
 
     async def test_skips_inactive_tenants(self, db: Database):
@@ -85,7 +88,9 @@ class TestRunAllTenants:
         ) as mock_session:
             mock_session.return_value = {"date": "2026-02-09"}
             results = await orchestrator.run_all_tenants()
-            assert len(results) == 1
+            # "default" skipped (incomplete) + t1 processed = 2 results
+            assert len(results) == 2
+            assert mock_session.call_count == 1
 
     async def test_tenant_failure_is_isolated(self, db: Database):
         """One tenant failing doesn't affect others."""
@@ -107,10 +112,12 @@ class TestRunAllTenants:
             # Also patch TelegramFactory to avoid decrypt errors in error handler
             with patch("src.orchestrator.asyncio.sleep", new_callable=AsyncMock):
                 results = await orchestrator.run_all_tenants()
-                assert len(results) == 2
-                # One should succeed, one should have error (order depends on DB)
-                errors = [r for r in results if "error" in r]
-                successes = [r for r in results if "error" not in r]
+                # "default" skipped + t1 success + t2 error = 3 results
+                assert len(results) == 3
+                # Filter out the skipped "default" entry for assertion clarity
+                processed = [r for r in results if r.get("skipped") != "incomplete_credentials"]
+                errors = [r for r in processed if "error" in r]
+                successes = [r for r in processed if "error" not in r]
                 assert len(errors) == 1
                 assert len(successes) == 1
                 assert errors[0]["tenant_id"] == "t2"

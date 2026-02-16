@@ -12,6 +12,7 @@ import yfinance as yf
 from config.universe import FULL_UNIVERSE
 from src.storage.database import Database
 from src.storage.models import MarketDataRow
+from src.utils.retry import retry_market_data
 
 log = structlog.get_logger()
 
@@ -22,6 +23,7 @@ class MarketDataFetcher:
     def __init__(self, db: Database) -> None:
         self._db = db
 
+    @retry_market_data
     async def fetch_ticker(
         self,
         ticker: str,
@@ -61,6 +63,7 @@ class MarketDataFetcher:
         df = df[["Open", "High", "Low", "Close", "Volume"]]
         return df
 
+    @retry_market_data
     async def fetch_universe(
         self,
         tickers: list[str] | None = None,
@@ -159,6 +162,7 @@ class MarketDataFetcher:
         return closes.sort_index()
 
     @staticmethod
+    @retry_market_data
     def get_latest_price(ticker: str) -> float | None:
         """Get the most recent price for a ticker (synchronous convenience method).
 

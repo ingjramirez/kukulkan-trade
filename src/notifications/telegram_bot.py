@@ -274,6 +274,121 @@ class TelegramNotifier:
         log.info("approval_timeout", request_id=request_id, timeout=timeout_seconds)
         return "sonnet"
 
+    async def send_inverse_trade_approval(
+        self,
+        trade: "TradeSchema",
+        regime: str | None,
+        request_id: str,
+    ) -> int | None:
+        """Send an inverse ETF trade approval request with inline keyboard.
+
+        Args:
+            trade: The proposed inverse ETF trade.
+            regime: Current market regime.
+            request_id: Unique ID to match callback responses.
+
+        Returns:
+            Message ID if sent successfully, None otherwise.
+        """
+        if not self._chat_id:
+            log.warning("telegram_no_chat_id")
+            return None
+
+        from config.universe import INVERSE_ETF_META
+
+        meta = INVERSE_ETF_META.get(trade.ticker, {})
+        benchmark = meta.get("benchmark", "?")
+        description = meta.get("description", trade.ticker)
+
+        text = (
+            f"🛡️ <b>Inverse ETF Trade Approval</b>\n\n"
+            f"Ticker: <b>{_escape_html(trade.ticker)}</b> ({_escape_html(description)})\n"
+            f"Side: {trade.side.value}\n"
+            f"Shares: {trade.shares:.0f} @ ${trade.price:.2f}\n"
+            f"Total: ${trade.total:,.0f}\n"
+            f"Benchmark: {benchmark}\n"
+            f"Regime: {_escape_html(regime or 'Unknown')}\n\n"
+            f"⚠️ Inverse ETFs decay over time. Plan exit within 3-5 days.\n\n"
+            f"Approve this hedge trade?"
+        )
+
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("Approve", callback_data=f"{request_id}:approve"),
+                    InlineKeyboardButton("Reject", callback_data=f"{request_id}:reject"),
+                ]
+            ]
+        )
+
+        try:
+            msg = await self.bot.send_message(
+                chat_id=self._chat_id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboard,
+            )
+            log.info("inverse_approval_sent", request_id=request_id, ticker=trade.ticker)
+            return msg.message_id
+        except Exception as e:
+            log.error("inverse_approval_failed", error=str(e))
+            return None
+
+    async def wait_for_inverse_approval(
+        self,
+        request_id: str,
+        timeout_seconds: int = 300,
+    ) -> str:
+        """Poll for user's inverse trade approval response.
+
+        Args:
+            request_id: The request ID to match in callback_data.
+            timeout_seconds: Max seconds to wait.
+
+        Returns:
+            "approve" or "reject". Defaults to "reject" on timeout (conservative).
+        """
+        elapsed = 0
+        poll_interval = 2
+        last_update_id: int | None = None
+
+        while elapsed < timeout_seconds:
+            try:
+                kwargs: dict = {"timeout": 1}
+                if last_update_id is not None:
+                    kwargs["offset"] = last_update_id + 1
+
+                updates = await self.bot.get_updates(**kwargs)
+                for update in updates:
+                    last_update_id = update.update_id
+                    if update.callback_query and update.callback_query.data:
+                        cb = update.callback_query
+                        cb_chat = str(
+                            getattr(cb.message, "chat_id", None)
+                            or getattr(getattr(cb.message, "chat", None), "id", None)
+                            or ""
+                        )
+                        if cb_chat != self._chat_id:
+                            continue
+                        data = cb.data
+                        if data.startswith(f"{request_id}:"):
+                            choice = data.split(":", 1)[1]
+                            if choice in ("approve", "reject"):
+                                log.info(
+                                    "inverse_approval_received",
+                                    request_id=request_id,
+                                    choice=choice,
+                                )
+                                return choice
+            except Exception as e:
+                log.warning("inverse_approval_poll_error", error=str(e))
+
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+        log.info("inverse_approval_timeout", request_id=request_id)
+        return "reject"
+
     async def send_ticker_proposal(
         self,
         ticker_row: "DiscoveredTickerRow",
@@ -392,6 +507,8 @@ def format_daily_brief(
     run_portfolio_b: bool = True,
     trailing_stop_alerts: list[dict] | None = None,
     agent_tool_summary: dict | None = None,
+    inverse_exposure: dict | None = None,
+    inverse_hold_alerts: list[dict] | None = None,
 ) -> str:
     """Format the full daily brief as HTML.
 
@@ -466,6 +583,24 @@ def format_daily_brief(
             session_profile = agent_tool_summary.get("session_profile")
             if session_profile:
                 lines.append(f"  ⚡ Profile: {session_profile.upper()}")
+        lines.append("")
+
+    # Inverse exposure section
+    if inverse_exposure and inverse_exposure.get("positions"):
+        lines.append("<b>Inverse Exposure</b>")
+        for pos in inverse_exposure["positions"]:
+            hedge_tag = " [equity hedge]" if pos.get("equity_hedge") else " [rate hedge]"
+            lines.append(f"  🛡️ {pos['ticker']}: ${pos['value']:,.0f} ({pos['pct']:.1f}%){hedge_tag}")
+        net_eq = inverse_exposure.get("net_equity_pct", 0)
+        lines.append(f"  Net equity exposure: {net_eq:.1f}%")
+        lines.append("")
+
+    # Inverse hold time alerts
+    if inverse_hold_alerts:
+        lines.append("<b>Inverse Hold Alerts</b>")
+        for alert in inverse_hold_alerts:
+            icon = "🔴" if alert["alert_level"] == "review" else "🟡"
+            lines.append(f"  {icon} {_escape_html(alert['message'])}")
         lines.append("")
 
     # Total (only sum active portfolios)

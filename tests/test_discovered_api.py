@@ -34,6 +34,8 @@ async def _bypass_tenant_user() -> dict[str, str | None]:
 async def db():
     test_db = Database(url="sqlite+aiosqlite:///:memory:")
     await test_db.init_db()
+    await test_db.ensure_tenant("t-1")
+    await test_db.ensure_tenant("t-2")
     yield test_db
     await test_db.close()
 

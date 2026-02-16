@@ -35,6 +35,7 @@ TICKERS = ["SPY", "NVDA", "AAPL", "XLK", "GLD"]
 async def db():
     database = Database(url="sqlite+aiosqlite:///:memory:")
     await database.init_db()
+    await database.ensure_tenant("t1")
     yield database
     await database.close()
 

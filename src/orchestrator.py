@@ -10,7 +10,9 @@ creating per-tenant Alpaca clients and Telegram bots.
 import asyncio
 import json
 import uuid
+from dataclasses import dataclass, field
 from datetime import date, timedelta
+from typing import Any
 
 import pandas as pd
 import structlog
@@ -58,6 +60,54 @@ log = structlog.get_logger()
 
 # Delay between tenant sessions to avoid Alpaca rate limits
 _INTER_TENANT_DELAY_SECONDS = 2.0
+
+
+@dataclass
+class MarketContext:
+    """Data assembled during market data fetch + regime classification."""
+
+    closes: pd.DataFrame
+    volumes: pd.DataFrame
+    dynamic_universe: list[str]
+    trailing_stop_sells: list = field(default_factory=list)
+    trailing_stop_alerts: list[dict] = field(default_factory=list)
+    yield_curve: float | None = None
+    vix: float | None = None
+    regime_result: Any = None
+    allocations: TenantAllocations = field(default_factory=lambda: DEFAULT_ALLOCATIONS)
+    halted_portfolios: set[str] = field(default_factory=set)
+
+
+@dataclass
+class NewsContext:
+    """News and earnings data assembled for the AI agent prompt."""
+
+    news_context: str = ""
+    earnings_context: str = ""
+
+
+@dataclass
+class PortfolioBContext:
+    """Context about Portfolio B positions, trades, and complexity."""
+
+    positions_for_agent: list[dict] = field(default_factory=list)
+    recent_trades: list[dict] = field(default_factory=list)
+    complexity: Any = None
+    memory_text: str | None = None
+    perf_text: str | None = None
+    model_override: str | None = None
+    position_map: dict[str, float] = field(default_factory=dict)
+    cash: float = 0.0
+    total_value: float = 0.0
+
+
+@dataclass
+class DynamicContext:
+    """Dynamic context blocks for the Portfolio B system prompt."""
+
+    trailing_context: str | None = None
+    watchlist_context: str | None = None
+    inverse_etf_context: str | None = None
 
 
 def _active_portfolio_names(
@@ -200,8 +250,8 @@ class Orchestrator:
 
                     notifier = TelegramFactory.get_notifier(tenant)
                     await notifier.send_error(f"Pipeline failed for {tenant.name} ({session}): {e}")
-                except Exception:
-                    pass
+                except (ConnectionError, TimeoutError, OSError) as notify_err:
+                    log.warning("pipeline_error_notification_failed", tenant_id=tenant.id, error=str(notify_err))
 
             # Delay between tenants (except after the last one)
             if i < len(tenants) - 1:
@@ -354,8 +404,8 @@ class Orchestrator:
                     await self._notifier.send_message(
                         f"Market closed today ({today.strftime('%A, %b %d')}). Pipeline skipped."
                     )
-                except Exception:
-                    pass
+                except (ConnectionError, TimeoutError, OSError) as e:
+                    log.warning("market_closed_notification_failed", error=str(e))
             summary["skipped"] = "market_closed"
             return summary
 
@@ -367,11 +417,170 @@ class Orchestrator:
         )
 
         # Step 1: Initialize portfolios
-        await self._executor.initialize_portfolios(
-            allocations=alloc,
-            tenant_id=tenant_id,
+        await self._executor.initialize_portfolios(allocations=alloc, tenant_id=tenant_id)
+
+        # Steps 1.1–3.5: Market data, macro, regime, circuit breakers
+        mkt = await self._fetch_market_context(
+            today,
+            tenant_id,
+            alloc,
+            run_portfolio_a,
+            run_portfolio_b,
+            summary,
+        )
+        if mkt is None:
+            return summary
+        closes = mkt.closes
+        volumes = mkt.volumes
+        alloc = mkt.allocations
+        halted_portfolios = mkt.halted_portfolios
+
+        # Step 4: Portfolio A — Momentum
+        log.info("step_4_portfolio_a")
+        trades_a: list = []
+        if not run_portfolio_a:
+            log.info("portfolio_a_skipped_not_configured", tenant_id=tenant_id)
+            summary["trades"]["A"] = 0
+            summary["a_reason"] = "Portfolio A not configured"
+        elif "A" in halted_portfolios:
+            log.info("portfolio_a_skipped_circuit_breaker")
+            summary["trades"]["A"] = 0
+            summary["a_reason"] = "Portfolio A halted (circuit breaker)"
+        else:
+            try:
+                trades_a, a_reason = await self._run_portfolio_a(
+                    closes,
+                    today,
+                    tenant_id=tenant_id,
+                    allocations=alloc,
+                )
+                summary["trades"]["A"] = len(trades_a)
+                summary["a_reason"] = a_reason
+            except Exception as e:
+                log.error("portfolio_a_failed", error=str(e))
+                summary["errors"].append(f"Portfolio A failed: {e}")
+
+        # Step 5: News, earnings, watchlist cleanup
+        news_ctx = await self._build_news_context(
+            closes,
+            mkt.dynamic_universe,
+            today,
+            session,
+            tenant_id,
+            summary,
         )
 
+        # Step 6: Portfolio B — AI Agent
+        log.info("step_6_portfolio_b")
+        trades_b: list = []
+        b_tool_summary = None
+        if not run_portfolio_b:
+            log.info("portfolio_b_skipped_not_configured", tenant_id=tenant_id)
+            summary["trades"]["B"] = 0
+        elif "B" in halted_portfolios:
+            log.info("portfolio_b_skipped_circuit_breaker")
+            summary["trades"]["B"] = 0
+        else:
+            try:
+                trades_b, b_reasoning, b_tool_summary = await self._run_portfolio_b(
+                    closes,
+                    volumes,
+                    mkt.yield_curve,
+                    mkt.vix,
+                    today,
+                    news_context=news_ctx.news_context,
+                    session=session,
+                    regime_result=mkt.regime_result,
+                    tenant_id=tenant_id,
+                    strategy_mode=active_strategy,
+                    allocations=alloc,
+                    portfolio_b_universe=portfolio_b_universe,
+                    earnings_context=news_ctx.earnings_context or None,
+                )
+                summary["trades"]["B"] = len(trades_b)
+                summary["b_reasoning"] = b_reasoning
+                summary["b_tool_summary"] = b_tool_summary
+            except Exception as e:
+                log.error("portfolio_b_failed", error=str(e))
+                summary["errors"].append(f"Portfolio B failed: {e}")
+
+        # Steps 6.5–6.6: Risk filter + inverse hold times + approvals
+        summary["_halted_portfolios"] = halted_portfolios
+        all_trades = await self._filter_and_approve_trades(
+            trades_a,
+            trades_b,
+            b_tool_summary,
+            closes,
+            today,
+            session,
+            tenant_id,
+            mkt.regime_result,
+            run_portfolio_b,
+            alloc,
+            mkt.trailing_stop_sells,
+            summary,
+        )
+        summary.pop("_halted_portfolios", None)
+
+        # Steps 7–8.5: Execute, trailing stops, snapshots, reconcile
+        executed = await self._execute_and_record(
+            all_trades,
+            [],
+            b_tool_summary,
+            closes,
+            today,
+            tenant_id,
+            active_strategy,
+            alloc,
+            run_portfolio_a,
+            run_portfolio_b,
+            summary,
+        )
+
+        # Step 9: Send Telegram notifications
+        log.info("step_9_sending_notifications")
+        await self._send_notifications(
+            today=today,
+            proposed_trades=all_trades,
+            executed_trades=executed,
+            summary=summary,
+            session=session,
+            regime_result=mkt.regime_result,
+            tenant_id=tenant_id,
+            strategy_mode=active_strategy,
+            allocations=alloc,
+            run_portfolio_a=run_portfolio_a,
+            run_portfolio_b=run_portfolio_b,
+            trailing_stop_alerts=mkt.trailing_stop_alerts,
+        )
+
+        log.info(
+            "daily_pipeline_complete",
+            date=str(today),
+            trades_a=len(trades_a),
+            trades_b=len(trades_b),
+            executed=summary["trades_executed"],
+            errors=len(summary["errors"]),
+        )
+
+        return summary
+
+    # ── Extracted helpers for run_daily() ─────────────────────────────────────
+
+    async def _fetch_market_context(
+        self,
+        today: date,
+        tenant_id: str,
+        alloc: TenantAllocations,
+        run_portfolio_a: bool,
+        run_portfolio_b: bool,
+        summary: dict,
+    ) -> MarketContext | None:
+        """Fetch market data, macro indicators, classify regime, check circuit breakers.
+
+        Returns MarketContext on success, or None if market data is unavailable
+        (caller should abort the pipeline).
+        """
         # Step 1.1: Sync positions with broker (if supported)
         if hasattr(self._executor, "sync_positions"):
             try:
@@ -379,7 +588,7 @@ class Orchestrator:
             except Exception as e:
                 log.warning("position_sync_failed", error=str(e))
 
-        # Step 1.2: Detect deposits (compare Alpaca equity to tracked totals)
+        # Step 1.2: Detect deposits
         try:
             alloc = await self._detect_deposits(alloc, tenant_id)
         except Exception as e:
@@ -396,19 +605,17 @@ class Orchestrator:
         except Exception as e:
             log.error("market_data_fetch_failed", error=str(e))
             summary["errors"].append(f"Market data fetch failed: {e}")
-            return summary
+            return None
 
         if not data:
             log.error("no_market_data")
             summary["errors"].append("No market data returned")
-            return summary
+            return None
 
-        # Build closes and volumes DataFrames
         closes = pd.DataFrame({t: df["Close"] for t, df in data.items()})
         volumes = pd.DataFrame({t: df["Volume"] for t, df in data.items()})
         closes = closes.sort_index()
         volumes = volumes.sort_index()
-
         summary["tickers_fetched"] = len(data)
         log.info("market_data_ready", tickers=len(data), rows=len(closes))
 
@@ -475,11 +682,7 @@ class Orchestrator:
         try:
             regime_result = self._regime_classifier.classify(closes, vix=vix)
             summary["regime"] = regime_result.regime.value
-            log.info(
-                "regime_classified",
-                regime=regime_result.regime.value,
-                summary=regime_result.summary,
-            )
+            log.info("regime_classified", regime=regime_result.regime.value, summary=regime_result.summary)
         except Exception as e:
             log.warning("regime_classification_failed", error=str(e))
 
@@ -497,32 +700,29 @@ class Orchestrator:
                 summary["errors"].append(f"Portfolio {pname} halted: {reason}")
                 log.warning("portfolio_halted", portfolio=pname, reason=reason)
 
-        # Step 4: Portfolio A — Momentum
-        log.info("step_4_portfolio_a")
-        trades_a: list = []
-        if not run_portfolio_a:
-            log.info("portfolio_a_skipped_not_configured", tenant_id=tenant_id)
-            summary["trades"]["A"] = 0
-            summary["a_reason"] = "Portfolio A not configured"
-        elif "A" in halted_portfolios:
-            log.info("portfolio_a_skipped_circuit_breaker")
-            summary["trades"]["A"] = 0
-            summary["a_reason"] = "Portfolio A halted (circuit breaker)"
-        else:
-            try:
-                trades_a, a_reason = await self._run_portfolio_a(
-                    closes,
-                    today,
-                    tenant_id=tenant_id,
-                    allocations=alloc,
-                )
-                summary["trades"]["A"] = len(trades_a)
-                summary["a_reason"] = a_reason
-            except Exception as e:
-                log.error("portfolio_a_failed", error=str(e))
-                summary["errors"].append(f"Portfolio A failed: {e}")
+        return MarketContext(
+            closes=closes,
+            volumes=volumes,
+            dynamic_universe=dynamic_universe,
+            trailing_stop_sells=trailing_stop_sells,
+            trailing_stop_alerts=trailing_stop_alerts,
+            yield_curve=yield_curve,
+            vix=vix,
+            regime_result=regime_result,
+            allocations=alloc,
+            halted_portfolios=halted_portfolios,
+        )
 
-        # Step 5: Fetch news from all sources + compact for agent
+    async def _build_news_context(
+        self,
+        closes: pd.DataFrame,
+        dynamic_universe: list[str],
+        today: date,
+        session: str,
+        tenant_id: str,
+        summary: dict,
+    ) -> NewsContext:
+        """Fetch news from all sources, store in ChromaDB, compact for agent, fetch earnings."""
         news_context = ""
         log.info("step_5_fetching_news")
         try:
@@ -530,7 +730,7 @@ class Orchestrator:
             raw_articles = self._news_aggregator.fetch_all(tickers_for_news)
             summary["news_articles"] = len(raw_articles)
 
-            # Store in ChromaDB for long-term memory
+            # Store in ChromaDB
             if raw_articles:
                 store_dicts = [
                     {
@@ -593,11 +793,7 @@ class Orchestrator:
                 positions_b = await self._db.get_positions("B", tenant_id=tenant_id)
                 held_tickers = [p.ticker for p in positions_b]
                 all_tickers = list(set(held_tickers + list(closes.columns)))
-                upcoming = await earnings_cal.get_upcoming(
-                    self._db,
-                    all_tickers,
-                    days_ahead=14,
-                )
+                upcoming = await earnings_cal.get_upcoming(self._db, all_tickers, days_ahead=14)
                 if upcoming:
                     e_lines = ["Upcoming Earnings (next 14 days):"]
                     for row in upcoming:
@@ -629,40 +825,27 @@ class Orchestrator:
             except Exception as e:
                 log.warning("watchlist_cleanup_failed", error=str(e))
 
-        # Step 6: Portfolio B — AI Agent
-        log.info("step_6_portfolio_b")
-        trades_b: list = []
-        if not run_portfolio_b:
-            log.info("portfolio_b_skipped_not_configured", tenant_id=tenant_id)
-            summary["trades"]["B"] = 0
-        elif "B" in halted_portfolios:
-            log.info("portfolio_b_skipped_circuit_breaker")
-            summary["trades"]["B"] = 0
-        else:
-            try:
-                trades_b, b_reasoning, b_tool_summary = await self._run_portfolio_b(
-                    closes,
-                    volumes,
-                    yield_curve,
-                    vix,
-                    today,
-                    news_context=news_context,
-                    session=session,
-                    regime_result=regime_result,
-                    tenant_id=tenant_id,
-                    strategy_mode=active_strategy,
-                    allocations=alloc,
-                    portfolio_b_universe=portfolio_b_universe,
-                    earnings_context=earnings_context or None,
-                )
-                summary["trades"]["B"] = len(trades_b)
-                summary["b_reasoning"] = b_reasoning
-                summary["b_tool_summary"] = b_tool_summary
-            except Exception as e:
-                log.error("portfolio_b_failed", error=str(e))
-                summary["errors"].append(f"Portfolio B failed: {e}")
+        return NewsContext(news_context=news_context, earnings_context=earnings_context)
 
-        # Step 6.5: Resolve posture + Pre-trade risk filter
+    async def _filter_and_approve_trades(
+        self,
+        trades_a: list,
+        trades_b: list,
+        b_tool_summary: dict | None,
+        closes: pd.DataFrame,
+        today: date,
+        session: str,
+        tenant_id: str,
+        regime_result: RegimeResult | None,
+        run_portfolio_b: bool,
+        alloc: TenantAllocations,
+        trailing_stop_sells: list,
+        summary: dict,
+    ) -> list:
+        """Resolve posture, apply risk filter, check inverse holds, handle approvals.
+
+        Returns the final list of approved trades (including trailing stop sells).
+        """
         log.info("step_6_5_risk_filter")
 
         # Resolve posture from Portfolio B tool summary
@@ -724,6 +907,27 @@ class Orchestrator:
                 except (ValueError, KeyError) as e:
                     log.warning("posture_resolve_failed", declared=declared, error=str(e))
 
+        # Determine effective posture string for risk checks
+        effective_posture_str: str | None = None
+        if b_tool_summary and isinstance(b_tool_summary, dict):
+            declared = b_tool_summary.get("declared_posture")
+            if declared:
+                effective_posture_str = declared
+
+        # Step 6.6: Check inverse hold times for Portfolio B
+        inverse_hold_alerts: list[dict] = []
+        halted_portfolios = summary.get("_halted_portfolios", set())
+        if run_portfolio_b and "B" not in halted_portfolios:
+            try:
+                inverse_hold_alerts = await self._risk_manager.check_inverse_hold_times(
+                    self._db, "B", tenant_id=tenant_id
+                )
+                if inverse_hold_alerts:
+                    log.info("inverse_hold_alerts", count=len(inverse_hold_alerts))
+                    summary["inverse_hold_alerts"] = len(inverse_hold_alerts)
+            except Exception as e:
+                log.warning("inverse_hold_time_check_failed", error=str(e))
+
         all_trades: list = []
         for pname, trades in [("A", trades_a), ("B", trades_b)]:
             if not trades:
@@ -743,30 +947,56 @@ class Orchestrator:
                 portfolio_value=pval,
                 cash=pcash,
                 posture_limits=posture_limits_b if pname == "B" else None,
+                regime=regime_result.regime.value if regime_result else None,
+                current_posture=effective_posture_str if pname == "B" else None,
             )
             all_trades.extend(verdict.allowed)
             for blocked_trade, reason in verdict.blocked:
-                log.warning(
-                    "trade_blocked_by_risk",
-                    portfolio=pname,
-                    ticker=blocked_trade.ticker,
-                    reason=reason,
-                )
+                log.warning("trade_blocked_by_risk", portfolio=pname, ticker=blocked_trade.ticker, reason=reason)
+
+            # Handle inverse trades requiring approval
+            if verdict.requires_approval:
+                for inv_trade in verdict.requires_approval:
+                    approved = await self._request_inverse_trade_approval(inv_trade, regime_result)
+                    if approved == "approve":
+                        log.info("inverse_trade_approved", ticker=inv_trade.ticker)
+                    else:
+                        log.info("inverse_trade_rejected", ticker=inv_trade.ticker)
+                        if inv_trade in verdict.allowed:
+                            verdict.allowed.remove(inv_trade)
+                            all_trades[:] = [t for t in all_trades if t is not inv_trade]
+                        verdict.blocked.append((inv_trade, "Rejected via Telegram approval"))
+
         # Merge trailing stop sells (bypass risk filter — stops ARE the risk mechanism)
         all_trades.extend(trailing_stop_sells)
+        return all_trades
 
+    async def _execute_and_record(
+        self,
+        all_trades: list,
+        executed_handler_trades: list,
+        b_tool_summary: dict | None,
+        closes: pd.DataFrame,
+        today: date,
+        tenant_id: str,
+        active_strategy: str,
+        alloc: TenantAllocations,
+        run_portfolio_a: bool,
+        run_portfolio_b: bool,
+        summary: dict,
+    ) -> list:
+        """Execute trades, manage trailing stops, take snapshots, reconcile equity.
+
+        Returns the list of executed trades.
+        """
         executed: list = []
         if all_trades:
-            executed = await self._executor.execute_trades(
-                all_trades,
-                tenant_id=tenant_id,
-            )
+            executed = await self._executor.execute_trades(all_trades, tenant_id=tenant_id)
             summary["trades_executed"] = len(executed)
         else:
             summary["trades_executed"] = 0
 
         # Step 7.1: Create trailing stops for new buys + auto-remove from watchlist
-        # Build lookup of agent-requested trail_pcts (from set_trailing_stop tool)
         agent_stop_requests: dict[str, float] = {}
         if b_tool_summary and isinstance(b_tool_summary, dict):
             for req in b_tool_summary.get("trailing_stop_requests", []):
@@ -774,7 +1004,6 @@ class Orchestrator:
 
         for trade in executed:
             if trade.side.value == "BUY":
-                # Use agent's requested trail_pct if available, otherwise default
                 trail_pct = agent_stop_requests.pop(trade.ticker, _get_trail_pct(active_strategy, trade))
                 try:
                     await self._db.create_trailing_stop(
@@ -813,7 +1042,6 @@ class Orchestrator:
 
         # Step 8: Take snapshots (only for enabled portfolios)
         log.info("step_8_taking_snapshots")
-        # Prefer Alpaca position prices (broker feed) over yfinance closes
         latest_prices: dict[str, float] = {}
         if hasattr(self._executor, "_client"):
             try:
@@ -822,15 +1050,10 @@ class Orchestrator:
                     latest_prices[pos.symbol] = float(pos.current_price)
             except Exception as e:
                 log.warning("alpaca_prices_fetch_failed", error=str(e))
-        # Fill missing tickers from yfinance (universe tickers we don't hold)
         for t in closes.columns:
             if t not in latest_prices and not pd.isna(closes[t].iloc[-1]):
                 latest_prices[t] = float(closes[t].iloc[-1])
-        snapshot_portfolios = _active_portfolio_names(
-            run_portfolio_a,
-            run_portfolio_b,
-            tenant_id,
-        )
+        snapshot_portfolios = _active_portfolio_names(run_portfolio_a, run_portfolio_b, tenant_id)
         for portfolio_name in snapshot_portfolios:
             try:
                 await self._executor.take_snapshot(
@@ -845,44 +1068,255 @@ class Orchestrator:
 
         # Step 8.5: Reconcile equity against Alpaca
         try:
-            drift = await self._reconcile_equity(
-                tenant_id,
-                run_portfolio_a,
-                run_portfolio_b,
-                alloc,
-            )
+            drift = await self._reconcile_equity(tenant_id, run_portfolio_a, run_portfolio_b, alloc)
             if drift is not None:
                 summary["equity_drift_corrected"] = round(drift, 2)
         except Exception as e:
             log.warning("equity_reconciliation_failed", error=str(e))
 
-        # Step 9: Send Telegram notifications
-        log.info("step_9_sending_notifications")
-        await self._send_notifications(
-            today=today,
-            proposed_trades=all_trades,
-            executed_trades=executed,
-            summary=summary,
-            session=session,
-            regime_result=regime_result,
-            tenant_id=tenant_id,
+        return executed
+
+    # ── Extracted helpers for _run_portfolio_b() ──────────────────────────────
+
+    async def _build_portfolio_b_context(
+        self,
+        closes: pd.DataFrame,
+        vix: float | None,
+        regime_result: RegimeResult | None,
+        tenant_id: str,
+        alloc: TenantAllocations,
+        session: str,
+    ) -> PortfolioBContext:
+        """Build position/trade/complexity context for Portfolio B."""
+        portfolio = await self._db.get_portfolio("B", tenant_id=tenant_id)
+        positions = await self._db.get_positions("B", tenant_id=tenant_id)
+        position_map = {p.ticker: p.shares for p in positions}
+        cash = portfolio.cash if portfolio else alloc.portfolio_b_cash
+        total_value = portfolio.total_value if portfolio else alloc.portfolio_b_cash
+
+        positions_for_agent = [
+            {
+                "ticker": p.ticker,
+                "shares": p.shares,
+                "avg_price": p.avg_price,
+                "market_value": p.shares * float(closes[p.ticker].iloc[-1]) if p.ticker in closes.columns else 0,
+            }
+            for p in positions
+        ]
+
+        recent_trades_raw = await self._db.get_trades("B", tenant_id=tenant_id)
+        recent_trades = [
+            {"ticker": t.ticker, "side": t.side, "shares": t.shares, "price": t.price, "reason": t.reason or ""}
+            for t in recent_trades_raw[:5]
+        ]
+
+        # Complexity detection & model routing
+        snapshots = await self._db.get_snapshots("B", tenant_id=tenant_id)
+        peak_value = max((s.total_value for s in snapshots if s.total_value), default=total_value)
+
+        held_indicators: dict[str, dict] = {}
+        for p in positions:
+            if p.ticker in closes.columns and len(closes[p.ticker].dropna()) >= 50:
+                try:
+                    ind = compute_all_indicators(closes[p.ticker].dropna())
+                    latest = ind.iloc[-1]
+                    held_indicators[p.ticker] = {
+                        "rsi_14": float(latest["rsi_14"]) if pd.notna(latest["rsi_14"]) else None,
+                        "macd": float(latest["macd"]) if pd.notna(latest["macd"]) else None,
+                    }
+                except (ValueError, KeyError, IndexError) as e:
+                    log.debug("held_indicator_failed", ticker=p.ticker, error=str(e))
+
+        regime_str = regime_result.regime.value if regime_result else None
+        complexity = self._complexity_detector.evaluate(
+            closes=closes,
+            positions=positions_for_agent,
+            total_value=total_value,
+            peak_value=peak_value,
+            regime_today=regime_str,
+            regime_yesterday=None,
+            vix=vix,
+            indicators=held_indicators,
+        )
+
+        model_override: str | None = None
+        if complexity.should_escalate and self._notifier_available():
+            choice = await self._request_model_approval(complexity)
+            if choice == "opus":
+                model_override = PORTFOLIO_B.escalation_model
+            elif choice == "skip":
+                log.info("portfolio_b_skipped_by_user")
+                return PortfolioBContext(model_override="__skip__")
+
+        # Build memory context
+        memory_text: str | None = None
+        try:
+            memories = await self._db.get_all_agent_memory_context(tenant_id=tenant_id)
+            memory_text = self._memory_manager.build_memory_prompt(memories) or None
+        except Exception as e:
+            log.warning("memory_context_failed", error=str(e))
+
+        # Compute performance stats
+        perf_text: str | None = None
+        try:
+            spy_closes = closes["SPY"] if "SPY" in closes.columns else None
+            stats = await self._performance_tracker.get_portfolio_stats(
+                self._db,
+                "B",
+                alloc.portfolio_b_cash,
+                spy_closes=spy_closes,
+            )
+            if stats.days_tracked > 0:
+                perf_text = self._performance_tracker.format_for_prompt(stats)
+        except Exception as e:
+            log.warning("performance_stats_failed", error=str(e))
+
+        # Correlation monitor (Morning session only)
+        if session == "Morning" and positions_for_agent:
+            try:
+                held = [p["ticker"] for p in positions_for_agent]
+                corr = self._risk_manager.compute_portfolio_correlation(closes, held)
+                if corr["matrix_size"] >= 2:
+                    corr_text = self._format_correlation(corr)
+                    if perf_text:
+                        perf_text += f"\n{corr_text}"
+                    else:
+                        perf_text = corr_text
+            except Exception as e:
+                log.warning("correlation_failed", error=str(e))
+
+        return PortfolioBContext(
+            positions_for_agent=positions_for_agent,
+            recent_trades=recent_trades,
+            complexity=complexity,
+            memory_text=memory_text,
+            perf_text=perf_text,
+            model_override=model_override,
+            position_map=position_map,
+            cash=cash,
+            total_value=total_value,
+        )
+
+    async def _build_outcome_feedback(
+        self,
+        tenant_id: str,
+    ) -> tuple[str | None, str | None]:
+        """Build decision review and track record text for the system prompt."""
+        decision_review_text: str | None = None
+        track_record_text: str | None = None
+        try:
+            from src.analysis.outcome_tracker import OutcomeTracker
+            from src.analysis.track_record import TrackRecord
+
+            outcome_tracker = OutcomeTracker(self._db)
+            outcomes = await outcome_tracker.get_recent_outcomes(days=30, tenant_id=tenant_id)
+            if outcomes:
+                decision_review_text = _build_decision_review(outcomes[-5:])
+                stats = TrackRecord().compute(outcomes)
+                track_record_text = _build_track_record(stats)
+        except Exception as e:
+            log.warning("outcome_feedback_failed", error=str(e))
+        return decision_review_text, track_record_text
+
+    async def _build_dynamic_context(
+        self,
+        closes: pd.DataFrame,
+        positions: list,
+        today: date,
+        tenant_id: str,
+    ) -> DynamicContext:
+        """Build trailing stops, watchlist, and inverse ETF context for Portfolio B."""
+        trailing_context: str | None = None
+        try:
+            stops_b = await self._db.get_active_trailing_stops(tenant_id, "B")
+            if stops_b:
+                stop_lines = []
+                for s in stops_b:
+                    current = float(closes[s.ticker].iloc[-1]) if s.ticker in closes.columns else s.peak_price
+                    pct_from_stop = ((current - s.stop_price) / current) * 100
+                    stop_lines.append(
+                        f"- {s.ticker}: entry ${s.entry_price:.2f}, "
+                        f"peak ${s.peak_price:.2f}, "
+                        f"stop ${s.stop_price:.2f} ({s.trail_pct * 100:.1f}% trail) "
+                        f"— {pct_from_stop:.1f}% from trigger"
+                    )
+                trailing_context = "\n".join(stop_lines)
+        except Exception as e:
+            log.warning("trailing_context_build_failed", error=str(e))
+
+        watchlist_context: str | None = None
+        try:
+            watchlist = await self._db.get_watchlist(tenant_id)
+            if watchlist:
+                wl_lines = []
+                for w in watchlist:
+                    days_left = (w.expires_at - today).days
+                    target = f", target ${w.target_entry:.2f}" if w.target_entry else ""
+                    wl_lines.append(
+                        f'- {w.ticker}: "{w.reason}" ({w.conviction} conviction{target}, {days_left}d left)'
+                    )
+                watchlist_context = "\n".join(wl_lines)
+        except Exception as e:
+            log.warning("watchlist_context_build_failed", error=str(e))
+
+        inverse_etf_context: str | None = None
+        try:
+            from config.universe import INVERSE_ETF_META
+
+            inverse_lines: list[str] = []
+            for p in positions:
+                ticker = p.ticker if hasattr(p, "ticker") else p.get("ticker", "")
+                if ticker in INVERSE_ETF_META:
+                    meta = INVERSE_ETF_META[ticker]
+                    avg_price = p.avg_price if hasattr(p, "avg_price") else p.get("avg_price", 0)
+                    shares = p.shares if hasattr(p, "shares") else p.get("shares", 0)
+                    price = float(closes[ticker].iloc[-1]) if ticker in closes.columns else avg_price
+                    value = shares * price
+                    pnl_pct = ((price - avg_price) / avg_price) * 100 if avg_price > 0 else 0
+                    inverse_lines.append(
+                        f"- {ticker} ({meta['description']}): {shares:.0f} shares, ${value:,.0f}, P&L {pnl_pct:+.1f}%"
+                    )
+            if inverse_lines:
+                inverse_etf_context = "\n".join(inverse_lines)
+        except Exception as e:
+            log.warning("inverse_context_build_failed", error=str(e))
+
+        return DynamicContext(
+            trailing_context=trailing_context,
+            watchlist_context=watchlist_context,
+            inverse_etf_context=inverse_etf_context,
+        )
+
+    def _build_portfolio_b_prompt(
+        self,
+        perf_text: str | None,
+        memory_text: str | None,
+        active_strategy: str,
+        session: str,
+        regime_result: RegimeResult | None,
+        alloc: TenantAllocations,
+        portfolio_b_universe: list[str] | None,
+        dynamic_ctx: DynamicContext,
+        earnings_context: str | None,
+        decision_review_text: str | None,
+        track_record_text: str | None,
+    ) -> str:
+        """Assemble the dynamic system prompt for Portfolio B from all context blocks."""
+        return build_system_prompt(
+            performance_stats=perf_text,
+            memory_context=memory_text,
             strategy_mode=active_strategy,
-            allocations=alloc,
-            run_portfolio_a=run_portfolio_a,
-            run_portfolio_b=run_portfolio_b,
-            trailing_stop_alerts=trailing_stop_alerts,
+            session=session,
+            regime_summary=regime_result.summary if regime_result else None,
+            portfolio_allocation=alloc.portfolio_b_cash,
+            universe_size=(len(portfolio_b_universe) if portfolio_b_universe else None),
+            trailing_stops_context=dynamic_ctx.trailing_context,
+            earnings_context=earnings_context,
+            watchlist_context=dynamic_ctx.watchlist_context,
+            decision_review=decision_review_text,
+            track_record=track_record_text,
+            inverse_etf_context=dynamic_ctx.inverse_etf_context,
         )
-
-        log.info(
-            "daily_pipeline_complete",
-            date=str(today),
-            trades_a=len(trades_a),
-            trades_b=len(trades_b),
-            executed=summary["trades_executed"],
-            errors=len(summary["errors"]),
-        )
-
-        return summary
 
     async def _run_portfolio_a(
         self,
@@ -941,180 +1375,48 @@ class Orchestrator:
         """Run Portfolio B AI strategy with complexity-based model routing."""
         alloc = allocations or DEFAULT_ALLOCATIONS
         active_strategy = strategy_mode or settings.agent.strategy_mode
-        portfolio = await self._db.get_portfolio("B", tenant_id=tenant_id)
-        positions = await self._db.get_positions("B", tenant_id=tenant_id)
-        position_map = {p.ticker: p.shares for p in positions}
-        cash = portfolio.cash if portfolio else alloc.portfolio_b_cash
-        total_value = portfolio.total_value if portfolio else alloc.portfolio_b_cash
-
-        # Build positions list for agent context
-        positions_for_agent = [
-            {
-                "ticker": p.ticker,
-                "shares": p.shares,
-                "avg_price": p.avg_price,
-                "market_value": p.shares * float(closes[p.ticker].iloc[-1]) if p.ticker in closes.columns else 0,
-            }
-            for p in positions
-        ]
-
-        # Get recent trades for context
-        recent_trades_raw = await self._db.get_trades("B", tenant_id=tenant_id)
-        recent_trades = [
-            {
-                "ticker": t.ticker,
-                "side": t.side,
-                "shares": t.shares,
-                "price": t.price,
-                "reason": t.reason or "",
-            }
-            for t in recent_trades_raw[:5]
-        ]
-
-        # ── Complexity detection & model routing ─────────────────────────
-        snapshots = await self._db.get_snapshots("B", tenant_id=tenant_id)
-        peak_value = max(
-            (s.total_value for s in snapshots if s.total_value),
-            default=total_value,
-        )
-
-        # Build indicators for held tickers (for conflict detection)
-        held_indicators: dict[str, dict] = {}
-        for p in positions:
-            if p.ticker in closes.columns and len(closes[p.ticker].dropna()) >= 50:
-                try:
-                    ind = compute_all_indicators(closes[p.ticker].dropna())
-                    latest = ind.iloc[-1]
-                    held_indicators[p.ticker] = {
-                        "rsi_14": float(latest["rsi_14"]) if pd.notna(latest["rsi_14"]) else None,
-                        "macd": float(latest["macd"]) if pd.notna(latest["macd"]) else None,
-                    }
-                except Exception:
-                    pass
-
         regime_str = regime_result.regime.value if regime_result else None
-        complexity = self._complexity_detector.evaluate(
-            closes=closes,
-            positions=positions_for_agent,
-            total_value=total_value,
-            peak_value=peak_value,
-            regime_today=regime_str,
-            regime_yesterday=None,
-            vix=vix,
-            indicators=held_indicators,
+
+        # Build context (positions, trades, complexity, memory, perf)
+        pb_ctx = await self._build_portfolio_b_context(
+            closes,
+            vix,
+            regime_result,
+            tenant_id,
+            alloc,
+            session,
         )
+        if pb_ctx.model_override == "__skip__":
+            return [], "", None
 
-        model_override: str | None = None
-        if complexity.should_escalate and self._notifier_available():
-            choice = await self._request_model_approval(complexity)
-            if choice == "opus":
-                model_override = PORTFOLIO_B.escalation_model
-            elif choice == "skip":
-                log.info("portfolio_b_skipped_by_user")
-                return [], "", None
-            # "sonnet" or timeout → model_override stays None
+        positions_for_agent = pb_ctx.positions_for_agent
+        recent_trades = pb_ctx.recent_trades
+        complexity = pb_ctx.complexity
+        model_override = pb_ctx.model_override
+        position_map = pb_ctx.position_map
+        cash = pb_ctx.cash
+        total_value = pb_ctx.total_value
 
-        # ── Build memory context for system prompt ─────────────────────
-        memory_text: str | None = None
-        try:
-            memories = await self._db.get_all_agent_memory_context(tenant_id=tenant_id)
-            memory_text = self._memory_manager.build_memory_prompt(memories) or None
-        except Exception as e:
-            log.warning("memory_context_failed", error=str(e))
+        # Build outcome feedback
+        decision_review_text, track_record_text = await self._build_outcome_feedback(tenant_id)
 
-        # ── Compute performance stats for dynamic system prompt ────────
-        perf_text: str | None = None
-        try:
-            spy_closes = closes["SPY"] if "SPY" in closes.columns else None
-            stats = await self._performance_tracker.get_portfolio_stats(
-                self._db,
-                "B",
-                alloc.portfolio_b_cash,
-                spy_closes=spy_closes,
-            )
-            if stats.days_tracked > 0:
-                perf_text = self._performance_tracker.format_for_prompt(stats)
-        except Exception as e:
-            log.warning("performance_stats_failed", error=str(e))
+        # Build dynamic context blocks (trailing stops, watchlist, inverse ETFs)
+        positions = await self._db.get_positions("B", tenant_id=tenant_id)
+        dynamic_ctx = await self._build_dynamic_context(closes, positions, today, tenant_id)
 
-        # ── Correlation monitor (Morning session only) ────────────────
-        if session == "Morning" and positions_for_agent:
-            try:
-                held = [p["ticker"] for p in positions_for_agent]
-                corr = self._risk_manager.compute_portfolio_correlation(closes, held)
-                if corr["matrix_size"] >= 2:
-                    corr_text = self._format_correlation(corr)
-                    if perf_text:
-                        perf_text += f"\n{corr_text}"
-                    else:
-                        perf_text = corr_text
-            except Exception as e:
-                log.warning("correlation_failed", error=str(e))
-
-        # ── Build trailing stops context for B ─────────────────────────
-        trailing_context: str | None = None
-        try:
-            stops_b = await self._db.get_active_trailing_stops(tenant_id, "B")
-            if stops_b:
-                stop_lines = []
-                for s in stops_b:
-                    current = float(closes[s.ticker].iloc[-1]) if s.ticker in closes.columns else s.peak_price
-                    pct_from_stop = ((current - s.stop_price) / current) * 100
-                    stop_lines.append(
-                        f"- {s.ticker}: entry ${s.entry_price:.2f}, "
-                        f"peak ${s.peak_price:.2f}, "
-                        f"stop ${s.stop_price:.2f} ({s.trail_pct * 100:.1f}% trail) "
-                        f"— {pct_from_stop:.1f}% from trigger"
-                    )
-                trailing_context = "\n".join(stop_lines)
-        except Exception as e:
-            log.warning("trailing_context_build_failed", error=str(e))
-
-        # ── Build watchlist context for B ─────────────────────────────
-        watchlist_context: str | None = None
-        try:
-            watchlist = await self._db.get_watchlist(tenant_id)
-            if watchlist:
-                wl_lines = []
-                for w in watchlist:
-                    days_left = (w.expires_at - today).days
-                    target = f", target ${w.target_entry:.2f}" if w.target_entry else ""
-                    wl_lines.append(
-                        f'- {w.ticker}: "{w.reason}" ({w.conviction} conviction{target}, {days_left}d left)'
-                    )
-                watchlist_context = "\n".join(wl_lines)
-        except Exception as e:
-            log.warning("watchlist_context_build_failed", error=str(e))
-
-        # ── Compute outcome feedback for system prompt ─────────────────
-        decision_review_text: str | None = None
-        track_record_text: str | None = None
-        try:
-            from src.analysis.outcome_tracker import OutcomeTracker
-            from src.analysis.track_record import TrackRecord
-
-            outcome_tracker = OutcomeTracker(self._db)
-            outcomes = await outcome_tracker.get_recent_outcomes(days=30, tenant_id=tenant_id)
-            if outcomes:
-                decision_review_text = _build_decision_review(outcomes[-5:])
-                stats = TrackRecord().compute(outcomes)
-                track_record_text = _build_track_record(stats)
-        except Exception as e:
-            log.warning("outcome_feedback_failed", error=str(e))
-
-        dynamic_prompt = build_system_prompt(
-            performance_stats=perf_text,
-            memory_context=memory_text,
-            strategy_mode=active_strategy,
-            session=session,
-            regime_summary=regime_result.summary if regime_result else None,
-            portfolio_allocation=alloc.portfolio_b_cash,
-            universe_size=(len(portfolio_b_universe) if portfolio_b_universe else None),
-            trailing_stops_context=trailing_context,
-            earnings_context=earnings_context,
-            watchlist_context=watchlist_context,
-            decision_review=decision_review_text,
-            track_record=track_record_text,
+        # Assemble system prompt
+        dynamic_prompt = self._build_portfolio_b_prompt(
+            pb_ctx.perf_text,
+            pb_ctx.memory_text,
+            active_strategy,
+            session,
+            regime_result,
+            alloc,
+            portfolio_b_universe,
+            dynamic_ctx,
+            earnings_context,
+            decision_review_text,
+            track_record_text,
         )
 
         # ── Check agentic mode ────────────────────────────────────────────
@@ -2015,8 +2317,8 @@ class Orchestrator:
                     f"New baseline: ${new_equity:,.2f}\n"
                     f"Portfolio A: ${new_a_cash:,.2f} | B: ${new_b_cash:,.2f}"
                 )
-            except Exception:
-                pass
+            except (ConnectionError, TimeoutError, OSError) as e:
+                log.warning("deposit_notification_failed", error=str(e))
 
         from src.utils.allocations import resolve_allocations
 
@@ -2231,8 +2533,8 @@ class Orchestrator:
                     f"New allocation: A=${a_cash:,.0f} | B=${b_cash:,.0f}\n"
                     f"Total: ${total_cash:,.0f}"
                 )
-            except Exception:
-                pass
+            except (ConnectionError, TimeoutError, OSError) as e:
+                log.warning("rebalance_notification_failed", error=str(e))
 
         log.info(
             "rebalance_complete",
@@ -2263,6 +2565,31 @@ class Orchestrator:
         if msg_id is None:
             return "sonnet"
         return await self._notifier.wait_for_approval(request_id, PORTFOLIO_B.approval_timeout_seconds)
+
+    async def _request_inverse_trade_approval(
+        self,
+        trade: TradeSchema,
+        regime_result: RegimeResult | None,
+    ) -> str:
+        """Send inverse trade approval request via Telegram.
+
+        Args:
+            trade: The inverse ETF trade requiring approval.
+            regime_result: Current regime result.
+
+        Returns:
+            "approve" or "reject". Defaults to "reject" if no notifier.
+        """
+        if not self._notifier_available():
+            log.info("inverse_approval_auto_reject_no_notifier", ticker=trade.ticker)
+            return "reject"
+
+        request_id = uuid.uuid4().hex[:8]
+        regime_str = regime_result.regime.value if regime_result else None
+        msg_id = await self._notifier.send_inverse_trade_approval(trade, regime_str, request_id)
+        if msg_id is None:
+            return "reject"
+        return await self._notifier.wait_for_inverse_approval(request_id, timeout_seconds=300)
 
     async def _process_suggested_tickers(
         self,
@@ -2495,8 +2822,8 @@ class Orchestrator:
                         f"Recovery: backfilled {len(recovered_dates)} missed snapshot(s): {', '.join(recovered_dates)}"
                     )
                     await self._notifier.send_message(msg)
-                except Exception:
-                    pass
+                except (ConnectionError, TimeoutError, OSError) as e:
+                    log.warning("recovery_notification_failed", error=str(e))
 
         return recovered_dates
 

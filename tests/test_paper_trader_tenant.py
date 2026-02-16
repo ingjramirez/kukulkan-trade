@@ -11,6 +11,8 @@ from src.storage.models import OrderSide, PortfolioName, TradeSchema
 async def db():
     database = Database(url="sqlite+aiosqlite:///:memory:")
     await database.init_db()
+    await database.ensure_tenant("tenant-1")
+    await database.ensure_tenant("tenant-2")
     yield database
     await database.close()
 

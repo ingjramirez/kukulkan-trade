@@ -16,6 +16,7 @@ from alpaca.trading.requests import MarketOrderRequest
 from src.storage.database import Database
 from src.storage.models import TradeSchema
 from src.utils.allocations import DEFAULT_ALLOCATIONS, TenantAllocations
+from src.utils.retry import retry_broker_read
 
 log = structlog.get_logger()
 
@@ -54,6 +55,16 @@ class AlpacaExecutor:
         self._fill_poll_interval = fill_poll_interval
         # Track timed-out orders for reconciliation
         self._pending_orders: list[dict] = []
+
+    @retry_broker_read
+    def _fetch_alpaca_order(self, order_id: str):
+        """Fetch a single order by ID (with retry on transient errors)."""
+        return self._client.get_order_by_id(order_id)
+
+    @retry_broker_read
+    def _fetch_alpaca_positions(self) -> list:
+        """Fetch all positions from Alpaca (with retry on transient errors)."""
+        return self._client.get_all_positions()
 
     async def initialize_portfolios(
         self,
@@ -127,7 +138,7 @@ class AlpacaExecutor:
         elapsed = 0.0
         while elapsed < self._fill_timeout:
             order = await asyncio.to_thread(
-                self._client.get_order_by_id,
+                self._fetch_alpaca_order,
                 order_id,
             )
             status = _order_status(order.status)
@@ -319,7 +330,7 @@ class AlpacaExecutor:
             order_id = entry["order_id"]
             trade: TradeSchema = entry["trade"]
             try:
-                order = await asyncio.to_thread(self._client.get_order_by_id, order_id)
+                order = await asyncio.to_thread(self._fetch_alpaca_order, order_id)
                 status = _order_status(order.status)
                 filled_qty = float(order.filled_qty) if order.filled_qty else 0.0
                 filled_price = float(order.filled_avg_price) if order.filled_avg_price else None
@@ -378,7 +389,7 @@ class AlpacaExecutor:
             Dict with 'alpaca', 'drift', and 'corrections' keys.
         """
         try:
-            alpaca_positions = self._client.get_all_positions()
+            alpaca_positions = self._fetch_alpaca_positions()
         except Exception as e:
             log.error("alpaca_sync_failed", error=str(e))
             return {"alpaca": [], "drift": [], "corrections": []}

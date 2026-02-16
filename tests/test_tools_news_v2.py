@@ -77,7 +77,7 @@ async def test_historical_news_empty():
 async def test_historical_news_error():
     """search_historical_news handles ChromaDB failure."""
     fetcher = MagicMock()
-    fetcher.search_relevant.side_effect = Exception("connection refused")
+    fetcher.search_relevant.side_effect = IOError("connection refused")
     result = await _search_historical_news(fetcher, "NVDA")
     assert "ChromaDB search failed" in result["message"]
 

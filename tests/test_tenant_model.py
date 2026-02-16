@@ -61,8 +61,10 @@ class TestTenantCRUD:
         await db.deactivate_tenant("t2")
 
         active = await db.get_active_tenants()
-        assert len(active) == 1
-        assert active[0].id == "t1"
+        # "default" tenant is seeded by init_db, so active = default + t1
+        assert len(active) == 2
+        active_ids = {t.id for t in active}
+        assert "t1" in active_ids
 
     async def test_get_all_tenants(self, db: Database):
         await db.create_tenant(_make_tenant("t1", "A"))
@@ -70,7 +72,8 @@ class TestTenantCRUD:
         await db.deactivate_tenant("t2")
 
         all_tenants = await db.get_all_tenants()
-        assert len(all_tenants) == 2
+        # "default" tenant is seeded by init_db, so total = default + t1 + t2
+        assert len(all_tenants) == 3
 
     async def test_update_tenant(self, db: Database):
         await db.create_tenant(_make_tenant())
@@ -105,6 +108,8 @@ class TestTenantIsolation:
     """Verify that tenant_id isolates portfolio data."""
 
     async def test_separate_portfolios(self, db: Database):
+        await db.ensure_tenant("t1")
+        await db.ensure_tenant("t2")
         await db.upsert_portfolio("A", cash=1000, total_value=1000, tenant_id="t1")
         await db.upsert_portfolio("A", cash=2000, total_value=2000, tenant_id="t2")
 
@@ -115,6 +120,8 @@ class TestTenantIsolation:
         assert p2.cash == 2000
 
     async def test_separate_positions(self, db: Database):
+        await db.ensure_tenant("t1")
+        await db.ensure_tenant("t2")
         await db.upsert_position("B", "AAPL", 10, 150.0, tenant_id="t1")
         await db.upsert_position("B", "AAPL", 20, 160.0, tenant_id="t2")
 
@@ -125,6 +132,8 @@ class TestTenantIsolation:
         assert len(p2) == 1 and p2[0].shares == 20
 
     async def test_separate_trades(self, db: Database):
+        await db.ensure_tenant("t1")
+        await db.ensure_tenant("t2")
         await db.log_trade("B", "AAPL", "BUY", 10, 150.0, tenant_id="t1")
         await db.log_trade("B", "MSFT", "BUY", 5, 300.0, tenant_id="t2")
 
@@ -137,6 +146,8 @@ class TestTenantIsolation:
     async def test_separate_snapshots(self, db: Database):
         from datetime import date
 
+        await db.ensure_tenant("t1")
+        await db.ensure_tenant("t2")
         today = date(2026, 2, 9)
         await db.save_snapshot("B", today, 66000, 60000, 6000, tenant_id="t1")
         await db.save_snapshot("B", today, 77000, 70000, 7000, tenant_id="t2")
@@ -148,6 +159,8 @@ class TestTenantIsolation:
         assert len(s2) == 1 and s2[0].total_value == 77000
 
     async def test_separate_agent_memory(self, db: Database):
+        await db.ensure_tenant("t1")
+        await db.ensure_tenant("t2")
         await db.upsert_agent_memory(
             "short_term",
             "key1",

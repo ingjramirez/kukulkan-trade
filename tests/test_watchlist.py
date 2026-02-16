@@ -11,6 +11,8 @@ from src.storage.database import Database
 async def db():
     database = Database(url="sqlite+aiosqlite:///:memory:")
     await database.init_db()
+    await database.ensure_tenant("t1")
+    await database.ensure_tenant("t2")
     yield database
     await database.close()
 

@@ -15,6 +15,7 @@ from config.settings import settings
 from src.data.news_compactor import _headlines_overlap
 from src.storage.models import NewsLogRow
 from src.storage.vector_store import VectorStore
+from src.utils.retry import retry_news_api
 
 log = structlog.get_logger()
 
@@ -35,6 +36,13 @@ class NewsFetcher:
             )
         return self._vector_store
 
+    @staticmethod
+    @retry_news_api
+    def _fetch_ticker_news(ticker: str) -> list[dict]:
+        """Fetch news for a single ticker from yfinance (with retry)."""
+        t = yf.Ticker(ticker)
+        return t.news or []
+
     def fetch_news(self, tickers: list[str], max_per_ticker: int = 5) -> list[dict[str, Any]]:
         """Fetch news headlines from yfinance for a list of tickers.
 
@@ -50,8 +58,7 @@ class NewsFetcher:
 
         for ticker in tickers:
             try:
-                t = yf.Ticker(ticker)
-                news = t.news or []
+                news = self._fetch_ticker_news(ticker)
 
                 for article in news[:max_per_ticker]:
                     title = article.get("title", "")

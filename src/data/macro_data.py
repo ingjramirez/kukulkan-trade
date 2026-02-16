@@ -16,6 +16,7 @@ from fredapi import Fred
 from config.settings import settings
 from src.storage.database import Database
 from src.storage.models import MacroDataRow
+from src.utils.retry import retry_macro_data
 
 log = structlog.get_logger()
 
@@ -47,6 +48,7 @@ class MacroDataFetcher:
             self._fred = Fred(api_key=self._api_key)
         return self._fred
 
+    @retry_macro_data
     def fetch_series(
         self,
         series_id: str,

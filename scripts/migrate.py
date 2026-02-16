@@ -48,20 +48,14 @@ def apply_migration(conn: sqlite3.Connection, path: str) -> None:
     with open(path) as f:
         sql = f.read()
     conn.executescript(sql)
-    conn.execute(
-        "INSERT INTO schema_migrations (version) VALUES (?)", (name,)
-    )
+    conn.execute("INSERT INTO schema_migrations (version) VALUES (?)", (name,))
     conn.commit()
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run database migrations")
-    parser.add_argument(
-        "--db", default="data/kukulkan.db", help="Path to SQLite database"
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true", help="Show pending migrations without applying"
-    )
+    parser.add_argument("--db", default="data/kukulkan.db", help="Path to SQLite database")
+    parser.add_argument("--dry-run", action="store_true", help="Show pending migrations without applying")
     args = parser.parse_args()
 
     if not os.path.exists(args.db):

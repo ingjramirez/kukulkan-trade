@@ -10,11 +10,14 @@ from __future__ import annotations
 from functools import partial
 
 import pandas as pd
+import structlog
 
-from config.universe import SECTOR_ETF_MAP
+from config.universe import SECTOR_ETF_MAP, classify_instrument
 from src.agent.tools import ToolRegistry
 from src.analysis.technical import compute_all_indicators
 from src.storage.database import Database
+
+log = structlog.get_logger()
 
 # ── 1. get_batch_technicals (replaces get_price_and_technicals, handles 5-20 tickers) ──
 
@@ -52,6 +55,7 @@ async def _get_batch_technicals(
             "change_1d_pct": round(pct_1d, 2),
             "change_5d_pct": round(pct_5d, 2),
             "change_20d_pct": round(pct_20d, 2),
+            "instrument_type": classify_instrument(ticker).value,
         }
 
         # Compute technicals if enough data
@@ -63,8 +67,8 @@ async def _get_batch_technicals(
                 entry["macd"] = round(float(latest["macd"]), 2) if pd.notna(latest["macd"]) else None
                 entry["sma_20"] = round(float(latest["sma_20"]), 2) if pd.notna(latest["sma_20"]) else None
                 entry["sma_50"] = round(float(latest["sma_50"]), 2) if pd.notna(latest["sma_50"]) else None
-            except Exception:
-                pass
+            except (ValueError, KeyError, IndexError) as e:
+                log.debug("batch_technicals_indicator_failed", ticker=ticker, error=str(e))
 
         results.append(entry)
 
@@ -103,8 +107,8 @@ async def _get_sector_heatmap(
                 ind = compute_all_indicators(s)
                 rsi = ind["rsi_14"].iloc[-1]
                 entry["rsi_14"] = round(float(rsi), 1) if pd.notna(rsi) else None
-            except Exception:
-                pass
+            except (ValueError, KeyError, IndexError) as e:
+                log.debug("sector_heatmap_rsi_failed", sector=sector, etf=etf, error=str(e))
 
         sectors[sector] = entry
 

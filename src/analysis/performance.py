@@ -123,8 +123,8 @@ class PerformanceTracker:
                             2,
                         )
                         alpha_pct = round(inception_return - spy_return_pct, 2)
-            except Exception:
-                pass  # SPY data issue — leave as None
+            except (ValueError, KeyError, IndexError) as e:
+                log.warning("performance_spy_benchmark_failed", portfolio=portfolio_name, error=str(e))
 
         return PerformanceStats(
             portfolio=portfolio_name,

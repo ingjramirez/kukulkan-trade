@@ -10,7 +10,11 @@ from __future__ import annotations
 from functools import partial
 from typing import Any
 
+import structlog
+
 from src.agent.tools import ToolRegistry
+
+log = structlog.get_logger()
 
 
 async def _search_news(
@@ -71,7 +75,8 @@ async def _search_historical_news(
 
     try:
         results = news_fetcher.search_relevant(search_query, n_results=n_results)
-    except Exception:
+    except (ValueError, KeyError, AttributeError, IOError) as e:
+        log.warning("chromadb_search_failed", ticker=ticker, query=search_query, error=str(e))
         return {"ticker": ticker, "articles": [], "message": "ChromaDB search failed"}
 
     if not results:

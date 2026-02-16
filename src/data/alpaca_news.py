@@ -12,6 +12,7 @@ import structlog
 
 from config.settings import settings
 from src.data.news_article import NewsArticle
+from src.utils.retry import retry_news_api
 
 log = structlog.get_logger()
 
@@ -40,6 +41,19 @@ class AlpacaNewsFetcher:
             )
         return self._client
 
+    @retry_news_api
+    def _get_news(self, tickers: list[str], limit: int) -> list:
+        """Execute the Alpaca news API call (with retry on transient errors)."""
+        from alpaca.data.requests import NewsRequest
+
+        client = self._get_client()
+        request = NewsRequest(
+            symbols=",".join(tickers[:30]),
+            limit=min(limit, 50),
+        )
+        response = client.get_news(request)
+        return response.data.get("news", [])
+
     def fetch(
         self,
         tickers: list[str],
@@ -59,17 +73,10 @@ class AlpacaNewsFetcher:
             return []
 
         try:
-            from alpaca.data.requests import NewsRequest
-
-            client = self._get_client()
-            request = NewsRequest(
-                symbols=",".join(tickers[:30]),
-                limit=min(limit, 50),
-            )
-            response = client.get_news(request)
+            news_items = self._get_news(tickers, limit)
 
             articles: list[NewsArticle] = []
-            for item in response.data.get("news", []):
+            for item in news_items:
                 published = None
                 if hasattr(item, "created_at") and item.created_at:
                     published = (

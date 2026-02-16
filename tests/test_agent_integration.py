@@ -82,20 +82,20 @@ class TestDefaultTenantAgentLoop:
 
     async def test_default_tenant_with_agent_loop_enabled(self, db: Database) -> None:
         """Default tenant with use_agent_loop=True uses the agentic path."""
-        # Create a "default" tenant row with use_agent_loop=True
-        default_tenant = TenantRow(
-            id="default",
-            name="Default",
-            alpaca_api_key_enc=encrypt_value("KEY"),
-            alpaca_api_secret_enc=encrypt_value("SECRET"),
-            telegram_bot_token_enc=encrypt_value("TOKEN"),
-            telegram_chat_id_enc=encrypt_value("123"),
-            strategy_mode="conservative",
-            run_portfolio_a=True,
-            run_portfolio_b=True,
-            use_agent_loop=True,
+        # Update the "default" tenant (seeded by init_db) with credentials + agent loop
+        await db.update_tenant(
+            "default",
+            {
+                "alpaca_api_key_enc": encrypt_value("KEY"),
+                "alpaca_api_secret_enc": encrypt_value("SECRET"),
+                "telegram_bot_token_enc": encrypt_value("TOKEN"),
+                "telegram_chat_id_enc": encrypt_value("123"),
+                "strategy_mode": "conservative",
+                "run_portfolio_a": True,
+                "run_portfolio_b": True,
+                "use_agent_loop": True,
+            },
         )
-        await db.create_tenant(default_tenant)
 
         from src.orchestrator import Orchestrator
 

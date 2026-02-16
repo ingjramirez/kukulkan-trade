@@ -6,10 +6,21 @@ Portfolio B (AI Full Autonomy): Full ETF universe + individual stocks
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.storage.database import Database
+
+
+class InstrumentType(str, Enum):
+    """Classification of tradeable instruments."""
+
+    STOCK = "stock"
+    ETF = "etf"
+    INVERSE_ETF = "inverse_etf"
+    CRYPTO_PROXY = "crypto_proxy"
+
 
 # --- Core Sector ETFs (SPDR Select Sector) ---
 SECTOR_ETFS: list[str] = [
@@ -40,11 +51,13 @@ THEMATIC_ETFS: list[str] = [
 ]
 
 # --- Inverse / Hedge ETFs ---
-INVERSE_ETFS: list[str] = [
-    "SH",  # Short S&P 500
-    "PSQ",  # Short QQQ
-    "TBF",  # Short 20+ Year Treasury
-]
+INVERSE_ETF_META: dict[str, dict] = {
+    "SH": {"benchmark": "SPY", "leverage": 1, "description": "Short S&P 500", "equity_hedge": True},
+    "PSQ": {"benchmark": "QQQ", "leverage": 1, "description": "Short Nasdaq 100", "equity_hedge": True},
+    "RWM": {"benchmark": "IWM", "leverage": 1, "description": "Short Russell 2000", "equity_hedge": True},
+    "TBF": {"benchmark": "TLT", "leverage": 1, "description": "Short 20+ Year Treasury", "equity_hedge": False},
+}
+INVERSE_ETFS: list[str] = list(INVERSE_ETF_META.keys())
 
 # --- Commodities ---
 COMMODITY_ETFS: list[str] = [
@@ -172,6 +185,7 @@ SECTOR_MAP: dict[str, str] = {
     "HYG": "Fixed Income",
     "SH": "Inverse",
     "PSQ": "Inverse",
+    "RWM": "Inverse",
     "TBF": "Inverse",
     "GLD": "Commodities",
     "SLV": "Commodities",
@@ -234,6 +248,42 @@ SECTOR_ETF_MAP: dict[str, str] = {
     "Thematic": "ICLN",
     "Hedge": "VIXY",
 }
+
+
+def classify_instrument(ticker: str) -> InstrumentType:
+    """Classify a ticker into its instrument type.
+
+    Args:
+        ticker: Ticker symbol.
+
+    Returns:
+        InstrumentType enum value.
+    """
+    if ticker in INVERSE_ETF_META:
+        return InstrumentType.INVERSE_ETF
+    if ticker in CRYPTO:
+        return InstrumentType.CRYPTO_PROXY
+    if ticker in INDIVIDUAL_STOCKS or ticker in ADDITIONAL_STOCKS:
+        return InstrumentType.STOCK
+    return InstrumentType.ETF
+
+
+def is_equity_hedge(ticker: str) -> bool:
+    """Check if a ticker is an equity hedge inverse ETF.
+
+    TBF hedges interest rate risk (not equity) so returns False.
+    SH/PSQ/RWM hedge equity risk so return True.
+
+    Args:
+        ticker: Ticker symbol.
+
+    Returns:
+        True if the ticker is an equity-hedging inverse ETF.
+    """
+    meta = INVERSE_ETF_META.get(ticker)
+    if meta is None:
+        return False
+    return meta["equity_hedge"]
 
 
 async def get_dynamic_universe(db: "Database") -> list[str]:

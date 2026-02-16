@@ -1,6 +1,6 @@
-"""API routes for agent insights: posture, playbook, calibration, budget."""
+"""API routes for agent insights: posture, playbook, calibration, budget, inverse exposure."""
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends
 
@@ -8,6 +8,8 @@ from src.api.deps import get_authorized_tenant_id, get_db
 from src.api.schemas import (
     BudgetStatusResponse,
     ConvictionCalibrationResponse,
+    InverseExposureResponse,
+    InversePositionResponse,
     PlaybookCellResponse,
     PostureHistoryResponse,
 )
@@ -105,4 +107,78 @@ async def get_budget_status(
         daily_exhausted=daily_spent >= daily_limit,
         monthly_exhausted=monthly_spent >= monthly_limit,
         haiku_only=monthly_spent >= monthly_limit * 0.80,
+    )
+
+
+@router.get("/inverse-exposure", response_model=InverseExposureResponse)
+async def get_inverse_exposure(
+    tenant_id: str = Depends(get_authorized_tenant_id),
+    db: Database = Depends(get_db),
+) -> InverseExposureResponse:
+    """Get current inverse ETF exposure for Portfolio B."""
+    from config.universe import INVERSE_ETF_META, is_equity_hedge
+    from src.analysis.risk_manager import (
+        MAX_INVERSE_POSITIONS,
+        MAX_SINGLE_INVERSE_PCT,
+        MAX_TOTAL_INVERSE_PCT,
+    )
+
+    positions = await db.get_positions("B", tenant_id=tenant_id)
+    portfolio = await db.get_portfolio("B", tenant_id=tenant_id)
+    total_value = portfolio.total_value if portfolio else 0.0
+
+    inverse_positions: list[InversePositionResponse] = []
+    inverse_total_value = 0.0
+
+    for p in positions:
+        if p.ticker not in INVERSE_ETF_META:
+            continue
+        value = p.shares * p.avg_price
+        inverse_total_value += value
+        pct = value / total_value * 100 if total_value > 0 else 0.0
+
+        # Compute days held from most recent BUY
+        trades = await db.get_trades("B", tenant_id=tenant_id)
+        buy_trades = [t for t in trades if t.ticker == p.ticker and t.side == "BUY"]
+        days_held = None
+        hold_alert = None
+        if buy_trades:
+            latest_buy = buy_trades[0]
+            if latest_buy.executed_at:
+                now = datetime.now(timezone.utc)
+                executed = latest_buy.executed_at
+                if executed.tzinfo is None:
+                    now = now.replace(tzinfo=None)
+                days_held = (now - executed).days
+                if days_held >= 5:
+                    hold_alert = "review"
+                elif days_held >= 3:
+                    hold_alert = "warning"
+
+        inverse_positions.append(
+            InversePositionResponse(
+                ticker=p.ticker,
+                value=round(value, 2),
+                pct=round(pct, 1),
+                equity_hedge=is_equity_hedge(p.ticker),
+                days_held=days_held,
+                hold_alert=hold_alert,
+            )
+        )
+
+    # Compute net equity pct
+    equity_invested = sum(p.shares * p.avg_price for p in positions) - inverse_total_value
+    equity_hedge_value = sum(ip.value for ip in inverse_positions if ip.equity_hedge)
+    net_equity_pct = (equity_invested - equity_hedge_value) / total_value * 100 if total_value > 0 else 0.0
+
+    return InverseExposureResponse(
+        total_value=round(inverse_total_value, 2),
+        total_pct=round(inverse_total_value / total_value * 100, 1) if total_value > 0 else 0.0,
+        net_equity_pct=round(net_equity_pct, 1),
+        positions=inverse_positions,
+        rules={
+            "max_single_pct": MAX_SINGLE_INVERSE_PCT * 100,
+            "max_total_pct": MAX_TOTAL_INVERSE_PCT * 100,
+            "max_positions": MAX_INVERSE_POSITIONS,
+        },
     )

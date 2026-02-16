@@ -2,6 +2,7 @@
 
 from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError
 
 from src.api.auth import decode_access_token
 from src.storage.database import Database
@@ -19,7 +20,7 @@ async def get_current_user(
     """Decode JWT and return {"username": str, "tenant_id": str | None}."""
     try:
         return decode_access_token(credentials.credentials)
-    except Exception:
+    except (JWTError, ValueError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",

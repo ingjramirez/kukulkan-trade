@@ -327,6 +327,23 @@ class BudgetStatusResponse(BaseModel):
     haiku_only: bool
 
 
+class InversePositionResponse(BaseModel):
+    ticker: str
+    value: float
+    pct: float
+    equity_hedge: bool
+    days_held: int | None = None
+    hold_alert: str | None = None
+
+
+class InverseExposureResponse(BaseModel):
+    total_value: float
+    total_pct: float
+    net_equity_pct: float
+    positions: list[InversePositionResponse]
+    rules: dict
+
+
 class TenantReadResponse(BaseModel):
     id: str
     name: str

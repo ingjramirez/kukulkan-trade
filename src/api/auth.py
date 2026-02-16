@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import jwt
+from jose import JWTError, jwt
 
 from config.settings import settings
 from src.api.schemas import LoginRequest, TokenResponse
@@ -63,7 +63,7 @@ def revoke_token(token: str) -> None:
         jti = payload.get("jti")
         if jti:
             _revoked_tokens.add(jti)
-    except Exception:
+    except (JWTError, ValueError):
         pass  # Invalid tokens are already effectively revoked
 
 

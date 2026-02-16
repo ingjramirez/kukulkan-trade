@@ -29,6 +29,10 @@ async def db():
     """In-memory database for testing."""
     database = Database(url="sqlite+aiosqlite:///:memory:")
     await database.init_db()
+    await database.ensure_tenant("tenant-1")
+    await database.ensure_tenant("tenant-2")
+    await database.ensure_tenant("t-a")
+    await database.ensure_tenant("t-b")
     yield database
     await database.close()
 

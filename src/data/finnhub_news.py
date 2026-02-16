@@ -12,6 +12,7 @@ import structlog
 
 from config.settings import settings
 from src.data.news_article import NewsArticle
+from src.utils.retry import retry_news_api
 
 log = structlog.get_logger()
 
@@ -30,6 +31,18 @@ class FinnhubNewsFetcher:
 
             self._client = finnhub.Client(api_key=self._api_key)
         return self._client
+
+    @retry_news_api
+    def _fetch_company_news(self, ticker: str, from_date: str, to_date: str) -> list:
+        """Fetch company news for a single ticker (with retry)."""
+        client = self._get_client()
+        return client.company_news(ticker, _from=from_date, to=to_date) or []
+
+    @retry_news_api
+    def _fetch_general_news(self) -> list:
+        """Fetch general market news (with retry)."""
+        client = self._get_client()
+        return client.general_news("general", min_id=0) or []
 
     def fetch(
         self,
@@ -57,12 +70,10 @@ class FinnhubNewsFetcher:
         to_date = today.isoformat()
 
         try:
-            client = self._get_client()
-
             # Company news per ticker
             for ticker in tickers[:20]:  # Respect rate limits
                 try:
-                    raw = client.company_news(ticker, _from=from_date, to=to_date)
+                    raw = self._fetch_company_news(ticker, from_date, to_date)
                     if not raw:
                         continue
                     for item in raw[:max_per_ticker]:
@@ -89,8 +100,8 @@ class FinnhubNewsFetcher:
 
             # General market news
             try:
-                general = client.general_news("general", min_id=0)
-                for item in (general or [])[:10]:
+                general = self._fetch_general_news()
+                for item in general[:10]:
                     published = None
                     if item.get("datetime"):
                         try:

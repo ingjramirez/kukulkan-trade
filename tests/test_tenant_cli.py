@@ -87,7 +87,8 @@ class TestSeedDefault:
         await seed_default(argparse.Namespace())
 
         tenants = await db.get_all_tenants()
-        assert len(tenants) == 1
+        # "default" (seeded by init_db) + "existing" = 2; seed_default skipped
+        assert len(tenants) == 2
 
 
 class TestAddTenant:
@@ -116,8 +117,9 @@ class TestAddTenant:
         await add_tenant(args)
 
         tenants = await db.get_all_tenants()
-        assert len(tenants) == 1
-        t = tenants[0]
+        # "default" (seeded by init_db) + "Papa" = 2
+        assert len(tenants) == 2
+        t = next(t for t in tenants if t.name == "Papa")
         assert t.name == "Papa"
         assert t.strategy_mode == "aggressive"
         assert t.run_portfolio_a is False
@@ -126,10 +128,11 @@ class TestAddTenant:
 
 
 class TestListTenants:
-    async def test_list_empty(self, db: Database, _patch_get_db, capsys):
+    async def test_list_shows_default(self, db: Database, _patch_get_db, capsys):
         from src.cli.tenant_cli import list_tenants
 
         await list_tenants(argparse.Namespace())
 
         output = capsys.readouterr().out
-        assert "No tenants configured" in output
+        # "default" tenant is always seeded by init_db
+        assert "default" in output.lower()

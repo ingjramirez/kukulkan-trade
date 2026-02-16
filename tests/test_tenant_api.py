@@ -103,10 +103,13 @@ class TestCreateTenant:
 
 
 class TestListTenants:
-    async def test_list_empty(self, client, auth_headers):
+    async def test_list_only_default(self, client, auth_headers):
         r = await client.get("/api/tenants", headers=auth_headers)
         assert r.status_code == 200
-        assert r.json() == []
+        # "default" tenant is always seeded by init_db
+        data = r.json()
+        assert len(data) == 1
+        assert data[0]["id"] == "default"
 
     async def test_list_after_create(self, client, auth_headers):
         await client.post(
@@ -121,7 +124,8 @@ class TestListTenants:
             headers=auth_headers,
         )
         r = await client.get("/api/tenants", headers=auth_headers)
-        assert len(r.json()) == 1
+        # "default" + newly created = 2
+        assert len(r.json()) == 2
 
 
 class TestGetTenant:
@@ -420,7 +424,8 @@ class TestCredentialMasking:
             headers=auth_headers,
         )
         r = await client.get("/api/tenants", headers=auth_headers)
-        data = r.json()[0]
+        # Find the created tenant (not the "default" one)
+        data = next(t for t in r.json() if t["name"] == "T1")
 
         # Full credentials must never appear in responses
         assert "PK_LIVE_supersecretkey1234" not in str(data)
