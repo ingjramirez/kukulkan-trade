@@ -61,6 +61,7 @@ run_daily() entry
 |   |-- Large trade approval via Telegram (requires_trade_approval, >threshold%)
 |   |-- Publishes SSE events: TRADE_REJECTED (blocked), TRADE_APPROVAL_REQUESTED/RESOLVED
 |-- Execute all trades (sells first, then buys) → publishes TRADE_EXECUTED per trade
+|-- Step 6.8: _process_suggested_tickers() (passive JSON path) + _process_tool_discoveries() (active tool path)
 |-- Step 7.1: create_trailing_stops() + remove watchlist if traded
 |-- Step 7.2: deactivate_trailing_stops() for sells
 |-- Step 8: take_snapshot() [enabled portfolios, Alpaca prices preferred]

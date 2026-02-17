@@ -184,12 +184,12 @@ class ToolRegistry:
 
 **Important:** `execute()` does NOT catch errors. Errors propagate to `AgentRunner._execute_tool()` which logs them as `success=False`.
 
-### 20 Tools (4 modules)
+### 23 Tools (4 modules)
 
 **Portfolio tools** (`portfolio.py`):
 
 | Tool | Input | Returns |
-|------|-------|---------|
+|-|-|-|
 | `get_portfolio_state` | `{}` | positions, cash, P&L, sector exposure, instrument_type |
 | `get_position_detail` | `{ticker}` | P&L, trailing stop, days held |
 | `get_portfolio_performance` | `{}` | returns, drawdown, Sharpe ratio |
@@ -197,20 +197,22 @@ class ToolRegistry:
 | `get_correlation_check` | `{}` | position correlation matrix |
 | `get_risk_assessment` | `{}` | risk metrics, inverse_exposure |
 | `get_portfolio_a_history` | `{days?}` | Portfolio A trades (read-only) |
+| `list_discovered_tickers` | `{status?}` | past discoveries with status, approval rate, source |
 
 **Market tools** (`market.py`):
 
 | Tool | Input | Returns |
-|------|-------|---------|
+|-|-|-|
 | `get_batch_technicals` | `{tickers}` | RSI, MACD, SMA for batch, instrument_type |
 | `get_sector_heatmap` | `{}` | sector performance + RSI |
 | `get_market_overview` | `{}` | regime, VIX, yield curve, breadth |
 | `get_earnings_calendar` | `{days?}` | upcoming earnings for held tickers |
+| `search_ticker_info` | `{ticker}` | yfinance lookup: price, cap, volume, RSI, sector, minimums check |
 
 **News tools** (`news.py`):
 
 | Tool | Input | Returns |
-|------|-------|---------|
+|-|-|-|
 | `search_news` | `{ticker?}` | today's news context |
 | `search_historical_news` | `{ticker, days?}` | ChromaDB vector search |
 | `get_portfolio_a_status` | `{}` | Portfolio A positions (read-only) |
@@ -218,13 +220,14 @@ class ToolRegistry:
 **Action tools** (`actions.py`):
 
 | Tool | Input | Returns |
-|------|-------|---------|
+|-|-|-|
 | `execute_trade` | `{ticker, side, weight, conviction, reason}` | accumulates |
 | `set_trailing_stop` | `{ticker, trail_pct}` | override default stop |
 | `get_order_status` | `{ticker?}` | current order statuses |
 | `save_observation` | `{key, content}` | accumulates memory note |
 | `update_watchlist` | `{updates}` | accumulates |
 | `declare_posture` | `{posture, reason}` | sets session posture |
+| `discover_ticker` | `{ticker, reason, conviction?, sector_rationale?}` | validate + propose for owner approval |
 
 Legacy aliases preserved: `get_current_positions`, `get_position_pnl`, `get_portfolio_summary`, `get_price_and_technicals`, `get_market_context`, `propose_trades`, `save_memory_note`.
 
@@ -234,6 +237,9 @@ Legacy aliases preserved: `get_current_positions`, `get_position_pnl`, `get_port
 @dataclass
 class ActionState:
     proposed_trades: list[dict]; watchlist_updates: list[dict]; memory_notes: list[dict]
+    executed_trades: list[dict]; trailing_stop_requests: list[dict]
+    discovery_proposals: list[dict]  # Phase 40: tool-based ticker discoveries
+    declared_posture: str | None
     def get_accumulated_state(self) -> dict
     def reset(self) -> None
 ```
@@ -244,10 +250,22 @@ Per-run isolation: one ActionState per agent session, accumulated across multipl
 
 ```python
 def register_portfolio_tools(registry, db, tenant_id, current_prices, closes=None, held_tickers=None) -> None
-def register_market_tools(registry, closes, vix=None, yield_curve=None, regime=None, db=None, held_tickers=None) -> None
+def register_market_tools(registry, closes, vix=None, yield_curve=None, regime=None, db=None, held_tickers=None, tenant_id="default") -> None
 def register_news_tools(registry, news_context, news_fetcher=None, current_prices=None) -> None
-def register_action_tools(registry, state) -> None
+def register_action_tools(registry, state, db=None, tenant_id="default", ticker_discovery=None) -> None
 ```
+
+### Discovery Tool Flow (Phase 40)
+
+```
+Agent mid-session → search_ticker_info("ANET") → yfinance lookup
+→ "Meets minimums, fits thesis" → discover_ticker("ANET", "reason", "high")
+→ Validates + saves to DB as "proposed" → returns immediately to agent
+→ After agent loop: orchestrator sends Telegram approval → approved/rejected
+→ Approved tickers enter universe on next session
+```
+
+Passive `suggested_tickers` JSON path preserved as fallback. System prompt tells agent to prefer tools.
 
 ## Persistent Agent (`src/agent/persistent_agent.py`)
 
@@ -354,6 +372,8 @@ class TickerDiscovery:
     async def get_active_tickers(self, tenant_id="default") -> list[str]
     async def expire_old(self, today=None, tenant_id="default") -> int
 ```
+
+Source values: `"agent"` (passive JSON response), `"agent_tool"` (active discover_ticker tool), `"news"`, `"screener"`.
 
 ## Config (`config/strategies.py`)
 
