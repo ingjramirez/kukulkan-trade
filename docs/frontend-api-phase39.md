@@ -110,8 +110,9 @@ GET /api/events/connections
 |-|-|-|
 | `trade_executed` | Each trade fills | `{"ticker","side","shares","price","portfolio"}` |
 | `trailing_stop_triggered` | Trailing stop hit | `{"ticker","price","stop_price","portfolio"}` |
-| `trade_approval_requested` | Future | — |
-| `trade_approval_resolved` | Future | — |
+| `trade_rejected` | Risk manager blocks a trade | `{"ticker","side","shares","reason","portfolio"}` |
+| `trade_approval_requested` | Large trade (>threshold%) sent for Telegram approval | `{"ticker","side","shares","price","value","portfolio_pct","reason"}` |
+| `trade_approval_resolved` | Telegram approval/rejection received or timed out | `{"ticker","approved"}` |
 
 ### Alert Events
 
@@ -131,12 +132,15 @@ GET /api/events/connections
 | `portfolio_snapshot` | End-of-day snapshot | `{"portfolio","date"}` |
 | `intraday_update` | Intraday price sync | `{"portfolio","equity","cash"}` |
 | `budget_updated` | After session cost recorded | `{"cost_usd","session_label"}` |
+| `watchlist_updated` | After watchlist additions/removals | `{"additions","removals"}` |
 
 ### System Events
 
 | Event | When | Payload |
 |-|-|-|
 | `heartbeat` | Every 30s (idle) | `{"status":"ok"}` |
+| `system_error` | Pipeline step fails | `{"message","step"}` |
+| `improvement_report` | Weekly improvement loop completes | `{"changes_applied","proposals_total","summary"}` |
 
 ## Design: Signals vs Payloads
 
@@ -194,6 +198,16 @@ function handleSSEEvent(type: string, data: Record<string, unknown>) {
       showToast(`Stop triggered: ${data.ticker} @ $${data.price}`, 'warning');
       refetchPositions();
       break;
+    case 'trade_rejected':
+      showToast(`Trade rejected: ${data.ticker} — ${data.reason}`, 'warning');
+      break;
+    case 'trade_approval_requested':
+      showToast(`Approval pending: ${data.side} ${data.shares} ${data.ticker} (${data.portfolio_pct}%)`, 'info');
+      break;
+    case 'trade_approval_resolved':
+      showToast(`${data.ticker}: ${data.approved ? 'Approved' : 'Rejected'}`, data.approved ? 'success' : 'warning');
+      refetchTrades();
+      break;
     case 'circuit_breaker_triggered':
       showToast(`Circuit breaker: ${data.portfolio} — ${data.reason}`, 'error');
       break;
@@ -224,6 +238,15 @@ function handleSSEEvent(type: string, data: Record<string, unknown>) {
     case 'budget_updated':
       refetchBudget();
       break;
+    case 'watchlist_updated':
+      showToast(`Watchlist: +${data.additions} / -${data.removals}`);
+      break;
+    case 'system_error':
+      showToast(`Error in ${data.step}: ${data.message}`, 'error');
+      break;
+    case 'improvement_report':
+      showToast(`Weekly improvement: ${data.changes_applied} changes applied`, 'info');
+      break;
   }
 }
 ```
@@ -242,6 +265,7 @@ Close the SSE connection when the user logs out or the token expires.
 type SSEEventType =
   | 'trade_executed'
   | 'trailing_stop_triggered'
+  | 'trade_rejected'
   | 'trade_approval_requested'
   | 'trade_approval_resolved'
   | 'circuit_breaker_triggered'
@@ -253,6 +277,9 @@ type SSEEventType =
   | 'portfolio_snapshot'
   | 'intraday_update'
   | 'budget_updated'
+  | 'watchlist_updated'
+  | 'system_error'
+  | 'improvement_report'
   | 'heartbeat';
 
 interface TradeExecutedData {
@@ -313,6 +340,45 @@ interface IntradayUpdateData {
 interface BudgetUpdatedData {
   cost_usd: number;
   session_label: string;
+}
+
+interface TradeRejectedData {
+  ticker: string;
+  side: 'BUY' | 'SELL';
+  shares: number;
+  reason: string;
+  portfolio: 'A' | 'B';
+}
+
+interface TradeApprovalRequestedData {
+  ticker: string;
+  side: 'BUY' | 'SELL';
+  shares: number;
+  price: number;
+  value: number;
+  portfolio_pct: number;
+  reason: string;
+}
+
+interface TradeApprovalResolvedData {
+  ticker: string;
+  approved: boolean;
+}
+
+interface WatchlistUpdatedData {
+  additions: number;
+  removals: number;
+}
+
+interface SystemErrorData {
+  message: string;
+  step: string;
+}
+
+interface ImprovementReportData {
+  changes_applied: number;
+  proposals_total: number;
+  summary: string;
 }
 
 interface RecentEvent {
