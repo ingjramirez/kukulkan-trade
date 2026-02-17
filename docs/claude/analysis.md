@@ -62,7 +62,7 @@ class RiskManager:
         self, trades: list[TradeSchema], positions: dict, portfolio_value: float,
         closes: pd.DataFrame | None = None, tenant_id: str = "default",
     ) -> TradeVerdict
-        # Returns: TradeVerdict(allowed: list[TradeSchema], blocked: list[TradeSchema], warnings: list[str])
+        # Returns: RiskVerdict(allowed, blocked, requires_approval, requires_trade_approval, warnings)
 
     async def check_circuit_breakers(
         self, db: Database, portfolio_name: str, tenant_id: str = "default",
@@ -74,14 +74,18 @@ class RiskManager:
 
 1. **Single position limit:** Max % of portfolio in one ticker
 2. **Sector concentration:** Max % in one sector (with overrides per sector)
-3. **Correlation check:** Warn if adding correlated position
-4. **Position count:** Max total positions
+3. **Inverse ETF rules:** Regime/posture gating, hold time warnings, Telegram approval
+4. **Large trade approval:** Non-inverse BUYs > `trade_approval_threshold_pct` (default 10%) flagged for Telegram approval
+5. **Correlation check:** Warn if adding correlated position
+6. **Position count:** Max total positions
 
 ```python
 @dataclass
-class TradeVerdict:
+class RiskVerdict:
     allowed: list[TradeSchema]
     blocked: list[TradeSchema]
+    requires_approval: list[tuple[TradeSchema, str]]       # inverse ETF approval
+    requires_trade_approval: list[tuple[TradeSchema, str]]  # large trade approval (>threshold%)
     warnings: list[str]
 ```
 

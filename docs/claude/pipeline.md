@@ -14,7 +14,8 @@ Machine-readable context for Claude. Covers the orchestrator, strategies, execut
 | `src/execution/client_factory.py` | AlpacaClientFactory: per-tenant cached TradingClient |
 | `src/main.py` | APScheduler setup, job definitions (3x daily + intraday + weekly) |
 | `src/intraday.py` | 15-min portfolio snapshot collector |
-| `src/notifications/telegram_bot.py` | TelegramNotifier: daily brief, trade confirmation, approvals |
+| `src/events/event_bus.py` | EventBus singleton: SSE pub/sub, 18 event types |
+| `src/notifications/telegram_bot.py` | TelegramNotifier: daily brief, trade confirmation, large trade + inverse approvals |
 | `src/notifications/telegram_factory.py` | TelegramFactory: per-tenant cached notifier |
 | `src/notifications/weekly_report.py` | WeeklyReporter: Friday performance summary |
 
@@ -54,14 +55,18 @@ run_daily() entry
 |-- Step 5.5: earnings_calendar.get_upcoming() -> earnings_context [Morning only]
 |-- Step 5.6: cleanup_expired_watchlist() [Morning only]
 |-- Step 6: _run_portfolio_b() -> (trades_b, reasoning, tool_summary)
-|-- Step 6.5: risk_manager.check_pre_trade() -> allowed + blocked
+|-- Step 6.5: risk_manager.check_pre_trade() -> RiskVerdict (allowed, blocked, requires_approval, requires_trade_approval)
 |   |-- Merge trailing_stop_sells (bypass risk filter)
-|-- Execute all trades (sells first, then buys)
+|   |-- Inverse ETF approval via Telegram (requires_approval)
+|   |-- Large trade approval via Telegram (requires_trade_approval, >threshold%)
+|   |-- Publishes SSE events: TRADE_REJECTED (blocked), TRADE_APPROVAL_REQUESTED/RESOLVED
+|-- Execute all trades (sells first, then buys) → publishes TRADE_EXECUTED per trade
 |-- Step 7.1: create_trailing_stops() + remove watchlist if traded
 |-- Step 7.2: deactivate_trailing_stops() for sells
 |-- Step 8: take_snapshot() [enabled portfolios, Alpaca prices preferred]
 |-- Step 8.5: _reconcile_equity() [$10-$50 drift correction]
 |-- Step 9: _send_notifications() -> daily brief + trade confirmation
+|-- SSE events published throughout: SESSION_STARTED/COMPLETED/SKIPPED, POSITIONS_UPDATED, PORTFOLIO_SNAPSHOT, SYSTEM_ERROR
 ```
 
 ### Key Helper Methods
@@ -200,6 +205,10 @@ class TelegramNotifier:
     async def send_error(self, error_msg: str) -> bool
     async def send_ticker_proposal(self, ticker_row, request_id) -> int | None
     async def wait_for_ticker_approval(self, request_id, timeout_seconds=300) -> str  # "approve"|"reject"
+    async def send_inverse_approval(self, trade, risk_reason, request_id) -> int | None
+    async def wait_for_inverse_approval(self, request_id, timeout_seconds=300) -> str  # "approve"|"reject"
+    async def send_large_trade_approval(self, trade, trade_pct, approval_reason, request_id) -> int | None
+    async def wait_for_large_trade_approval(self, request_id, timeout_seconds=300) -> str  # "approve"|"reject"
 ```
 
 ### TelegramFactory (`src/notifications/telegram_factory.py`)

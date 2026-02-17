@@ -12,7 +12,8 @@ Machine-readable context for Claude. Covers the FastAPI REST API, auth, routes, 
 | `src/api/rate_limit.py` | RateLimitMiddleware: sliding window per IP |
 | `src/api/schemas.py` | All Pydantic response/request models |
 | `src/api/alpaca_client.py` | Cached async Alpaca wrapper (30s TTL) |
-| `src/api/routes/` | 13 route modules |
+| `src/api/routes/` | 14 route modules |
+| `src/events/event_bus.py` | EventType enum, Event dataclass, EventBus singleton (SSE) |
 
 ## FastAPI App (`src/api/main.py`)
 
@@ -247,6 +248,16 @@ def _reset_run_state() -> None  # for tests
 |--------|------|-------|------|---------|
 | GET | `/conversations` | limit (1-100, default 30) | `get_authorized_tenant_id` | `list[ConversationSessionResponse]` |
 | GET | `/conversations/{session_id}` | -- | `get_authorized_tenant_id` | `ConversationDetailResponse` |
+
+### `src/api/routes/events.py` -- prefix `/api/events`, tags `["events"]`
+
+| Method | Path | Query | Auth | Returns |
+|-|-|-|-|-|
+| GET | `/stream` | tenant_id | `get_authorized_tenant_id` | SSE `text/event-stream` |
+| GET | `/recent` | tenant_id, limit (1-100) | `get_authorized_tenant_id` | `list[RecentEvent]` |
+| GET | `/connections` | -- | `require_admin` | `ConnectionsResponse` |
+
+SSE stream sends 18 event types (see `src/events/event_bus.py` EventType enum). Heartbeat every 30s. Full payload reference: `docs/frontend-api-phase39.md`.
 
 ## Alpaca Client (`src/api/alpaca_client.py`)
 
