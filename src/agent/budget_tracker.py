@@ -59,12 +59,14 @@ class BudgetTracker:
     def __init__(
         self,
         db: Database,
-        daily_limit: float = 3.0,
-        monthly_limit: float = 75.0,
+        daily_limit: float | None = None,
+        monthly_limit: float | None = None,
     ) -> None:
+        from config.settings import settings
+
         self._db = db
-        self._daily_limit = daily_limit
-        self._monthly_limit = monthly_limit
+        self._daily_limit = daily_limit if daily_limit is not None else settings.agent.daily_budget
+        self._monthly_limit = monthly_limit if monthly_limit is not None else settings.agent.monthly_budget
 
     async def check_budget(
         self,

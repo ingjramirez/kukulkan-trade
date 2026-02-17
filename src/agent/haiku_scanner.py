@@ -14,7 +14,6 @@ import structlog
 
 log = structlog.get_logger()
 
-SCAN_MODEL = "claude-haiku-4-5-20251001"
 SCAN_MAX_TOKENS = 500
 
 SCAN_SYSTEM_PROMPT = (
@@ -55,6 +54,16 @@ class HaikuScanner:
 
         return anthropic.Anthropic(api_key=self._api_key, max_retries=settings.agent.max_retries)
 
+    @property
+    def _scan_model(self) -> str:
+        """Get scan model from settings, with fallback."""
+        try:
+            from config.settings import settings
+
+            return settings.agent.scan_model
+        except Exception:
+            return "claude-haiku-4-5-20251001"
+
     async def scan(
         self,
         market_data: dict,
@@ -78,10 +87,11 @@ class HaikuScanner:
         )
 
         try:
+            scan_model = self._scan_model
             client = self._get_client()
             response = await asyncio.to_thread(
                 client.messages.create,
-                model=SCAN_MODEL,
+                model=scan_model,
                 max_tokens=SCAN_MAX_TOKENS,
                 system=SCAN_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_message}],
@@ -96,7 +106,7 @@ class HaikuScanner:
             # Estimate cost
             from src.agent.token_tracker import MODEL_PRICING
 
-            pricing = MODEL_PRICING.get(SCAN_MODEL, (1.0, 5.0))
+            pricing = MODEL_PRICING.get(scan_model, (1.0, 5.0))
             cost = (response.usage.input_tokens * pricing[0] + response.usage.output_tokens * pricing[1]) / 1_000_000
 
             return self._parse_response(text, cost)

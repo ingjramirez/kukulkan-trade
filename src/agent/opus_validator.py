@@ -14,7 +14,6 @@ import structlog
 
 log = structlog.get_logger()
 
-VALIDATE_MODEL = "claude-opus-4-6"
 VALIDATE_MAX_TOKENS = 1000
 
 VALIDATE_SYSTEM_PROMPT = (
@@ -46,6 +45,16 @@ class OpusValidator:
 
     def __init__(self, api_key: str) -> None:
         self._api_key = api_key
+
+    @property
+    def _validate_model(self) -> str:
+        """Get validate model from settings, with fallback."""
+        try:
+            from config.settings import settings
+
+            return settings.agent.validate_model
+        except Exception:
+            return "claude-opus-4-6"
 
     def _get_client(self):
         """Lazy client initialization."""
@@ -84,10 +93,11 @@ class OpusValidator:
         )
 
         try:
+            validate_model = self._validate_model
             client = self._get_client()
             response = await asyncio.to_thread(
                 client.messages.create,
-                model=VALIDATE_MODEL,
+                model=validate_model,
                 max_tokens=VALIDATE_MAX_TOKENS,
                 system=VALIDATE_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_message}],
@@ -102,7 +112,7 @@ class OpusValidator:
             # Estimate cost
             from src.agent.token_tracker import MODEL_PRICING
 
-            pricing = MODEL_PRICING.get(VALIDATE_MODEL, (5.0, 25.0))
+            pricing = MODEL_PRICING.get(validate_model, (5.0, 25.0))
             cost = (response.usage.input_tokens * pricing[0] + response.usage.output_tokens * pricing[1]) / 1_000_000
 
             return self._parse_response(text, cost)

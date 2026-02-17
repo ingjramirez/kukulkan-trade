@@ -12,6 +12,7 @@ Three-level fallback:
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass, field
 
@@ -24,6 +25,17 @@ from src.agent.token_tracker import TokenTracker
 from src.storage.database import Database
 
 log = structlog.get_logger()
+
+
+@dataclass
+class _TieredAgentResult:
+    """Adapter that normalizes TieredRunResult to the AgentRunResult interface."""
+
+    response: dict
+    tool_calls: list
+    turns: int
+    token_tracker: TokenTracker
+    raw_messages: list
 
 
 @dataclass
@@ -93,16 +105,20 @@ class PersistentAgent:
         log.info("persistent_session_started", session_id=session_id, trigger=trigger_type)
 
         try:
-            result = await self._execute_session(
-                session_id=session_id,
-                trigger_type=trigger_type,
-                market_data=market_data,
-                portfolio_summary=portfolio_summary,
-                runner_kwargs=runner_kwargs,
-                pinned_context=pinned_context,
-                strategy_directive=strategy_directive,
-            )
+            async with asyncio.timeout(300):  # 5 minute max per session
+                result = await self._execute_session(
+                    session_id=session_id,
+                    trigger_type=trigger_type,
+                    market_data=market_data,
+                    portfolio_summary=portfolio_summary,
+                    runner_kwargs=runner_kwargs,
+                    pinned_context=pinned_context,
+                    strategy_directive=strategy_directive,
+                )
             return result
+        except TimeoutError:
+            log.error("persistent_session_timeout", session_id=session_id)
+            raise
         except Exception:
             log.exception("persistent_session_failed", session_id=session_id)
             raise
@@ -160,18 +176,14 @@ class PersistentAgent:
                 posture=runner_kwargs.get("posture", "balanced"),
                 messages_override=messages,
             )
-            # Convert TieredRunResult to AgentRunResult-like for the rest of the flow
-            result = type(
-                "AgentRunResult",
-                (),
-                {
-                    "response": tiered_result.response,
-                    "tool_calls": tiered_result.tool_calls,
-                    "turns": tiered_result.turns,
-                    "token_tracker": tiered_result.token_tracker,
-                    "raw_messages": tiered_result.raw_messages,
-                },
-            )()
+            # Convert TieredRunResult to AgentRunResult-compatible interface
+            result = _TieredAgentResult(
+                response=tiered_result.response,
+                tool_calls=tiered_result.tool_calls,
+                turns=tiered_result.turns,
+                token_tracker=tiered_result.token_tracker,
+                raw_messages=tiered_result.raw_messages,
+            )
         else:
             result = await runner.run(
                 system_prompt=system_prompt,

@@ -17,6 +17,7 @@ log = structlog.get_logger()
 COMPRESSION_MODEL = "claude-haiku-4-5-20251001"
 VALIDATION_MODEL = "claude-sonnet-4-5-20250929"
 TARGET_TOKENS = 500
+MIN_FIDELITY_SCORE = 0.95
 
 COMPRESSION_PROMPT = """Compress this trading session into a ~500-token summary.
 
@@ -202,7 +203,7 @@ class SessionCompressor:
             return CompressionValidation(
                 missing_facts=missing,
                 fidelity_score=score,
-                is_acceptable=score >= 0.95,
+                is_acceptable=score >= MIN_FIDELITY_SCORE,
             )
         except (json.JSONDecodeError, ValueError, TypeError):
             return CompressionValidation(

@@ -130,6 +130,9 @@ async def get_inverse_exposure(
     inverse_positions: list[InversePositionResponse] = []
     inverse_total_value = 0.0
 
+    # Fetch trades once outside the loop to avoid N+1 queries
+    all_trades = await db.get_trades("B", tenant_id=tenant_id)
+
     for p in positions:
         if p.ticker not in INVERSE_ETF_META:
             continue
@@ -138,8 +141,7 @@ async def get_inverse_exposure(
         pct = value / total_value * 100 if total_value > 0 else 0.0
 
         # Compute days held from most recent BUY
-        trades = await db.get_trades("B", tenant_id=tenant_id)
-        buy_trades = [t for t in trades if t.ticker == p.ticker and t.side == "BUY"]
+        buy_trades = [t for t in all_trades if t.ticker == p.ticker and t.side == "BUY"]
         days_held = None
         hold_alert = None
         if buy_trades:

@@ -40,34 +40,38 @@ class ConversationStore:
         this updates it to 'completed' and fills in the messages.
         """
         messages_json = json.dumps(messages, default=str)
-        async with self.db.session() as s:
-            # Check if session was previously marked as started
-            existing = (
-                await s.execute(
-                    select(AgentConversationRow).where(
-                        AgentConversationRow.session_id == session_id,
+        try:
+            async with self.db.session() as s:
+                # Check if session was previously marked as started
+                existing = (
+                    await s.execute(
+                        select(AgentConversationRow).where(
+                            AgentConversationRow.session_id == session_id,
+                        )
                     )
-                )
-            ).scalar_one_or_none()
+                ).scalar_one_or_none()
 
-            if existing:
-                existing.messages_json = messages_json
-                existing.token_count = token_count
-                existing.cost_usd = cost_usd
-                existing.session_status = "completed"
-            else:
-                s.add(
-                    AgentConversationRow(
-                        tenant_id=tenant_id,
-                        session_id=session_id,
-                        trigger_type=trigger_type,
-                        messages_json=messages_json,
-                        token_count=token_count,
-                        cost_usd=cost_usd,
-                        session_status="completed",
+                if existing:
+                    existing.messages_json = messages_json
+                    existing.token_count = token_count
+                    existing.cost_usd = cost_usd
+                    existing.session_status = "completed"
+                else:
+                    s.add(
+                        AgentConversationRow(
+                            tenant_id=tenant_id,
+                            session_id=session_id,
+                            trigger_type=trigger_type,
+                            messages_json=messages_json,
+                            token_count=token_count,
+                            cost_usd=cost_usd,
+                            session_status="completed",
+                        )
                     )
-                )
-            await s.commit()
+                await s.commit()
+        except Exception as e:
+            log.error("conversation_save_session_failed", session_id=session_id, error=str(e))
+            raise
 
     async def mark_session_started(
         self,
@@ -81,19 +85,23 @@ class ConversationStore:
         If the session completes, save_session() will update this row.
         If the process crashes, this row remains with status='started'.
         """
-        async with self.db.session() as s:
-            s.add(
-                AgentConversationRow(
-                    tenant_id=tenant_id,
-                    session_id=session_id,
-                    trigger_type=trigger_type,
-                    messages_json="[]",
-                    token_count=0,
-                    cost_usd=0.0,
-                    session_status="started",
+        try:
+            async with self.db.session() as s:
+                s.add(
+                    AgentConversationRow(
+                        tenant_id=tenant_id,
+                        session_id=session_id,
+                        trigger_type=trigger_type,
+                        messages_json="[]",
+                        token_count=0,
+                        cost_usd=0.0,
+                        session_status="started",
+                    )
                 )
-            )
-            await s.commit()
+                await s.commit()
+        except Exception as e:
+            log.error("conversation_mark_started_failed", session_id=session_id, error=str(e))
+            raise
 
     async def load_recent(
         self,
@@ -107,7 +115,9 @@ class ConversationStore:
 
         Skips crashed sessions (status='started') and sessions where
         messages_json has been cleaned up (empty '[]').
+        n is capped at 50 to prevent unbounded result sets.
         """
+        n = min(n, 50)
         async with self.db.session() as s:
             result = await s.execute(
                 select(AgentConversationRow)
@@ -230,13 +240,17 @@ class ConversationStore:
         The messages_json stays in DB for debugging (cleaned up later by
         cleanup_old_messages). The summary is used for context building.
         """
-        async with self.db.session() as s:
-            await s.execute(
-                update(AgentConversationRow)
-                .where(AgentConversationRow.session_id == session_id)
-                .values(summary=summary)
-            )
-            await s.commit()
+        try:
+            async with self.db.session() as s:
+                await s.execute(
+                    update(AgentConversationRow)
+                    .where(AgentConversationRow.session_id == session_id)
+                    .values(summary=summary)
+                )
+                await s.commit()
+        except Exception as e:
+            log.error("conversation_save_summary_failed", session_id=session_id, error=str(e))
+            raise
 
     async def check_crashed_sessions(
         self,
@@ -266,20 +280,24 @@ class ConversationStore:
         Returns the number of sessions cleaned up.
         """
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-        async with self.db.session() as s:
-            result = await s.execute(
-                select(AgentConversationRow).where(
-                    AgentConversationRow.tenant_id == tenant_id,
-                    AgentConversationRow.summary.isnot(None),
-                    AgentConversationRow.created_at < cutoff,
-                    AgentConversationRow.messages_json != "[]",
+        try:
+            async with self.db.session() as s:
+                result = await s.execute(
+                    select(AgentConversationRow).where(
+                        AgentConversationRow.tenant_id == tenant_id,
+                        AgentConversationRow.summary.isnot(None),
+                        AgentConversationRow.created_at < cutoff,
+                        AgentConversationRow.messages_json != "[]",
+                    )
                 )
-            )
-            rows = list(result.scalars().all())
-            for row in rows:
-                row.messages_json = "[]"
-            await s.commit()
-            return len(rows)
+                rows = list(result.scalars().all())
+                for row in rows:
+                    row.messages_json = "[]"
+                await s.commit()
+                return len(rows)
+        except Exception as e:
+            log.error("conversation_cleanup_failed", tenant_id=tenant_id, error=str(e))
+            raise
 
     async def get_session(
         self,
