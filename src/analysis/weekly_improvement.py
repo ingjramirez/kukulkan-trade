@@ -155,7 +155,7 @@ If no changes are needed, return {"changes": [], "summary": "..."}."""
 class ImprovementAnalyzer:
     """Sends weekly performance data to Sonnet for improvement proposals."""
 
-    def __init__(self, model: str = "claude-sonnet-4-5-20250929") -> None:
+    def __init__(self, model: str = "claude-sonnet-4-6") -> None:
         self._model = model
 
     def _build_prompt(self, data: WeeklyPerformanceData, previous_changes: list[dict] | None = None) -> str:

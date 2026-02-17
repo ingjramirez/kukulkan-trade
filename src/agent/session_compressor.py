@@ -15,7 +15,7 @@ import structlog
 log = structlog.get_logger()
 
 COMPRESSION_MODEL = "claude-haiku-4-5-20251001"
-VALIDATION_MODEL = "claude-sonnet-4-5-20250929"
+VALIDATION_MODEL = "claude-sonnet-4-6"
 TARGET_TOKENS = 500
 MIN_FIDELITY_SCORE = 0.95
 

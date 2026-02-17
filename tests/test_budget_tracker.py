@@ -79,7 +79,7 @@ class TestBudgetTracker:
 
         # Record a session
         tt = TokenTracker()
-        tt.record("claude-sonnet-4-5-20250929", input_tokens=1000, output_tokens=500, turn=1)
+        tt.record("claude-sonnet-4-6", input_tokens=1000, output_tokens=500, turn=1)
 
         await tracker.record_session(
             tenant_id="default",
@@ -101,7 +101,7 @@ class TestBudgetTracker:
 
         # Record a session that exceeds daily limit
         tt = TokenTracker()
-        tt.record("claude-sonnet-4-5-20250929", input_tokens=1000, output_tokens=500, turn=1)
+        tt.record("claude-sonnet-4-6", input_tokens=1000, output_tokens=500, turn=1)
 
         await tracker.record_session(
             tenant_id="default",
@@ -119,7 +119,7 @@ class TestBudgetTracker:
         tracker = BudgetTracker(db, daily_limit=3.0, monthly_limit=75.0)
 
         tt = TokenTracker()
-        tt.record("claude-sonnet-4-5-20250929", input_tokens=1000, output_tokens=500, turn=1)
+        tt.record("claude-sonnet-4-6", input_tokens=1000, output_tokens=500, turn=1)
 
         await tracker.record_session(
             tenant_id="default",
@@ -140,7 +140,7 @@ class TestBudgetTracker:
         tracker = BudgetTracker(db, daily_limit=3.0, monthly_limit=75.0)
 
         tt = TokenTracker()
-        tt.record("claude-sonnet-4-5-20250929", input_tokens=1000, output_tokens=500, turn=1)
+        tt.record("claude-sonnet-4-6", input_tokens=1000, output_tokens=500, turn=1)
 
         await tracker.record_session(
             tenant_id="tenant-a",

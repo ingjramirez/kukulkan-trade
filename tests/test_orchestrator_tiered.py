@@ -100,7 +100,7 @@ class TestTieredBackwardCompat:
             patch("src.orchestrator.settings") as mock_settings,
         ):
             mock_settings.anthropic_api_key = "test-key"
-            mock_settings.agent.agent_tool_model = "claude-sonnet-4-5-20250929"
+            mock_settings.agent.agent_tool_model = "claude-sonnet-4-6"
             mock_settings.agent.agent_max_turns = 8
             mock_settings.agent.agent_session_budget = 0.50
             mock_settings.agent.enable_tiered = False
@@ -167,7 +167,7 @@ class TestTieredEnabled:
             patch("src.orchestrator.settings") as mock_settings,
         ):
             mock_settings.anthropic_api_key = "test-key"
-            mock_settings.agent.agent_tool_model = "claude-sonnet-4-5-20250929"
+            mock_settings.agent.agent_tool_model = "claude-sonnet-4-6"
             mock_settings.agent.agent_max_turns = 8
             mock_settings.agent.agent_session_budget = 0.50
             mock_settings.agent.enable_tiered = True

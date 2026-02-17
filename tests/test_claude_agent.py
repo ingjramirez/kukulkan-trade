@@ -502,7 +502,7 @@ class TestFilterInterestingTickers:
 class TestModelOverride:
     def test_model_override_used(self) -> None:
         """When model_override is provided, it should be used instead of default."""
-        agent = ClaudeAgent(api_key="fake-key", model="claude-sonnet-4-5-20250929")
+        agent = ClaudeAgent(api_key="fake-key", model="claude-sonnet-4-6")
         mock_client = MagicMock()
         mock_response = MagicMock()
         resp_json = '{"regime_assessment":"test","reasoning":"","trades":[],"risk_notes":""}'
@@ -530,14 +530,14 @@ class TestModelOverride:
 
     def test_no_override_uses_default(self) -> None:
         """Without model_override, the default model should be used."""
-        agent = ClaudeAgent(api_key="fake-key", model="claude-sonnet-4-5-20250929")
+        agent = ClaudeAgent(api_key="fake-key", model="claude-sonnet-4-6")
         mock_client = MagicMock()
         mock_response = MagicMock()
         resp_json = '{"regime_assessment":"test","reasoning":"","trades":[],"risk_notes":""}'
         mock_response.content = [MagicMock(text=resp_json)]
         mock_response.usage.input_tokens = 100
         mock_response.usage.output_tokens = 50
-        mock_response.model = "claude-sonnet-4-5-20250929"
+        mock_response.model = "claude-sonnet-4-6"
         mock_client.messages.create.return_value = mock_response
         agent._client = mock_client
 
@@ -553,7 +553,7 @@ class TestModelOverride:
         )
 
         call_kwargs = mock_client.messages.create.call_args[1]
-        assert call_kwargs["model"] == "claude-sonnet-4-5-20250929"
+        assert call_kwargs["model"] == "claude-sonnet-4-6"
 
 
 class TestBuildSystemPrompt:
@@ -638,7 +638,7 @@ class TestSaveDecision:
             "reasoning": "Markets look strong",
             "trades": [],
             "risk_notes": "Low risk",
-            "_model": "claude-sonnet-4-5-20250929",
+            "_model": "claude-sonnet-4-6",
             "_tokens_used": 1500,
         }
         await strategy.save_decision(db, date(2026, 2, 5), response, [])

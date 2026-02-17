@@ -136,7 +136,7 @@ async def seeded_db(db):
                 response_summary="Buy MSFT",
                 proposed_trades=json.dumps([{"ticker": "MSFT", "side": "BUY", "shares": 20}]),
                 reasoning="Strong fundamentals and momentum",
-                model_used="claude-sonnet-4-5-20250929",
+                model_used="claude-sonnet-4-6",
                 tokens_used=1500,
                 created_at=datetime(2026, 1, 16, 10, 0),
             )
@@ -337,7 +337,7 @@ async def test_agent_decisions(client):
     data = r.json()
     assert len(data) == 1
     decision = data[0]
-    assert decision["model_used"] == "claude-sonnet-4-5-20250929"
+    assert decision["model_used"] == "claude-sonnet-4-6"
     assert isinstance(decision["proposed_trades"], list)
     assert decision["proposed_trades"][0]["ticker"] == "MSFT"
 

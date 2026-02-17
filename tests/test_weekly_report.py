@@ -119,7 +119,7 @@ async def seeded_db(db):
             AgentDecisionRow(
                 date=date(2026, 2, 3),
                 reasoning="Tech rotation thesis",
-                model_used="claude-sonnet-4-5-20250929",
+                model_used="claude-sonnet-4-6",
                 tokens_used=3000,
             )
         )
@@ -127,7 +127,7 @@ async def seeded_db(db):
             AgentDecisionRow(
                 date=date(2026, 2, 5),
                 reasoning="Reducing gold exposure",
-                model_used="claude-sonnet-4-5-20250929",
+                model_used="claude-sonnet-4-6",
                 tokens_used=2800,
             )
         )
@@ -189,7 +189,7 @@ async def test_report_shows_agent_decisions(seeded_db, mock_notifier):
     report = await reporter.generate_and_send(date(2026, 2, 6))
 
     assert "Decisions: 2" in report
-    assert "sonnet-4-5" in report
+    assert "sonnet-4-6" in report
     assert "5,800" in report  # 3000 + 2800 tokens
 
 

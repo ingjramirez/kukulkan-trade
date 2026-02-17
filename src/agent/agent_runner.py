@@ -56,7 +56,7 @@ class AgentRunner:
     def __init__(
         self,
         api_key: str,
-        model: str = "claude-sonnet-4-5-20250929",
+        model: str = "claude-sonnet-4-6",
         max_turns: int = 8,
         max_cost_usd: float = 0.50,
     ) -> None:

@@ -73,7 +73,7 @@ def _mock_agent_response() -> dict:
         "watchlist_updates": [],
         "_raw": "{}",
         "_tokens_used": 500,
-        "_model": "claude-sonnet-4-5-20250929",
+        "_model": "claude-sonnet-4-6",
     }
 
 
@@ -120,7 +120,7 @@ class TestDefaultTenantAgentLoop:
             turns=2,
             token_tracker=TokenTracker(session_budget_usd=0.50),
         )
-        mock_result.token_tracker.record("claude-sonnet-4-5-20250929", 500, 200, 1)
+        mock_result.token_tracker.record("claude-sonnet-4-6", 500, 200, 1)
 
         with (
             patch.object(orch._strategy_b._agent, "analyze", return_value=_mock_agent_response()),
@@ -305,7 +305,7 @@ class TestAgentLoopEnabled:
             turns=3,
             token_tracker=TokenTracker(session_budget_usd=0.50),
         )
-        mock_result.token_tracker.record("claude-sonnet-4-5-20250929", 500, 200, 1)
+        mock_result.token_tracker.record("claude-sonnet-4-6", 500, 200, 1)
 
         with (
             patch.object(orch._strategy_b._agent, "analyze", return_value=_mock_agent_response()),

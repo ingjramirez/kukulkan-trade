@@ -103,7 +103,7 @@ class AgentRunResult:
     token_tracker: TokenTracker; raw_messages: list[dict]
 
 class AgentRunner:
-    def __init__(self, api_key: str, model: str = "claude-sonnet-4-5-20250929", max_turns: int = 8, max_cost_usd: float = 0.50) -> None
+    def __init__(self, api_key: str, model: str = "claude-sonnet-4-6", max_turns: int = 8, max_cost_usd: float = 0.50) -> None
     @property
     def registry(self) -> ToolRegistry
     async def run(self, system_prompt: str, user_message: str, model_override: str | None = None) -> AgentRunResult
@@ -126,7 +126,7 @@ class AgentRunner:
 
 ```python
 MODEL_PRICING: dict[str, tuple[float, float]] = {
-    "claude-sonnet-4-5-20250929": (3.0, 15.0),   # (input_per_mtok, output_per_mtok)
+    "claude-sonnet-4-6": (3.0, 15.0),   # (input_per_mtok, output_per_mtok)
     "claude-opus-4-6": (5.0, 25.0),
     "claude-haiku-4-5-20251001": (1.0, 5.0),
 }

@@ -129,7 +129,7 @@ class TestPersistentAgentFallback:
                 "trades": [],
                 "risk_notes": "",
                 "_tokens_used": 500,
-                "_model": "claude-sonnet-4-5-20250929",
+                "_model": "claude-sonnet-4-6",
             }
 
             # Patch the lazy AgentRunner import in the if-block

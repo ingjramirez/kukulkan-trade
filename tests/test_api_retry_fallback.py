@@ -16,7 +16,7 @@ class _FakeUsage:
 class _FakeResponse:
     content = [MagicMock(text='{"regime_assessment":"ok","reasoning":"ok","trades":[],"risk_notes":"ok"}')]
     usage = _FakeUsage()
-    model = "claude-sonnet-4-5-20250929"
+    model = "claude-sonnet-4-6"
 
 
 class _FakeOverloadedError(Exception):
@@ -58,7 +58,7 @@ class TestClaudeAgentFallback:
 
         mock_settings.anthropic_api_key = "test-key"
         mock_settings.agent.max_retries = 5
-        mock_settings.agent.fallback_model = "claude-sonnet-4-5-20250929"
+        mock_settings.agent.fallback_model = "claude-sonnet-4-6"
 
         # Create a real APIStatusError-like exception
         error = anthropic.APIStatusError(
@@ -80,7 +80,7 @@ class TestClaudeAgentFallback:
         assert mock_client.messages.create.call_count == 2
         # Second call should use fallback model
         second_call = mock_client.messages.create.call_args_list[1]
-        assert second_call.kwargs["model"] == "claude-sonnet-4-5-20250929"
+        assert second_call.kwargs["model"] == "claude-sonnet-4-6"
 
     @patch("src.agent.claude_agent.settings")
     @patch("anthropic.Anthropic")
@@ -90,7 +90,7 @@ class TestClaudeAgentFallback:
 
         mock_settings.anthropic_api_key = "test-key"
         mock_settings.agent.max_retries = 5
-        mock_settings.agent.fallback_model = "claude-sonnet-4-5-20250929"
+        mock_settings.agent.fallback_model = "claude-sonnet-4-6"
 
         error = anthropic.APIStatusError(
             message="bad request",
@@ -147,7 +147,7 @@ class TestClaudeAgentFallback:
 
         mock_settings.anthropic_api_key = "test-key"
         mock_settings.agent.max_retries = 5
-        mock_settings.agent.fallback_model = "claude-sonnet-4-5-20250929"
+        mock_settings.agent.fallback_model = "claude-sonnet-4-6"
 
         error = anthropic.APIStatusError(
             message="internal server error",
@@ -180,7 +180,7 @@ class TestAgentRunnerFallback:
         from src.agent.agent_runner import AgentRunner
 
         mock_settings.agent.max_retries = 5
-        mock_settings.agent.fallback_model = "claude-sonnet-4-5-20250929"
+        mock_settings.agent.fallback_model = "claude-sonnet-4-6"
 
         error = anthropic.APIStatusError(
             message="overloaded",
@@ -197,7 +197,7 @@ class TestAgentRunnerFallback:
             )
         ]
         fake_response.usage = _FakeUsage()
-        fake_response.model = "claude-sonnet-4-5-20250929"
+        fake_response.model = "claude-sonnet-4-6"
 
         mock_client = MagicMock()
         mock_client.messages.create.side_effect = [error, fake_response]

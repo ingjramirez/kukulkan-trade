@@ -185,7 +185,7 @@ class TestOrchestrator:
             "risk_notes": "none",
             "_raw": '{"test": true}',
             "_tokens_used": 200,
-            "_model": "claude-sonnet-4-5-20250929",
+            "_model": "claude-sonnet-4-6",
         }
         orchestrator._strategy_b._agent.analyze = MagicMock(return_value=mock_response)
         orchestrator._strategy_b._agent._client = MagicMock()
@@ -317,7 +317,7 @@ class TestComplexityRouting:
             "risk_notes": "test",
             "_raw": "{}",
             "_tokens_used": 100,
-            "_model": "claude-sonnet-4-5-20250929",
+            "_model": "claude-sonnet-4-6",
         }
         orchestrator._strategy_b._agent.analyze = MagicMock(return_value=mock_response)
         orchestrator._strategy_b._agent._client = MagicMock()

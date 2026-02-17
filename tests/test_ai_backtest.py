@@ -54,7 +54,7 @@ def _mock_agent_response(tokens: int = 2000) -> dict:
         "risk_notes": "Standard risk",
         "_raw": "{}",
         "_tokens_used": tokens,
-        "_model": "claude-sonnet-4-5-20250929",
+        "_model": "claude-sonnet-4-6",
     }
 
 

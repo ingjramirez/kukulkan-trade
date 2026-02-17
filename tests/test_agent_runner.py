@@ -14,7 +14,7 @@ def _make_text_response(text: str, input_tokens: int = 100, output_tokens: int =
     return SimpleNamespace(
         content=[SimpleNamespace(type="text", text=text)],
         stop_reason="end_turn",
-        model="claude-sonnet-4-5-20250929",
+        model="claude-sonnet-4-6",
         usage=SimpleNamespace(input_tokens=input_tokens, output_tokens=output_tokens),
     )
 
@@ -32,7 +32,7 @@ def _make_tool_use_response(
             SimpleNamespace(type="tool_use", id=tool_id, name=tool_name, input=tool_input),
         ],
         stop_reason="tool_use",
-        model="claude-sonnet-4-5-20250929",
+        model="claude-sonnet-4-6",
         usage=SimpleNamespace(input_tokens=input_tokens, output_tokens=output_tokens),
     )
 
@@ -180,7 +180,7 @@ async def test_budget_exceeded():
 
         runner = AgentRunner(api_key="test-key", max_cost_usd=0.0001)
         # Pre-exhaust the budget
-        runner._token_tracker.record("claude-sonnet-4-5-20250929", 100000, 50000, 0)
+        runner._token_tracker.record("claude-sonnet-4-6", 100000, 50000, 0)
 
         result = await runner.run("system", "user")
 

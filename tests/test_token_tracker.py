@@ -15,7 +15,7 @@ def test_opus_pricing_corrected():
 
 
 def test_sonnet_pricing():
-    assert MODEL_PRICING["claude-sonnet-4-5-20250929"] == (3.0, 15.0)
+    assert MODEL_PRICING["claude-sonnet-4-6"] == (3.0, 15.0)
 
 
 def test_haiku_pricing_corrected():
@@ -32,7 +32,7 @@ def test_cache_multipliers():
 
 def test_record_and_cost_sonnet():
     tracker = TokenTracker(session_budget_usd=1.00)
-    tracker.record("claude-sonnet-4-5-20250929", input_tokens=1000, output_tokens=500, turn=1)
+    tracker.record("claude-sonnet-4-6", input_tokens=1000, output_tokens=500, turn=1)
     # Cost: (1000 * 3.0 + 500 * 15.0) / 1M = 0.0105
     assert abs(tracker.total_cost_usd - 0.0105) < 1e-8
 
@@ -54,7 +54,7 @@ def test_record_and_cost_haiku():
 def test_backward_compat_no_cache_params():
     """record() without cache params still works (default 0)."""
     tracker = TokenTracker(session_budget_usd=1.0)
-    tracker.record(model="claude-sonnet-4-5-20250929", input_tokens=1000, output_tokens=500, turn=1)
+    tracker.record(model="claude-sonnet-4-6", input_tokens=1000, output_tokens=500, turn=1)
     assert len(tracker.entries) == 1
     assert tracker.entries[0].cache_creation_tokens == 0
     assert tracker.entries[0].cache_read_tokens == 0
@@ -77,7 +77,7 @@ def test_budget_not_exceeded():
 
 def test_budget_remaining():
     tracker = TokenTracker(session_budget_usd=0.50)
-    tracker.record("claude-sonnet-4-5-20250929", input_tokens=1000, output_tokens=500, turn=1)
+    tracker.record("claude-sonnet-4-6", input_tokens=1000, output_tokens=500, turn=1)
     assert 0.0 < tracker.budget_remaining_usd < 0.50
 
 
@@ -96,7 +96,7 @@ def test_cache_creation_cost():
     # 500 input * 3.0 + 500 cache_write * 3.0 * 1.25 + 200 output * 15.0
     # = 1500 + 1875 + 3000 = 6375  →  6375 / 1M = 0.006375
     tracker.record(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-sonnet-4-6",
         input_tokens=500,
         output_tokens=200,
         turn=1,
@@ -109,7 +109,7 @@ def test_cache_read_cost():
     tracker = TokenTracker()
     # 500 * 3.0 + 2000 * 3.0 * 0.10 + 200 * 15.0 = 1500 + 600 + 3000 = 5100 / 1M = 0.0051
     tracker.record(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-sonnet-4-6",
         input_tokens=500,
         output_tokens=200,
         turn=1,
@@ -121,14 +121,14 @@ def test_cache_read_cost():
 def test_mixed_cache_and_normal():
     tracker = TokenTracker()
     tracker.record(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-sonnet-4-6",
         input_tokens=1000,
         output_tokens=500,
         turn=1,
         cache_creation_tokens=2000,
     )
     tracker.record(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-sonnet-4-6",
         input_tokens=200,
         output_tokens=500,
         turn=2,
@@ -146,7 +146,7 @@ def test_cache_savings():
     # cached = 2000 * 3.0 * 0.10 / 1M = 0.0006
     # savings = 0.0054
     tracker.record(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-sonnet-4-6",
         input_tokens=500,
         output_tokens=200,
         turn=1,
@@ -157,7 +157,7 @@ def test_cache_savings():
 
 def test_no_cache_savings_without_reads():
     tracker = TokenTracker()
-    tracker.record(model="claude-sonnet-4-5-20250929", input_tokens=1000, output_tokens=500, turn=1)
+    tracker.record(model="claude-sonnet-4-6", input_tokens=1000, output_tokens=500, turn=1)
     assert tracker.cache_savings_usd == 0.0
 
 
@@ -167,7 +167,7 @@ def test_no_cache_savings_without_reads():
 def test_summary_includes_cache_fields():
     tracker = TokenTracker(session_budget_usd=0.50)
     tracker.record(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-sonnet-4-6",
         input_tokens=1000,
         output_tokens=500,
         turn=1,
@@ -197,8 +197,8 @@ def test_summary_entries_include_cache_fields():
 
 def test_summary_basic():
     tracker = TokenTracker(session_budget_usd=0.50)
-    tracker.record("claude-sonnet-4-5-20250929", input_tokens=1000, output_tokens=500, turn=1)
-    tracker.record("claude-sonnet-4-5-20250929", input_tokens=2000, output_tokens=800, turn=2)
+    tracker.record("claude-sonnet-4-6", input_tokens=1000, output_tokens=500, turn=1)
+    tracker.record("claude-sonnet-4-6", input_tokens=2000, output_tokens=800, turn=2)
     s = tracker.summary()
     assert s["total_input_tokens"] == 3000
     assert s["total_output_tokens"] == 1300
@@ -209,7 +209,7 @@ def test_summary_basic():
 
 def test_total_tokens():
     tracker = TokenTracker()
-    tracker.record("claude-sonnet-4-5-20250929", input_tokens=1000, output_tokens=500, turn=1)
-    tracker.record("claude-sonnet-4-5-20250929", input_tokens=2000, output_tokens=300, turn=2)
+    tracker.record("claude-sonnet-4-6", input_tokens=1000, output_tokens=500, turn=1)
+    tracker.record("claude-sonnet-4-6", input_tokens=2000, output_tokens=300, turn=2)
     assert tracker.total_input_tokens == 3000
     assert tracker.total_output_tokens == 800

@@ -7,7 +7,7 @@ class TestAgentSettings:
     def test_defaults(self) -> None:
         s = AgentSettings()
         assert s.strategy_mode == "conservative"
-        assert s.agent_tool_model == "claude-sonnet-4-5-20250929"
+        assert s.agent_tool_model == "claude-sonnet-4-6"
         assert s.agent_max_turns == 8
         assert s.agent_session_budget == 0.50
 

@@ -22,7 +22,7 @@ def _mock_anthropic_response(text: str, stop_reason: str = "end_turn"):
     response = MagicMock()
     response.content = [block]
     response.stop_reason = stop_reason
-    response.model = "claude-sonnet-4-5-20250929"
+    response.model = "claude-sonnet-4-6"
     response.usage = usage
     return response
 
