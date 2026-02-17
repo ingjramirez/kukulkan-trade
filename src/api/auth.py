@@ -20,7 +20,7 @@ _bearer = HTTPBearer()
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 ALGORITHM = "HS256"
-TOKEN_EXPIRE_HOURS = 2
+TOKEN_EXPIRE_HOURS = 8  # Must match NextAuth session maxAge (8h)
 
 # In-memory set of revoked JTI (JWT ID) values.
 # Entries auto-expire with the token, so this stays small.
