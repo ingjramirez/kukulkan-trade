@@ -2,6 +2,7 @@
 
 import json
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.deps import get_authorized_tenant_id, get_db
@@ -13,6 +14,8 @@ from src.api.schemas import (
     ParameterChangelogResponse,
 )
 from src.storage.database import Database
+
+log = structlog.get_logger()
 
 router = APIRouter(prefix="/api/agent/improvements", tags=["improvements"])
 
@@ -106,14 +109,14 @@ async def get_snapshot(
         try:
             proposal = json.loads(row.proposal_json)
         except (json.JSONDecodeError, TypeError):
-            pass
+            log.warning("snapshot_proposal_json_malformed", snapshot_id=snapshot_id)
 
     applied = None
     if row.applied_changes:
         try:
             applied = json.loads(row.applied_changes)
         except (json.JSONDecodeError, TypeError):
-            pass
+            log.warning("snapshot_applied_changes_malformed", snapshot_id=snapshot_id)
 
     return ImprovementSnapshotDetailResponse(
         id=row.id,

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
@@ -239,13 +240,8 @@ class ImprovementAnalyzer:
     def _parse_response(self, raw_text: str, data: WeeklyPerformanceData) -> ImprovementProposal:
         """Parse and validate the Sonnet JSON response."""
         # Strip markdown code fences if present
-        text = raw_text
-        if text.startswith("```"):
-            lines = text.split("\n")
-            text = "\n".join(lines[1:])
-            if text.endswith("```"):
-                text = text[:-3]
-            text = text.strip()
+        fence_match = re.search(r"```(?:json)?\s*\n(.*?)```", raw_text, re.DOTALL)
+        text = fence_match.group(1).strip() if fence_match else raw_text.strip()
 
         try:
             parsed = json.loads(text)

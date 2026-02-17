@@ -1424,6 +1424,20 @@ class Database:
             await s.refresh(row)
             return row.id
 
+    async def update_improvement_snapshot_applied(
+        self,
+        snapshot_id: int,
+        applied_changes: str | None,
+        report_text: str | None,
+    ) -> None:
+        """Update applied_changes and report_text on an existing snapshot."""
+        async with self.session() as s:
+            row = await s.get(ImprovementSnapshotRow, snapshot_id)
+            if row:
+                row.applied_changes = applied_changes
+                row.report_text = report_text
+                await s.commit()
+
     async def get_improvement_snapshots(
         self,
         tenant_id: str = "default",

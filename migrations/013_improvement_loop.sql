@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS improvement_snapshots (
 CREATE TABLE IF NOT EXISTS parameter_changelog (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id VARCHAR(36) NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    snapshot_id INTEGER REFERENCES improvement_snapshots(id),
+    snapshot_id INTEGER REFERENCES improvement_snapshots(id) ON DELETE SET NULL,
     parameter VARCHAR(50) NOT NULL,
     old_value TEXT,
     new_value TEXT,

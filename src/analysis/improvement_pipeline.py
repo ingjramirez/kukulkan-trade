@@ -34,7 +34,7 @@ class WeeklyImprovementPipeline:
     async def run(
         self,
         tenant_id: str = "default",
-        notifier=None,
+        notifier: object | None = None,
     ) -> dict:
         """Run the full weekly improvement pipeline.
 
@@ -64,12 +64,19 @@ class WeeklyImprovementPipeline:
             # Step 3: Analyze with Sonnet
             proposal = await self._analyzer.analyze(data, previous_changes)
 
-            # Step 4: Apply changes
-            engine = AutoApplyEngine(self._db)
-            applied = await engine.apply(tenant_id, proposal)
+            # Step 4: Save snapshot (get ID before applying, so changelog entries link back)
+            snapshot_id = await self._save_snapshot(data, proposal, applied_changes=None)
 
-            # Step 5: Save snapshot
-            snapshot_id = await self._save_snapshot(data, proposal, applied)
+            # Step 5: Apply changes (with snapshot_id for audit trail)
+            engine = AutoApplyEngine(self._db)
+            applied = await engine.apply(tenant_id, proposal, snapshot_id=snapshot_id)
+
+            # Step 5b: Update snapshot with applied results and report
+            await self._db.update_improvement_snapshot_applied(
+                snapshot_id,
+                applied_changes=json.dumps(applied) if applied else None,
+                report_text=_format_report(data, proposal, applied),
+            )
 
             # Step 6: Notify via Telegram
             if notifier and hasattr(notifier, "send_message"):
@@ -97,7 +104,7 @@ class WeeklyImprovementPipeline:
             )
 
         except Exception as e:
-            log.error("improvement_pipeline_failed", tenant_id=tenant_id, error=str(e))
+            log.exception("improvement_pipeline_failed", tenant_id=tenant_id, error=str(e))
             result["status"] = "error"
             result["error"] = str(e)
 
@@ -120,9 +127,9 @@ class WeeklyImprovementPipeline:
         self,
         data: WeeklyPerformanceData,
         proposal: ImprovementProposal,
-        applied: list[dict],
+        applied_changes: list[dict] | None = None,
     ) -> int:
-        """Save the weekly snapshot with proposal and applied changes."""
+        """Save the weekly snapshot. applied_changes can be None initially."""
         return await self._db.save_improvement_snapshot(
             tenant_id=data.tenant_id,
             week_start=data.week_start,
@@ -135,8 +142,8 @@ class WeeklyImprovementPipeline:
             strategy_mode=data.current_strategy_mode,
             trailing_stop_multiplier=data.current_trailing_stop_multiplier,
             proposal_json=json.dumps(proposal.raw_json) if proposal.raw_json else None,
-            applied_changes=json.dumps(applied) if applied else None,
-            report_text=_format_report(data, proposal, applied),
+            applied_changes=json.dumps(applied_changes) if applied_changes else None,
+            report_text=None,
         )
 
 

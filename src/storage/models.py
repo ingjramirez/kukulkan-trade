@@ -458,7 +458,9 @@ class ParameterChangelogRow(Base):
 
     id = Column(Integer, primary_key=True)
     tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
-    snapshot_id = Column(Integer, nullable=True)  # FK to improvement_snapshots.id
+    snapshot_id = Column(
+        Integer, ForeignKey("improvement_snapshots.id", ondelete="SET NULL"), nullable=True
+    )
     parameter = Column(String(50), nullable=False)
     old_value = Column(Text, nullable=True)
     new_value = Column(Text, nullable=True)
