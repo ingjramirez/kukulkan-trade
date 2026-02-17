@@ -117,8 +117,8 @@ class WeeklyImprovementPipeline:
                         },
                     )
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("event_publish_failed", error=str(exc))
 
         except Exception as e:
             log.exception("improvement_pipeline_failed", tenant_id=tenant_id, error=str(e))

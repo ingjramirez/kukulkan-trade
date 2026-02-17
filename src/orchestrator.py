@@ -262,8 +262,8 @@ class Orchestrator:
                             },
                         )
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.debug("event_publish_failed", error=str(exc))
                 # Try to notify tenant of the failure
                 try:
                     from src.notifications.telegram_factory import TelegramFactory
@@ -729,8 +729,8 @@ class Orchestrator:
                             data={"portfolio": pname, "reason": reason},
                         )
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.debug("event_publish_failed", error=str(exc))
 
         return MarketContext(
             closes=closes,
@@ -949,8 +949,8 @@ class Orchestrator:
                                 },
                             )
                         )
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        log.debug("event_publish_failed", error=str(exc))
                 except (ValueError, KeyError) as e:
                     log.warning("posture_resolve_failed", declared=declared, error=str(e))
 
@@ -1016,8 +1016,8 @@ class Orchestrator:
                             },
                         )
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.debug("event_publish_failed", error=str(exc))
 
             # Handle inverse trades requiring approval
             if verdict.requires_approval:
@@ -1092,8 +1092,8 @@ class Orchestrator:
                             },
                         )
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("event_publish_failed", error=str(exc))
         else:
             summary["trades_executed"] = 0
 
@@ -1193,8 +1193,8 @@ class Orchestrator:
                         data={"portfolio": pname, "date": str(today)},
                     )
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("event_publish_failed", error=str(exc))
 
         # Step 8.5: Reconcile equity against Alpaca
         try:
@@ -1900,8 +1900,8 @@ class Orchestrator:
                     data={"trigger": trigger_type, "session": session},
                 )
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("event_publish_failed", error=str(exc))
 
         # Build runner (same as agentic path)
         runner = AgentRunner(
@@ -2061,8 +2061,8 @@ class Orchestrator:
                             data={"reason": "daily_budget_exhausted", "spent": budget_status.daily_spent},
                         )
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.debug("event_publish_failed", error=str(exc))
                 return [], "Daily budget exhausted — session skipped", None
 
             session_profile = get_session_profile(trigger_type, budget_exhausted=budget_status.monthly_exhausted)
@@ -2242,8 +2242,8 @@ class Orchestrator:
                     },
                 )
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("event_publish_failed", error=str(exc))
         return trades, response.get("reasoning", ""), persistent_tool_summary
 
     async def _check_trailing_stops(
@@ -2341,8 +2341,8 @@ class Orchestrator:
                                 },
                             )
                         )
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        log.debug("event_publish_failed", error=str(exc))
 
         return sells, alerts
 
@@ -2746,7 +2746,7 @@ class Orchestrator:
         Returns:
             "opus", "sonnet", or "skip".
         """
-        request_id = uuid.uuid4().hex[:8]
+        request_id = uuid.uuid4().hex
         msg_id = await self._notifier.send_approval_request(complexity, request_id)
         if msg_id is None:
             return "sonnet"
@@ -2770,7 +2770,7 @@ class Orchestrator:
             log.info("inverse_approval_auto_reject_no_notifier", ticker=trade.ticker)
             return "reject"
 
-        request_id = uuid.uuid4().hex[:8]
+        request_id = uuid.uuid4().hex
         regime_str = regime_result.regime.value if regime_result else None
         msg_id = await self._notifier.send_inverse_trade_approval(trade, regime_str, request_id)
         if msg_id is None:
@@ -2814,15 +2814,15 @@ class Orchestrator:
                     },
                 )
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("event_publish_failed", error=str(exc))
 
         if not self._notifier_available():
             log.info("large_trade_auto_reject_no_notifier", ticker=trade.ticker)
             self._publish_trade_approval_resolved(tenant_id, trade.ticker, False)
             return "reject"
 
-        request_id = uuid.uuid4().hex[:8]
+        request_id = uuid.uuid4().hex
         msg_id = await self._notifier.send_large_trade_approval(
             trade, trade_pct, approval_reason, request_id
         )
@@ -2849,8 +2849,8 @@ class Orchestrator:
                     data={"ticker": ticker, "approved": approved},
                 )
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("event_publish_failed", error=str(exc))
 
     async def _process_suggested_tickers(
         self,
@@ -2961,8 +2961,8 @@ class Orchestrator:
                     data={"additions": additions, "removals": removals},
                 )
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("event_publish_failed", error=str(exc))
 
     async def _request_ticker_approval(self, row) -> str:
         """Send ticker approval request via Telegram and wait for response.
@@ -2970,7 +2970,7 @@ class Orchestrator:
         Returns:
             "approve" or "reject".
         """
-        request_id = uuid.uuid4().hex[:8]
+        request_id = uuid.uuid4().hex
         msg_id = await self._notifier.send_ticker_proposal(row, request_id)
         if msg_id is None:
             return "reject"

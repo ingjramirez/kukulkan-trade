@@ -148,6 +148,8 @@ Most events are **signals** — they carry a summary (for toasts) and the fronte
 
 **Exception:** `intraday_update` includes actual equity/cash values so the frontend can update live charts without a REST round-trip.
 
+**Backpressure:** The server queues up to 64 events per client. If a slow client falls behind, older events are silently dropped. The frontend should call `GET /api/events/recent` on reconnect (or periodically) to catch up on any missed events. Compare event `id` values to avoid duplicates.
+
 ## Frontend Integration Guide
 
 ### 1. Connect on Login

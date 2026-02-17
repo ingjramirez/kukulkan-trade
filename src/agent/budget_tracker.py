@@ -144,5 +144,5 @@ class BudgetTracker:
                     },
                 )
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("event_publish_failed", error=str(exc))
