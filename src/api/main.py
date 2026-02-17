@@ -16,6 +16,7 @@ from src.api.routes.conversations import router as conversations_router
 from src.api.routes.decisions import router as decisions_router
 from src.api.routes.discovered import router as discovered_router
 from src.api.routes.earnings import router as earnings_router
+from src.api.routes.events import router as events_router
 from src.api.routes.improvements import router as improvements_router
 from src.api.routes.momentum import router as momentum_router
 from src.api.routes.outcomes import router as outcomes_router
@@ -73,6 +74,7 @@ app.include_router(conversations_router)
 app.include_router(agent_insights_router)
 app.include_router(improvements_router)
 app.include_router(run_router)
+app.include_router(events_router)
 
 
 @app.exception_handler(Exception)

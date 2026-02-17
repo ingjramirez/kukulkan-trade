@@ -100,6 +100,11 @@ class Settings(BaseSettings):
     dashboard: DashboardSettings = DashboardSettings()
     agent: AgentSettings = AgentSettings()
 
+    # SSE (Server-Sent Events)
+    sse_heartbeat_s: float = 30.0  # heartbeat interval in seconds
+    sse_max_queue: int = 64  # max queued events per subscriber
+    sse_history_size: int = 100  # recent events buffer for catch-up
+
     # Pipeline tuning
     inter_tenant_delay: float = 2.0  # seconds between tenant runs (avoids Alpaca rate limits)
 

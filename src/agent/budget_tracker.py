@@ -131,3 +131,18 @@ class BudgetTracker:
             cost_usd=summary["total_cost_usd"],
             session_label=session_label,
         )
+        try:
+            from src.events.event_bus import Event, EventType, event_bus
+
+            event_bus.publish(
+                Event(
+                    type=EventType.BUDGET_UPDATED,
+                    tenant_id=tenant_id,
+                    data={
+                        "cost_usd": summary["total_cost_usd"],
+                        "session_label": session_label,
+                    },
+                )
+            )
+        except Exception:
+            pass

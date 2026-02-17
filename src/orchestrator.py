@@ -704,6 +704,18 @@ class Orchestrator:
                 halted_portfolios.add(pname)
                 summary["errors"].append(f"Portfolio {pname} halted: {reason}")
                 log.warning("portfolio_halted", portfolio=pname, reason=reason)
+                try:
+                    from src.events.event_bus import Event, EventType, event_bus
+
+                    event_bus.publish(
+                        Event(
+                            type=EventType.CIRCUIT_BREAKER_TRIGGERED,
+                            tenant_id=tenant_id,
+                            data={"portfolio": pname, "reason": reason},
+                        )
+                    )
+                except Exception:
+                    pass
 
         return MarketContext(
             closes=closes,
@@ -909,6 +921,21 @@ class Orchestrator:
                         limits_single=posture_limits_b.max_single_position_pct,
                         limits_sector=posture_limits_b.max_sector_concentration,
                     )
+                    try:
+                        from src.events.event_bus import Event, EventType, event_bus
+
+                        event_bus.publish(
+                            Event(
+                                type=EventType.POSTURE_CHANGED,
+                                tenant_id=tenant_id,
+                                data={
+                                    "declared": declared,
+                                    "effective": effective_posture.value,
+                                },
+                            )
+                        )
+                    except Exception:
+                        pass
                 except (ValueError, KeyError) as e:
                     log.warning("posture_resolve_failed", declared=declared, error=str(e))
 
@@ -998,6 +1025,26 @@ class Orchestrator:
         if all_trades:
             executed = await self._executor.execute_trades(all_trades, tenant_id=tenant_id)
             summary["trades_executed"] = len(executed)
+            # Publish SSE events for each executed trade
+            try:
+                from src.events.event_bus import Event, EventType, event_bus
+
+                for trade in executed:
+                    event_bus.publish(
+                        Event(
+                            type=EventType.TRADE_EXECUTED,
+                            tenant_id=tenant_id,
+                            data={
+                                "ticker": trade.ticker,
+                                "side": trade.side.value,
+                                "shares": trade.shares,
+                                "price": trade.price,
+                                "portfolio": trade.portfolio.value,
+                            },
+                        )
+                    )
+            except Exception:
+                pass
         else:
             summary["trades_executed"] = 0
 
@@ -1076,6 +1123,29 @@ class Orchestrator:
                 )
             except Exception as e:
                 log.error("snapshot_failed", portfolio=portfolio_name, error=str(e))
+
+        # Publish data refresh events
+        try:
+            from src.events.event_bus import Event, EventType, event_bus
+
+            if executed:
+                event_bus.publish(
+                    Event(
+                        type=EventType.POSITIONS_UPDATED,
+                        tenant_id=tenant_id,
+                        data={"trades_executed": len(executed)},
+                    )
+                )
+            for pname in snapshot_portfolios:
+                event_bus.publish(
+                    Event(
+                        type=EventType.PORTFOLIO_SNAPSHOT,
+                        tenant_id=tenant_id,
+                        data={"portfolio": pname, "date": str(today)},
+                    )
+                )
+        except Exception:
+            pass
 
         # Step 8.5: Reconcile equity against Alpaca
         try:
@@ -1771,6 +1841,18 @@ class Orchestrator:
         from src.agent.tools.portfolio import register_portfolio_tools
 
         log.info("portfolio_b_persistent_mode", tenant_id=tenant_id, trigger=trigger_type)
+        try:
+            from src.events.event_bus import Event, EventType, event_bus
+
+            event_bus.publish(
+                Event(
+                    type=EventType.SESSION_STARTED,
+                    tenant_id=tenant_id,
+                    data={"trigger": trigger_type, "session": session},
+                )
+            )
+        except Exception:
+            pass
 
         # Build runner (same as agentic path)
         runner = AgentRunner(
@@ -1920,6 +2002,18 @@ class Orchestrator:
 
             if budget_status.daily_exhausted:
                 log.warning("daily_budget_exhausted", tenant_id=tenant_id, spent=budget_status.daily_spent)
+                try:
+                    from src.events.event_bus import Event, EventType, event_bus
+
+                    event_bus.publish(
+                        Event(
+                            type=EventType.SESSION_SKIPPED,
+                            tenant_id=tenant_id,
+                            data={"reason": "daily_budget_exhausted", "spent": budget_status.daily_spent},
+                        )
+                    )
+                except Exception:
+                    pass
                 return [], "Daily budget exhausted — session skipped", None
 
             session_profile = get_session_profile(trigger_type, budget_exhausted=budget_status.monthly_exhausted)
@@ -2086,6 +2180,21 @@ class Orchestrator:
             tokens=result.token_tracker.total_input_tokens + result.token_tracker.total_output_tokens,
             cost_usd=round(result.token_tracker.total_cost_usd, 4),
         )
+        try:
+            from src.events.event_bus import Event, EventType, event_bus
+
+            event_bus.publish(
+                Event(
+                    type=EventType.SESSION_COMPLETED,
+                    tenant_id=tenant_id,
+                    data={
+                        "trades": len(trades),
+                        "cost_usd": round(result.token_tracker.total_cost_usd, 4),
+                    },
+                )
+            )
+        except Exception:
+            pass
         return trades, response.get("reasoning", ""), persistent_tool_summary
 
     async def _check_trailing_stops(
@@ -2168,6 +2277,23 @@ class Orchestrator:
                         stop_price=round(stop.stop_price, 2),
                         portfolio=stop.portfolio,
                     )
+                    try:
+                        from src.events.event_bus import Event, EventType, event_bus
+
+                        event_bus.publish(
+                            Event(
+                                type=EventType.TRAILING_STOP_TRIGGERED,
+                                tenant_id=tenant_id,
+                                data={
+                                    "ticker": stop.ticker,
+                                    "price": round(price, 2),
+                                    "stop_price": round(stop.stop_price, 2),
+                                    "portfolio": stop.portfolio,
+                                },
+                            )
+                        )
+                    except Exception:
+                        pass
 
         return sells, alerts
 
