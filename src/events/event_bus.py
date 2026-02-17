@@ -21,6 +21,7 @@ class EventType(str, Enum):
     # Trading events
     TRADE_EXECUTED = "trade_executed"
     TRAILING_STOP_TRIGGERED = "trailing_stop_triggered"
+    TRADE_REJECTED = "trade_rejected"
     TRADE_APPROVAL_REQUESTED = "trade_approval_requested"
     TRADE_APPROVAL_RESOLVED = "trade_approval_resolved"
 
@@ -36,8 +37,11 @@ class EventType(str, Enum):
     PORTFOLIO_SNAPSHOT = "portfolio_snapshot"
     INTRADAY_UPDATE = "intraday_update"
     BUDGET_UPDATED = "budget_updated"
+    WATCHLIST_UPDATED = "watchlist_updated"
 
     # System
+    SYSTEM_ERROR = "system_error"
+    IMPROVEMENT_REPORT = "improvement_report"
     HEARTBEAT = "heartbeat"
 
 

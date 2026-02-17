@@ -103,6 +103,23 @@ class WeeklyImprovementPipeline:
                 changes=len(applied),
             )
 
+            try:
+                from src.events.event_bus import Event, EventType, event_bus
+
+                event_bus.publish(
+                    Event(
+                        type=EventType.IMPROVEMENT_REPORT,
+                        tenant_id=tenant_id,
+                        data={
+                            "changes_applied": len([a for a in applied if a.get("status") == "applied"]),
+                            "proposals_total": len(applied),
+                            "summary": (proposal.summary or "")[:200],
+                        },
+                    )
+                )
+            except Exception:
+                pass
+
         except Exception as e:
             log.exception("improvement_pipeline_failed", tenant_id=tenant_id, error=str(e))
             result["status"] = "error"

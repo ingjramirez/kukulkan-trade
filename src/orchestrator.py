@@ -249,6 +249,21 @@ class Orchestrator:
                         "error": str(e),
                     }
                 )
+                try:
+                    from src.events.event_bus import Event, EventType, event_bus
+
+                    event_bus.publish(
+                        Event(
+                            type=EventType.SYSTEM_ERROR,
+                            tenant_id=tenant.id,
+                            data={
+                                "message": str(e)[:200],
+                                "step": session,
+                            },
+                        )
+                    )
+                except Exception:
+                    pass
                 # Try to notify tenant of the failure
                 try:
                     from src.notifications.telegram_factory import TelegramFactory
@@ -985,6 +1000,24 @@ class Orchestrator:
             all_trades.extend(verdict.allowed)
             for blocked_trade, reason in verdict.blocked:
                 log.warning("trade_blocked_by_risk", portfolio=pname, ticker=blocked_trade.ticker, reason=reason)
+                try:
+                    from src.events.event_bus import Event, EventType, event_bus
+
+                    event_bus.publish(
+                        Event(
+                            type=EventType.TRADE_REJECTED,
+                            tenant_id=tenant_id,
+                            data={
+                                "ticker": blocked_trade.ticker,
+                                "side": blocked_trade.side.value,
+                                "shares": blocked_trade.shares,
+                                "reason": reason,
+                                "portfolio": pname,
+                            },
+                        )
+                    )
+                except Exception:
+                    pass
 
             # Handle inverse trades requiring approval
             if verdict.requires_approval:
@@ -2914,6 +2947,22 @@ class Orchestrator:
             elif action == "remove":
                 await self._db.remove_watchlist_item(tenant_id, ticker)
                 log.info("watchlist_item_removed", ticker=ticker, tenant_id=tenant_id)
+
+        # Publish SSE event for watchlist changes
+        try:
+            from src.events.event_bus import Event, EventType, event_bus
+
+            additions = sum(1 for u in updates if u.get("action", "").lower() == "add")
+            removals = sum(1 for u in updates if u.get("action", "").lower() == "remove")
+            event_bus.publish(
+                Event(
+                    type=EventType.WATCHLIST_UPDATED,
+                    tenant_id=tenant_id,
+                    data={"additions": additions, "removals": removals},
+                )
+            )
+        except Exception:
+            pass
 
     async def _request_ticker_approval(self, row) -> str:
         """Send ticker approval request via Telegram and wait for response.
