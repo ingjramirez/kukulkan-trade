@@ -1656,6 +1656,7 @@ class Orchestrator:
                 regime=regime_str,
                 db=self._db,
                 held_tickers=held_tickers,
+                tenant_id=tenant_id,
             )
             register_news_tools(
                 runner.registry,
@@ -1665,7 +1666,13 @@ class Orchestrator:
                 tenant_id=tenant_id,
                 current_prices=current_prices,
             )
-            register_action_tools(runner.registry, action_state, db=self._db, tenant_id=tenant_id)
+            register_action_tools(
+                runner.registry,
+                action_state,
+                db=self._db,
+                tenant_id=tenant_id,
+                ticker_discovery=self._ticker_discovery,
+            )
 
             result = await runner.run(
                 system_prompt=investigation_prompt,
@@ -1831,8 +1838,14 @@ class Orchestrator:
         except Exception as e:
             log.warning("memory_save_failed", error=str(e))
 
-        # Process suggested tickers from agent response
+        # Process suggested tickers from agent response (passive path)
         await self._process_suggested_tickers(response, today, tenant_id=tenant_id)
+
+        # Process tool-based ticker discoveries (already validated + saved by tool)
+        try:
+            await self._process_tool_discoveries(accumulated, today, tenant_id=tenant_id)
+        except Exception as e:
+            log.warning("tool_discovery_processing_failed", error=str(e))
 
         # Process watchlist updates from agent response
         try:
@@ -1924,6 +1937,7 @@ class Orchestrator:
             regime=regime_str,
             db=self._db,
             held_tickers=held_tickers,
+            tenant_id=tenant_id,
         )
         register_news_tools(
             runner.registry,
@@ -1933,7 +1947,13 @@ class Orchestrator:
             tenant_id=tenant_id,
             current_prices=current_prices,
         )
-        register_action_tools(runner.registry, action_state, db=self._db, tenant_id=tenant_id)
+        register_action_tools(
+            runner.registry,
+            action_state,
+            db=self._db,
+            tenant_id=tenant_id,
+            ticker_discovery=self._ticker_discovery,
+        )
 
         # Build market data for trigger message
         market_data = {
@@ -2190,8 +2210,14 @@ class Orchestrator:
         except Exception as e:
             log.warning("memory_save_failed", error=str(e))
 
-        # Process suggested tickers
+        # Process suggested tickers (passive path)
         await self._process_suggested_tickers(response, today, tenant_id=tenant_id)
+
+        # Process tool-based ticker discoveries (already validated + saved by tool)
+        try:
+            await self._process_tool_discoveries(accumulated, today, tenant_id=tenant_id)
+        except Exception as e:
+            log.warning("tool_discovery_processing_failed", error=str(e))
 
         # Process watchlist updates
         try:
@@ -2911,6 +2937,38 @@ class Orchestrator:
                     tenant_id=tenant_id,
                 )
                 log.info("ticker_auto_rejected_no_telegram", ticker=ticker)
+
+    async def _process_tool_discoveries(
+        self,
+        accumulated: dict,
+        today: date,
+        tenant_id: str = "default",
+    ) -> None:
+        """Process ticker discoveries made via the discover_ticker tool.
+
+        Tool-discovered tickers are already validated and saved to DB as 'proposed'.
+        This method sends Telegram approval for each. If no Telegram, they stay
+        as 'proposed' for dashboard approval.
+        """
+        proposals = accumulated.get("discovery_proposals", [])
+        if not proposals:
+            return
+
+        for proposal in proposals:
+            ticker = proposal.get("ticker", "").upper().strip()
+            if not ticker:
+                continue
+
+            if self._notifier_available():
+                row = await self._db.get_discovered_ticker(ticker, tenant_id=tenant_id)
+                if row and row.status == "proposed":
+                    choice = await self._request_ticker_approval(row)
+                    status = "approved" if choice == "approve" else "rejected"
+                    await self._db.update_discovered_ticker_status(ticker, status, tenant_id=tenant_id)
+                    log.info("tool_discovery_resolved", ticker=ticker, status=status, tenant_id=tenant_id)
+            else:
+                # No Telegram — leave as 'proposed' for dashboard approval
+                log.info("tool_discovery_pending_dashboard", ticker=ticker, tenant_id=tenant_id)
 
     async def _process_watchlist_updates(
         self,

@@ -23,6 +23,7 @@ class ActionState:
     memory_notes: list[dict] = field(default_factory=list)
     executed_trades: list[dict] = field(default_factory=list)
     trailing_stop_requests: list[dict] = field(default_factory=list)
+    discovery_proposals: list[dict] = field(default_factory=list)
     declared_posture: str | None = None
 
     def get_accumulated_state(self) -> dict:
@@ -33,6 +34,7 @@ class ActionState:
             "memory_notes": list(self.memory_notes),
             "executed_trades": list(self.executed_trades),
             "trailing_stop_requests": list(self.trailing_stop_requests),
+            "discovery_proposals": list(self.discovery_proposals),
             "declared_posture": self.declared_posture,
         }
 
@@ -43,6 +45,7 @@ class ActionState:
         self.memory_notes.clear()
         self.executed_trades.clear()
         self.trailing_stop_requests.clear()
+        self.discovery_proposals.clear()
         self.declared_posture = None
 
 
@@ -260,6 +263,127 @@ async def _declare_posture(
     }
 
 
+# ── 6. discover_ticker (propose a new ticker for the universe) ─────────────
+
+
+async def _discover_ticker(
+    state: ActionState,
+    ticker_discovery: object | None,
+    tenant_id: str,
+    ticker: str,
+    reason: str,
+    conviction: str = "medium",
+    sector_rationale: str = "",
+) -> dict:
+    """Propose a new ticker for addition to the trading universe.
+
+    Validates via yfinance (market cap, volume) and saves as 'proposed'.
+    Owner approves/rejects via Telegram after the session.
+    Use search_ticker_info FIRST to research before proposing.
+    """
+    if ticker_discovery is None:
+        return {"success": False, "ticker": ticker, "status": "error", "message": "Discovery system not available"}
+
+    ticker = ticker.upper().strip()
+    if not ticker:
+        return {"success": False, "ticker": "", "status": "error", "message": "No ticker provided"}
+    if not reason:
+        return {"success": False, "ticker": ticker, "status": "error", "message": "Reason is required"}
+
+    # Check if already in static universe
+    from config.universe import FULL_UNIVERSE
+
+    if ticker in FULL_UNIVERSE:
+        return {
+            "success": False,
+            "ticker": ticker,
+            "status": "already_in_universe",
+            "message": f"{ticker} is already in the active trading universe",
+        }
+
+    # Check if already discovered for this tenant
+    from src.storage.database import Database
+
+    if hasattr(ticker_discovery, "_db") and isinstance(ticker_discovery._db, Database):
+        existing = await ticker_discovery._db.get_discovered_ticker(ticker, tenant_id=tenant_id)
+        if existing:
+            if existing.status == "proposed":
+                days_ago = ""
+                if existing.proposed_at:
+                    from datetime import date
+
+                    delta = (date.today() - existing.proposed_at).days
+                    days_ago = f" (proposed {delta} days ago)"
+                return {
+                    "success": False,
+                    "ticker": ticker,
+                    "status": "already_pending",
+                    "message": f"{ticker} is already pending approval{days_ago}",
+                }
+            elif existing.status == "approved":
+                return {
+                    "success": False,
+                    "ticker": ticker,
+                    "status": "already_approved",
+                    "message": f"{ticker} is already approved and in the dynamic universe",
+                }
+
+    # Build combined rationale
+    full_rationale = reason
+    if conviction and conviction != "medium":
+        full_rationale = f"[{conviction}] {full_rationale}"
+    if sector_rationale:
+        full_rationale = f"{full_rationale} | Sector: {sector_rationale}"
+
+    # Use existing TickerDiscovery.propose_ticker() for validation + DB write
+    row = await ticker_discovery.propose_ticker(
+        ticker=ticker,
+        rationale=full_rationale,
+        source="agent_tool",
+        tenant_id=tenant_id,
+    )
+
+    if row is None:
+        # Validation failed or limit reached — get reason from validate_ticker
+        validation = ticker_discovery.validate_ticker(ticker)
+        if not validation.valid:
+            return {
+                "success": False,
+                "ticker": ticker,
+                "status": "rejected",
+                "message": validation.reason,
+            }
+        return {
+            "success": False,
+            "ticker": ticker,
+            "status": "rejected",
+            "message": "Dynamic ticker limit reached or ticker already exists",
+        }
+
+    # Track in ActionState for post-loop Telegram approval
+    state.discovery_proposals.append(
+        {
+            "ticker": ticker,
+            "reason": reason,
+            "conviction": conviction,
+            "source": "agent_tool",
+        }
+    )
+
+    return {
+        "success": True,
+        "ticker": ticker,
+        "status": "pending_approval",
+        "message": "Validated and submitted. Owner will approve/reject via Telegram after this session.",
+        "validation": {
+            "market_cap_ok": True,
+            "volume_ok": True,
+            "sector": row.sector or "Unknown",
+            "market_cap": f"${row.market_cap / 1e9:.1f}B" if row.market_cap else "N/A",
+        },
+    }
+
+
 # ── Legacy functions (kept for backward compat) ─────────────────────────────
 
 
@@ -327,6 +451,7 @@ def register_action_tools(
     state: ActionState,
     db: Any | None = None,
     tenant_id: str = "default",
+    ticker_discovery: Any | None = None,
 ) -> None:
     """Register action tools with a per-run state container.
 
@@ -335,6 +460,7 @@ def register_action_tools(
         state: ActionState instance (created fresh per run).
         db: Database instance (for order status lookups).
         tenant_id: Tenant UUID.
+        ticker_discovery: TickerDiscovery instance (for discover_ticker tool).
     """
     # ── Phase 2 tools ────────────────────────────────────────────────────────
     registry.register(
@@ -451,6 +577,34 @@ def register_action_tools(
             "required": ["updates"],
         },
         handler=partial(_update_watchlist, state),
+    )
+
+    # ── Discovery tools ──────────────────────────────────────────────────────
+    registry.register(
+        name="discover_ticker",
+        description=(
+            "Propose a new ticker for the trading universe. Validates via yfinance "
+            "(market cap >$1B, volume >100K) and submits for owner approval. "
+            "Use search_ticker_info FIRST to research, then call this to propose."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string", "description": "Ticker symbol to propose (e.g., ANET)"},
+                "reason": {"type": "string", "description": "Why this ticker should be added (your thesis)"},
+                "conviction": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"],
+                    "description": "Confidence level (default: medium)",
+                },
+                "sector_rationale": {
+                    "type": "string",
+                    "description": "How this fits the portfolio's sector strategy",
+                },
+            },
+            "required": ["ticker", "reason"],
+        },
+        handler=partial(_discover_ticker, state, ticker_discovery, tenant_id),
     )
 
     # ── Phase 32 aliases (backward compatibility) ────────────────────────────

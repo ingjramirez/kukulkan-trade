@@ -429,6 +429,65 @@ async def _get_risk_assessment(
     }
 
 
+# ── 7. list_discovered_tickers (audit trail for agent discoveries) ────────────
+
+
+async def _list_discovered_tickers(
+    db: Database,
+    tenant_id: str,
+    status: str = "all",
+) -> dict:
+    """List tickers the agent has previously discovered/proposed.
+
+    Helps the agent avoid re-proposing and understand which past
+    discoveries were approved vs rejected.
+    """
+    if status == "all":
+        rows = await db.get_all_discovered_tickers(tenant_id=tenant_id)
+    else:
+        rows = await db.get_all_discovered_tickers(tenant_id=tenant_id, status=status)
+
+    # Get active approved tickers to show in_active_universe flag
+    approved_active = await db.get_approved_tickers(tenant_id=tenant_id)
+    active_tickers = {r.ticker for r in approved_active}
+
+    discoveries = []
+    status_counts: dict[str, int] = {}
+    for r in rows:
+        s = r.status or "unknown"
+        status_counts[s] = status_counts.get(s, 0) + 1
+
+        entry: dict = {
+            "ticker": r.ticker,
+            "status": s,
+            "proposed_date": r.proposed_at.isoformat() if r.proposed_at else None,
+            "expires_at": r.expires_at.isoformat() if r.expires_at else None,
+            "reason": r.rationale or "",
+            "source": r.source or "unknown",
+            "sector": r.sector or "Unknown",
+            "market_cap": f"${r.market_cap / 1e9:.1f}B" if r.market_cap else "N/A",
+            "in_active_universe": r.ticker in active_tickers,
+        }
+        discoveries.append(entry)
+
+    total = len(rows)
+    approved = status_counts.get("approved", 0)
+    rejected = status_counts.get("rejected", 0)
+    resolved = approved + rejected
+
+    return {
+        "discoveries": discoveries,
+        "summary": {
+            "total": total,
+            "approved": approved,
+            "rejected": rejected,
+            "pending": status_counts.get("proposed", 0),
+            "expired": status_counts.get("expired", 0),
+            "approval_rate": round(approved / resolved, 2) if resolved > 0 else None,
+        },
+    }
+
+
 # ── Legacy aliases (Phase 32 backward compatibility) ───────────────────────────
 
 
@@ -585,6 +644,27 @@ def register_portfolio_tools(
             input_schema={"type": "object", "properties": {}},
             handler=partial(_get_risk_assessment, db, tenant_id, current_prices, closes),
         )
+
+    # ── Discovery tools ──────────────────────────────────────────────────────
+    registry.register(
+        name="list_discovered_tickers",
+        description=(
+            "List tickers you have previously discovered or proposed. Shows status "
+            "(pending/approved/rejected/expired), approval rate, and whether each "
+            "ticker is in the active universe. Helps avoid re-proposing rejected tickers."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["all", "proposed", "approved", "rejected", "expired"],
+                    "description": "Filter by status (default: all)",
+                },
+            },
+        },
+        handler=partial(_list_discovered_tickers, db, tenant_id),
+    )
 
     # ── Phase 32 aliases (backward compatibility) ────────────────────────────
     registry.register(
