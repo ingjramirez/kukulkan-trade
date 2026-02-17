@@ -216,11 +216,11 @@ class TestTokenRevocation:
         """Revoking an invalid token should not raise."""
         revoke_token("garbage.invalid.token")
 
-    async def test_jwt_expiry_is_2_hours(self):
-        """Token expiry should be 2 hours, not 24."""
+    async def test_jwt_expiry_matches_frontend_session(self):
+        """Token expiry should be 8 hours to match NextAuth session maxAge."""
         from src.api.auth import TOKEN_EXPIRE_HOURS
 
-        assert TOKEN_EXPIRE_HOURS == 2
+        assert TOKEN_EXPIRE_HOURS == 8
 
 
 # ── Login Input Validation ──────────────────────────────────────────────────
