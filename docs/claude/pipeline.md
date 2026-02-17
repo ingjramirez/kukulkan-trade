@@ -207,14 +207,18 @@ class SentinelRunner:
 
 Three check types:
 1. **Stop proximity**: Fetches prices for active trailing stops. CLEAR >3%, WARNING 2-3%, CRITICAL <2%.
-2. **Regime shift**: VIX crossing 28 up (warning), VIX >35 (critical), SPY intraday >2% (warning), >3% (critical). Tracks previous values via module-level `_sentinel_state`.
+2. **Regime shift**: VIX crossing 28 up (warning), VIX >35 (critical), SPY intraday >2% (warning), >3% (critical). Tracks previous values via per-tenant state (`_get_state(tenant_id)`).
 3. **Fill verification**: Queries executor `get_open_orders()`. Partial fills → warning, stale >30min → warning, stale >60min → critical.
 
-Escalation: `SentinelResult.needs_escalation` = True when any alert is CRITICAL. Scheduler triggers crisis session (`run_daily(session="Sentinel-Crisis", run_portfolio_a=False)`).
+Escalation: `SentinelResult.needs_escalation` = True when any alert is CRITICAL. Scheduler triggers crisis session (`run_daily(session="Sentinel-Crisis", run_portfolio_a=False)`) under `_pipeline_lock`.
 
-Guards: `can_escalate()` checks daily limit (default 2) + 30min cooldown after scheduled sessions. `record_escalation()` / `record_session_time()` track state.
+Guards: `can_escalate(tenant_id=)` checks per-tenant daily limit (default 2) + configurable cooldown (`sentinel_escalation_cooldown_s`, default 1800s) after scheduled sessions. `record_escalation(tenant_id=)` / `record_session_time(tenant_id=)` track per-tenant state.
 
-SSE events: `SENTINEL_ALERT` (all warning/critical results), `SENTINEL_ESCALATION` (crisis triggered).
+Telegram throttle: `should_send_alert(ticker, tenant_id)` deduplicates per-ticker alerts (1h cooldown). `record_alert_sent()` tracks send times.
+
+Concurrency: `_pipeline_lock` (asyncio.Lock) in `main.py` prevents scheduled pipeline and sentinel crisis session from running simultaneously.
+
+SSE events: `SENTINEL_ALERT` (all warning/critical results), `SENTINEL_ESCALATION` (crisis triggered). Uses `event_bus` singleton (NOT `EventBus.get()`).
 
 ## Notifications
 

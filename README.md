@@ -54,7 +54,9 @@ Python 3.11 | FastAPI | SQLAlchemy + aiosqlite | ChromaDB | yfinance | `ta` | An
 - **Dynamic Allocations** — Percentage-based portfolio splits, initial equity capture from Alpaca, automatic deposit detection
 - **Portfolio Toggle Lifecycle** — Enable/disable portfolios via API; positions are liquidated and cash is redistributed on next bot run
 - **Multi-Tenant** — Fernet-encrypted credentials, per-tenant data isolation, admin API + self-service, per-tenant ticker customization
-- **Security** — JWT auth (2h expiry + revocation), rate limiting, timing-safe auth, audit logging, IDOR protection
+- **Intraday Sentinel** — Automated monitoring every 30 min: stop proximity alerts, VIX/SPY regime shift detection, stale order checks, crisis escalation with pipeline locking
+- **Security** — JWT auth (8h expiry + revocation), rate limiting, timing-safe auth, audit logging, IDOR protection
+- **Real-Time Events** — SSE streaming (20 event types) with reconnection, catch-up, per-tenant isolation, Telegram alert throttling
 - **Intraday Data** — 15-minute portfolio snapshots during market hours + Alpaca portfolio history passthrough for high-frequency charts
 - **SQL Migrations** — Automated schema migrations in CI/CD with manual trigger option
 - **70-Ticker Universe** — ETFs + stocks across sectors, fixed income, international, thematic; per-tenant whitelist/additions/exclusions
@@ -134,6 +136,9 @@ GET   /api/tenants/me            — Tenant self-service profile
 PATCH /api/tenants/me            — Update own credentials, tickers, toggles
 POST  /api/tenants/me/test-alpaca    — Test Alpaca connection
 POST  /api/tenants/me/test-telegram  — Test Telegram connection
+GET   /api/events/stream           — SSE real-time event stream
+GET   /api/events/recent           — Recent events (catch-up)
+GET   /api/events/connections      — Active SSE connections (admin)
 ```
 
 ## Tenant Management
@@ -208,7 +213,8 @@ kukulkan-trade/
 │   │   ├── complexity_detector.py # Smart model routing (Haiku/Opus)
 │   │   ├── memory.py             # 3-tier agent memory system
 │   │   ├── strategy_directives.py # Strategy + session + regime prompts
-│   │   └── ticker_discovery.py    # AI-suggested ticker additions
+│   │   ├── ticker_discovery.py    # AI-suggested ticker additions
+│   │   └── sentinel.py            # Intraday sentinel: stop/regime/fill monitoring
 │   ├── analysis/
 │   │   ├── momentum.py            # 63-day momentum with 5-day skip
 │   │   ├── performance.py         # Portfolio stats + SPY benchmarking
@@ -222,7 +228,7 @@ kukulkan-trade/
 │   │   ├── rate_limit.py         # Sliding-window rate limiter
 │   │   ├── alpaca_client.py      # Alpaca account + portfolio history (cached)
 │   │   ├── schemas.py            # Pydantic request/response models
-│   │   └── routes/               # 10 route modules
+│   │   └── routes/               # 15 route modules
 │   ├── backtest/
 │   │   ├── runner.py              # Historical strategy backtesting
 │   │   └── ai_strategy.py        # AI backtest with budget tracking
@@ -238,12 +244,14 @@ kukulkan-trade/
 │   │   ├── alpaca_executor.py     # Alpaca API executor
 │   │   ├── client_factory.py     # Per-tenant Alpaca client cache
 │   │   └── paper_trader.py        # Local paper trading simulation
+│   ├── events/
+│   │   └── event_bus.py           # SSE event bus: pub/sub, 20 event types
 │   ├── notifications/
-│   │   ├── telegram_bot.py        # Daily briefs & trade alerts
+│   │   ├── telegram_bot.py        # Daily briefs, trade alerts, sentinel alerts
 │   │   ├── telegram_factory.py   # Per-tenant Telegram cache
 │   │   └── weekly_report.py       # Friday performance report
 │   ├── storage/
-│   │   ├── models.py              # 16 SQLAlchemy tables + Pydantic schemas
+│   │   ├── models.py              # 24 SQLAlchemy tables + Pydantic schemas
 │   │   ├── database.py            # Async CRUD operations
 │   │   └── vector_store.py        # ChromaDB client
 │   ├── strategies/
@@ -260,7 +268,7 @@ kukulkan-trade/
 ├── migrations/                    # SQL migration files
 ├── scripts/
 │   └── migrate.py                 # Migration runner
-├── tests/                         # 810+ tests
+├── tests/                         # 1610+ tests
 ├── deploy/
 │   ├── kukulkan-bot.service       # Bot systemd unit
 │   ├── kukulkan-api.service       # API systemd unit
