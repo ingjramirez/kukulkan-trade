@@ -92,7 +92,9 @@ class AgentRunner:
         Returns:
             AgentRunResult with parsed response and metadata.
         """
-        client = anthropic.Anthropic(api_key=self._api_key)
+        from config.settings import settings
+
+        client = anthropic.Anthropic(api_key=self._api_key, max_retries=settings.agent.max_retries)
         effective_model = model_override or self._model
         tool_defs = self._registry.get_tool_definitions()
 
@@ -118,15 +120,35 @@ class AgentRunner:
                     raw_messages=messages,
                 )
 
-            # Call Claude
+            # Call Claude (with fallback on server errors)
             log.info("agent_loop_turn", turn=turn, model=effective_model)
-            response = client.messages.create(
-                model=effective_model,
-                max_tokens=4096,
-                system=system_prompt,
-                messages=messages,
-                tools=tool_defs if tool_defs else anthropic.NOT_GIVEN,
-            )
+            try:
+                response = client.messages.create(
+                    model=effective_model,
+                    max_tokens=4096,
+                    system=system_prompt,
+                    messages=messages,
+                    tools=tool_defs if tool_defs else anthropic.NOT_GIVEN,
+                )
+            except anthropic.APIStatusError as e:
+                fallback = settings.agent.fallback_model
+                if fallback and fallback != effective_model and e.status_code >= 500:
+                    log.warning(
+                        "agent_loop_fallback",
+                        primary_model=effective_model,
+                        fallback_model=fallback,
+                        turn=turn,
+                        error=str(e),
+                    )
+                    response = client.messages.create(
+                        model=fallback,
+                        max_tokens=4096,
+                        system=system_prompt,
+                        messages=messages,
+                        tools=tool_defs if tool_defs else anthropic.NOT_GIVEN,
+                    )
+                else:
+                    raise
 
             # Record tokens (including cache fields if present)
             self._token_tracker.record(

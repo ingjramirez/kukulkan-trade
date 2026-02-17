@@ -55,6 +55,8 @@ class AgentSettings(BaseSettings):
     validate_model: str = "claude-opus-4-6"  # env: AGENT_VALIDATE_MODEL
     enable_tiered: bool = False  # env: AGENT_ENABLE_TIERED
     enable_cache: bool = True  # env: AGENT_ENABLE_CACHE
+    max_retries: int = 5  # env: AGENT_MAX_RETRIES — SDK retries on 429/5xx
+    fallback_model: str = "claude-sonnet-4-5-20250929"  # env: AGENT_FALLBACK_MODEL
 
     model_config = {"env_prefix": "AGENT_", "env_file": ".env", "extra": "ignore"}
 

@@ -51,7 +51,9 @@ class OpusValidator:
         """Lazy client initialization."""
         import anthropic
 
-        return anthropic.Anthropic(api_key=self._api_key)
+        from config.settings import settings
+
+        return anthropic.Anthropic(api_key=self._api_key, max_retries=settings.agent.max_retries)
 
     async def validate(
         self,

@@ -579,7 +579,7 @@ class ClaudeAgent:
         if self._client is None:
             if not self._api_key:
                 raise ValueError("ANTHROPIC_API_KEY not set")
-            self._client = anthropic.Anthropic(api_key=self._api_key)
+            self._client = anthropic.Anthropic(api_key=self._api_key, max_retries=settings.agent.max_retries)
         return self._client
 
     def analyze(
@@ -648,12 +648,31 @@ class ClaudeAgent:
         effective_prompt = system_prompt or SYSTEM_PROMPT
         log.info("agent_calling_claude", model=effective_model, date=str(analysis_date))
 
-        response = self.client.messages.create(
-            model=effective_model,
-            max_tokens=2048,
-            system=effective_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
-        )
+        try:
+            response = self.client.messages.create(
+                model=effective_model,
+                max_tokens=2048,
+                system=effective_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+        except anthropic.APIStatusError as e:
+            # Fallback to a lighter model on overloaded/server errors
+            fallback = settings.agent.fallback_model
+            if fallback and fallback != effective_model and e.status_code >= 500:
+                log.warning(
+                    "agent_primary_model_failed_trying_fallback",
+                    primary_model=effective_model,
+                    fallback_model=fallback,
+                    error=str(e),
+                )
+                response = self.client.messages.create(
+                    model=fallback,
+                    max_tokens=2048,
+                    system=effective_prompt,
+                    messages=[{"role": "user", "content": user_prompt}],
+                )
+            else:
+                raise
 
         # Extract text content
         raw_text = response.content[0].text
