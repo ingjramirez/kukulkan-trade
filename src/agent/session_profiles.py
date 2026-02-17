@@ -25,6 +25,7 @@ SESSION_PROFILE_MAP: dict[str, SessionProfile] = {
     "close": SessionProfile.LIGHT,
     "event": SessionProfile.CRISIS,
     "weekly_review": SessionProfile.REVIEW,
+    "manual": SessionProfile.FULL,
 }
 
 
