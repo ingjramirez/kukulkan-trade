@@ -20,6 +20,10 @@ class TestSentinelSettings:
         s = Settings()
         assert s.sentinel_max_escalations_per_day == 2
 
+    def test_default_escalation_cooldown(self) -> None:
+        s = Settings()
+        assert s.sentinel_escalation_cooldown_s == 1800
+
 
 class TestSentinelEventTypes:
     def test_sentinel_alert_event_exists(self) -> None:

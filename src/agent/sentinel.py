@@ -84,71 +84,103 @@ class SentinelResult:
         return self.max_level == AlertLevel.CRITICAL
 
 
-# ── Module-level state for cross-check tracking ─────────────────────────────
+# ── Per-tenant state for cross-check tracking ────────────────────────────────
 
-_sentinel_state: dict[str, Any] = {
+_DEFAULT_STATE: dict[str, Any] = {
     "last_vix": None,
     "last_spy_close": None,
     "escalations_today": 0,
     "last_escalation_date": None,
     "last_session_time": None,
+    "last_alert_by_ticker": {},  # ticker → datetime (for Telegram throttling)
 }
 
-ESCALATION_COOLDOWN_SECONDS = 1800  # 30 min after a scheduled session
+# Keyed by tenant_id → state dict
+_sentinel_states: dict[str, dict[str, Any]] = {}
+
+ALERT_THROTTLE_SECONDS = 3600  # Don't re-send same ticker alert within 1 hour
+
+
+def _get_state(tenant_id: str = "default") -> dict[str, Any]:
+    """Get or create per-tenant sentinel state."""
+    if tenant_id not in _sentinel_states:
+        _sentinel_states[tenant_id] = {k: (v.copy() if isinstance(v, dict) else v) for k, v in _DEFAULT_STATE.items()}
+    return _sentinel_states[tenant_id]
 
 
 def _reset_sentinel_state() -> None:
-    """Reset module-level state (for testing)."""
-    _sentinel_state["last_vix"] = None
-    _sentinel_state["last_spy_close"] = None
-    _sentinel_state["escalations_today"] = 0
-    _sentinel_state["last_escalation_date"] = None
-    _sentinel_state["last_session_time"] = None
+    """Reset all tenant states (for testing)."""
+    _sentinel_states.clear()
 
 
-def can_escalate(max_per_day: int = 2) -> bool:
-    """Check if a crisis escalation is allowed.
+def can_escalate(max_per_day: int = 2, tenant_id: str = "default") -> bool:
+    """Check if a crisis escalation is allowed for this tenant.
 
     Guards:
-    1. Daily limit (default 2 per day)
-    2. Cooldown: no escalation within 30 min of a scheduled session
+    1. Daily limit (default 2 per day, per tenant)
+    2. Cooldown: no escalation within cooldown window of a scheduled session
     """
     from datetime import date
 
-    today = date.today()
-    if _sentinel_state["last_escalation_date"] != today:
-        _sentinel_state["escalations_today"] = 0
-        _sentinel_state["last_escalation_date"] = today
+    from config.settings import settings
 
-    if _sentinel_state["escalations_today"] >= max_per_day:
-        log.info("sentinel_escalation_blocked_daily_limit", used=_sentinel_state["escalations_today"])
+    cooldown_s = settings.sentinel_escalation_cooldown_s
+    state = _get_state(tenant_id)
+    today = date.today()
+    if state["last_escalation_date"] != today:
+        state["escalations_today"] = 0
+        state["last_escalation_date"] = today
+
+    if state["escalations_today"] >= max_per_day:
+        log.info(
+            "sentinel_escalation_blocked_daily_limit",
+            tenant_id=tenant_id,
+            used=state["escalations_today"],
+        )
         return False
 
-    last_session = _sentinel_state.get("last_session_time")
+    last_session = state.get("last_session_time")
     if last_session is not None:
         elapsed = (datetime.now(timezone.utc) - last_session).total_seconds()
-        if elapsed < ESCALATION_COOLDOWN_SECONDS:
-            log.info("sentinel_escalation_blocked_cooldown", elapsed_s=int(elapsed))
+        if elapsed < cooldown_s:
+            log.info("sentinel_escalation_blocked_cooldown", tenant_id=tenant_id, elapsed_s=int(elapsed))
             return False
 
     return True
 
 
-def record_escalation() -> None:
+def record_escalation(tenant_id: str = "default") -> None:
     """Record that an escalation was triggered (increments daily counter)."""
     from datetime import date
 
+    state = _get_state(tenant_id)
     today = date.today()
-    if _sentinel_state["last_escalation_date"] != today:
-        _sentinel_state["escalations_today"] = 0
-        _sentinel_state["last_escalation_date"] = today
-    _sentinel_state["escalations_today"] += 1
-    log.info("sentinel_escalation_recorded", count=_sentinel_state["escalations_today"])
+    if state["last_escalation_date"] != today:
+        state["escalations_today"] = 0
+        state["last_escalation_date"] = today
+    state["escalations_today"] += 1
+    log.info("sentinel_escalation_recorded", tenant_id=tenant_id, count=state["escalations_today"])
 
 
-def record_session_time() -> None:
+def record_session_time(tenant_id: str = "default") -> None:
     """Record when a scheduled session completed (for cooldown tracking)."""
-    _sentinel_state["last_session_time"] = datetime.now(timezone.utc)
+    _get_state(tenant_id)["last_session_time"] = datetime.now(timezone.utc)
+
+
+def should_send_alert(ticker: str, tenant_id: str = "default") -> bool:
+    """Check if a Telegram alert should be sent for this ticker (throttle dedup)."""
+    state = _get_state(tenant_id)
+    last_sent = state["last_alert_by_ticker"].get(ticker)
+    if last_sent is not None:
+        elapsed = (datetime.now(timezone.utc) - last_sent).total_seconds()
+        if elapsed < ALERT_THROTTLE_SECONDS:
+            return False
+    return True
+
+
+def record_alert_sent(ticker: str, tenant_id: str = "default") -> None:
+    """Record that an alert was sent for this ticker."""
+    _get_state(tenant_id)["last_alert_by_ticker"][ticker] = datetime.now(timezone.utc)
 
 
 # ── Default price fetcher ────────────────────────────────────────────────────
@@ -280,6 +312,7 @@ class SentinelRunner:
     async def check_regime_shift(self) -> list[SentinelAlert]:
         """Check VIX and SPY for significant intraday moves."""
         alerts: list[SentinelAlert] = []
+        state = _get_state(self._tenant_id)
 
         prices = await self._price_fetcher(["SPY", "^VIX"])
 
@@ -288,18 +321,18 @@ class SentinelRunner:
 
         if vix is not None:
             alerts.extend(self._evaluate_vix(vix))
-            _sentinel_state["last_vix"] = vix
+            state["last_vix"] = vix
 
         if spy is not None:
             alerts.extend(self._evaluate_spy(spy))
-            _sentinel_state["last_spy_close"] = spy
+            state["last_spy_close"] = spy
 
         return alerts
 
     def _evaluate_vix(self, vix: float) -> list[SentinelAlert]:
         """Evaluate VIX level and crossing."""
         alerts: list[SentinelAlert] = []
-        last_vix = _sentinel_state["last_vix"]
+        last_vix = _get_state(self._tenant_id)["last_vix"]
 
         if vix >= VIX_CRITICAL_THRESHOLD:
             alerts.append(
@@ -352,7 +385,7 @@ class SentinelRunner:
     def _evaluate_spy(self, spy: float) -> list[SentinelAlert]:
         """Evaluate SPY intraday move."""
         alerts: list[SentinelAlert] = []
-        last_spy = _sentinel_state["last_spy_close"]
+        last_spy = _get_state(self._tenant_id)["last_spy_close"]
 
         if last_spy is None or last_spy <= 0:
             return alerts

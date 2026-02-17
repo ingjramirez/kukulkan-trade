@@ -14,11 +14,14 @@ from src.agent.sentinel import (
     SentinelAlert,
     SentinelResult,
     SentinelRunner,
+    _get_state,
     _reset_sentinel_state,
-    _sentinel_state,
+    _sentinel_states,
     can_escalate,
+    record_alert_sent,
     record_escalation,
     record_session_time,
+    should_send_alert,
 )
 
 
@@ -198,7 +201,7 @@ class TestRegimeShift:
         assert "extreme fear" in vix_alerts[0].message
 
     async def test_vix_crossing_up_warning(self) -> None:
-        _sentinel_state["last_vix"] = 25.0  # Was below threshold
+        _get_state("default")["last_vix"] = 25.0  # Was below threshold
 
         async def prices(tickers):
             return {"^VIX": 30.0, "SPY": 400.0}
@@ -224,7 +227,7 @@ class TestRegimeShift:
         assert "elevated" in vix_alerts[0].message
 
     async def test_vix_staying_elevated_no_alert(self) -> None:
-        _sentinel_state["last_vix"] = 30.0  # Already elevated
+        _get_state("default")["last_vix"] = 30.0  # Already elevated
 
         async def prices(tickers):
             return {"^VIX": 31.0, "SPY": 400.0}
@@ -236,7 +239,7 @@ class TestRegimeShift:
         assert len(vix_alerts) == 0
 
     async def test_vix_calming_signal(self) -> None:
-        _sentinel_state["last_vix"] = 30.0
+        _get_state("default")["last_vix"] = 30.0
 
         async def prices(tickers):
             return {"^VIX": 18.0, "SPY": 400.0}
@@ -250,7 +253,7 @@ class TestRegimeShift:
         assert "calming" in vix_alerts[0].message
 
     async def test_spy_warning_big_move(self) -> None:
-        _sentinel_state["last_spy_close"] = 400.0
+        _get_state("default")["last_spy_close"] = 400.0
 
         async def prices(tickers):
             return {"^VIX": 20.0, "SPY": 390.0}  # 2.5% move
@@ -263,7 +266,7 @@ class TestRegimeShift:
         assert spy_alerts[0].level == AlertLevel.WARNING
 
     async def test_spy_critical_huge_move(self) -> None:
-        _sentinel_state["last_spy_close"] = 400.0
+        _get_state("default")["last_spy_close"] = 400.0
 
         async def prices(tickers):
             return {"^VIX": 20.0, "SPY": 385.0}  # 3.75% move
@@ -276,7 +279,7 @@ class TestRegimeShift:
         assert spy_alerts[0].level == AlertLevel.CRITICAL
 
     async def test_spy_no_alert_small_move(self) -> None:
-        _sentinel_state["last_spy_close"] = 400.0
+        _get_state("default")["last_spy_close"] = 400.0
 
         async def prices(tickers):
             return {"^VIX": 20.0, "SPY": 396.0}  # 1% move
@@ -306,8 +309,9 @@ class TestRegimeShift:
         runner = SentinelRunner(db=_make_db(), price_fetcher=prices)
         await runner.check_regime_shift()
 
-        assert _sentinel_state["last_vix"] == 22.0
-        assert _sentinel_state["last_spy_close"] == 410.0
+        state = _get_state("default")
+        assert state["last_vix"] == 22.0
+        assert state["last_spy_close"] == 410.0
 
     async def test_no_prices_returns_empty(self) -> None:
         runner = SentinelRunner(db=_make_db(), price_fetcher=_mock_prices)
@@ -547,16 +551,23 @@ class TestSentinelResult:
 
 
 class TestSentinelState:
-    def test_reset_clears_state(self) -> None:
-        _sentinel_state["last_vix"] = 30.0
-        _sentinel_state["last_spy_close"] = 400.0
-        _sentinel_state["escalations_today"] = 5
+    def test_reset_clears_all_tenants(self) -> None:
+        state = _get_state("default")
+        state["last_vix"] = 30.0
+        state["last_spy_close"] = 400.0
+        state["escalations_today"] = 5
+        _get_state("tenant-2")["last_vix"] = 25.0
+
         _reset_sentinel_state()
-        assert _sentinel_state["last_vix"] is None
-        assert _sentinel_state["last_spy_close"] is None
-        assert _sentinel_state["escalations_today"] == 0
-        assert _sentinel_state["last_escalation_date"] is None
-        assert _sentinel_state["last_session_time"] is None
+
+        assert _sentinel_states == {}
+        # New state after reset is fresh
+        fresh = _get_state("default")
+        assert fresh["last_vix"] is None
+        assert fresh["last_spy_close"] is None
+        assert fresh["escalations_today"] == 0
+        assert fresh["last_escalation_date"] is None
+        assert fresh["last_session_time"] is None
 
 
 # ── Escalation Guards ────────────────────────────────────────────────────────
@@ -577,43 +588,112 @@ class TestCanEscalate:
 
     def test_blocked_during_cooldown(self) -> None:
         # Session happened 10 minutes ago
-        _sentinel_state["last_session_time"] = datetime.now(timezone.utc) - timedelta(minutes=10)
+        _get_state("default")["last_session_time"] = datetime.now(timezone.utc) - timedelta(minutes=10)
         assert can_escalate(max_per_day=2) is False
 
     def test_allowed_after_cooldown(self) -> None:
         # Session happened 45 minutes ago (> 30 min cooldown)
-        _sentinel_state["last_session_time"] = datetime.now(timezone.utc) - timedelta(minutes=45)
+        _get_state("default")["last_session_time"] = datetime.now(timezone.utc) - timedelta(minutes=45)
         assert can_escalate(max_per_day=2) is True
 
     def test_daily_counter_resets_next_day(self) -> None:
         from datetime import date
 
-        _sentinel_state["escalations_today"] = 5
-        _sentinel_state["last_escalation_date"] = date(2020, 1, 1)  # Old date
+        state = _get_state("default")
+        state["escalations_today"] = 5
+        state["last_escalation_date"] = date(2020, 1, 1)  # Old date
         assert can_escalate(max_per_day=2) is True
         # Counter should have been reset
-        assert _sentinel_state["escalations_today"] == 0
+        assert _get_state("default")["escalations_today"] == 0
 
 
 class TestRecordEscalation:
     def test_increments_counter(self) -> None:
-        assert _sentinel_state["escalations_today"] == 0
+        assert _get_state("default")["escalations_today"] == 0
         record_escalation()
-        assert _sentinel_state["escalations_today"] == 1
+        assert _get_state("default")["escalations_today"] == 1
         record_escalation()
-        assert _sentinel_state["escalations_today"] == 2
+        assert _get_state("default")["escalations_today"] == 2
 
     def test_sets_date(self) -> None:
         from datetime import date
 
         record_escalation()
-        assert _sentinel_state["last_escalation_date"] == date.today()
+        assert _get_state("default")["last_escalation_date"] == date.today()
 
 
 class TestRecordSessionTime:
     def test_sets_timestamp(self) -> None:
-        assert _sentinel_state["last_session_time"] is None
+        assert _get_state("default")["last_session_time"] is None
         record_session_time()
-        assert _sentinel_state["last_session_time"] is not None
-        elapsed = (datetime.now(timezone.utc) - _sentinel_state["last_session_time"]).total_seconds()
+        assert _get_state("default")["last_session_time"] is not None
+        elapsed = (datetime.now(timezone.utc) - _get_state("default")["last_session_time"]).total_seconds()
         assert elapsed < 2  # Just set it
+
+
+# ── Multi-Tenant State Isolation ─────────────────────────────────────────────
+
+
+class TestMultiTenantIsolation:
+    async def test_regime_state_isolated_per_tenant(self) -> None:
+        """VIX/SPY tracking for tenant A should not affect tenant B."""
+
+        async def prices(tickers):
+            return {"^VIX": 22.0, "SPY": 410.0}
+
+        runner_a = SentinelRunner(db=_make_db(), tenant_id="tenant-a", price_fetcher=prices)
+        await runner_a.check_regime_shift()
+
+        runner_b = SentinelRunner(db=_make_db(), tenant_id="tenant-b", price_fetcher=prices)
+        await runner_b.check_regime_shift()
+
+        assert _get_state("tenant-a")["last_vix"] == 22.0
+        assert _get_state("tenant-b")["last_vix"] == 22.0
+        # Modify one — should not affect the other
+        _get_state("tenant-a")["last_vix"] = 40.0
+        assert _get_state("tenant-b")["last_vix"] == 22.0
+
+    def test_escalation_counter_isolated_per_tenant(self) -> None:
+        """Hitting escalation limit on tenant A should not block tenant B."""
+        record_escalation(tenant_id="tenant-a")
+        record_escalation(tenant_id="tenant-a")
+
+        assert can_escalate(max_per_day=2, tenant_id="tenant-a") is False
+        assert can_escalate(max_per_day=2, tenant_id="tenant-b") is True
+
+    def test_session_time_isolated_per_tenant(self) -> None:
+        """Recording session on tenant A should not cooldown tenant B."""
+        record_session_time(tenant_id="tenant-a")
+
+        state_a = _get_state("tenant-a")
+        state_b = _get_state("tenant-b")
+        assert state_a["last_session_time"] is not None
+        assert state_b["last_session_time"] is None
+
+    def test_alert_throttle_isolated_per_tenant(self) -> None:
+        """Alert throttle for tenant A should not suppress alerts for tenant B."""
+        record_alert_sent("AAPL", tenant_id="tenant-a")
+
+        assert should_send_alert("AAPL", tenant_id="tenant-a") is False
+        assert should_send_alert("AAPL", tenant_id="tenant-b") is True
+
+
+# ── Alert Throttling ─────────────────────────────────────────────────────────
+
+
+class TestAlertThrottling:
+    def test_first_alert_allowed(self) -> None:
+        assert should_send_alert("AAPL") is True
+
+    def test_repeat_alert_blocked(self) -> None:
+        record_alert_sent("AAPL")
+        assert should_send_alert("AAPL") is False
+
+    def test_different_ticker_allowed(self) -> None:
+        record_alert_sent("AAPL")
+        assert should_send_alert("MSFT") is True
+
+    def test_alert_allowed_after_cooldown(self) -> None:
+        state = _get_state("default")
+        state["last_alert_by_ticker"]["AAPL"] = datetime.now(timezone.utc) - timedelta(hours=2)
+        assert should_send_alert("AAPL") is True

@@ -136,6 +136,9 @@ async def run_scheduled() -> None:
     orchestrator = Orchestrator(db, notifier=notifier, executor=executor)
     scheduler = AsyncIOScheduler()
 
+    # Shared lock: prevents scheduled pipeline and sentinel crisis session from running concurrently
+    _pipeline_lock = asyncio.Lock()
+
     # Run 3x daily during market hours (US/Eastern)
     schedules = [
         ("morning", 10, 0, "Morning"),  # 10:00 AM — 30 min after open
@@ -146,19 +149,20 @@ async def run_scheduled() -> None:
     for label, hour, minute, session_name in schedules:
 
         async def scheduled_job(session=session_name):
-            try:
-                results = await orchestrator.run_all_tenants(session=session)
-                log.info("scheduled_run_complete", session=session, tenants=len(results))
-                # Record session time for sentinel cooldown
+            async with _pipeline_lock:
                 try:
-                    from src.agent.sentinel import record_session_time
+                    results = await orchestrator.run_all_tenants(session=session)
+                    log.info("scheduled_run_complete", session=session, tenants=len(results))
+                    # Record session time for sentinel cooldown (per-tenant)
+                    try:
+                        from src.agent.sentinel import record_session_time
 
-                    record_session_time()
-                except Exception:
-                    pass
-            except Exception as e:
-                log.error("scheduled_run_failed", session=session, error=str(e))
-                await notifier.send_error(f"Pipeline failed ({session}): {e}")
+                        record_session_time()
+                    except Exception:
+                        pass
+                except Exception as e:
+                    log.error("scheduled_run_failed", session=session, error=str(e))
+                    await notifier.send_error(f"Pipeline failed ({session}): {e}")
 
         scheduler.add_job(
             scheduled_job,
@@ -250,9 +254,8 @@ async def run_scheduled() -> None:
                 # Publish SSE events for any alerts
                 if result.alerts:
                     try:
-                        from src.events.event_bus import EventBus, EventType
+                        from src.events.event_bus import EventType, event_bus
 
-                        bus = EventBus.get()
                         alert_dicts = [
                             {
                                 "level": a.level.value,
@@ -262,7 +265,7 @@ async def run_scheduled() -> None:
                             }
                             for a in result.alerts
                         ]
-                        bus.publish(
+                        event_bus.publish(
                             EventType.SENTINEL_ALERT,
                             tenant_id=tid,
                             data={
@@ -274,15 +277,18 @@ async def run_scheduled() -> None:
                     except Exception as e:
                         log.warning("sentinel_sse_publish_failed", error=str(e))
 
-                # Send Telegram alert if warning or critical
+                # Send Telegram alert if warning or critical (with per-ticker throttle)
                 if result.max_level.value in ("warning", "critical"):
                     try:
+                        from src.agent.sentinel import record_alert_sent, should_send_alert
+
                         tenant_notifier = notifier
                         if tenant:
                             try:
                                 tenant_notifier = TelegramFactory.get_notifier(tenant)
                             except Exception:
                                 pass
+                        # Filter to only alerts we haven't recently sent
                         alert_dicts = [
                             {
                                 "level": a.level.value,
@@ -291,8 +297,12 @@ async def run_scheduled() -> None:
                                 "message": a.message,
                             }
                             for a in result.alerts
+                            if should_send_alert(a.ticker, tenant_id=tid)
                         ]
-                        await tenant_notifier.send_sentinel_alert(alert_dicts, result.max_level.value)
+                        if alert_dicts:
+                            await tenant_notifier.send_sentinel_alert(alert_dicts, result.max_level.value)
+                            for a in alert_dicts:
+                                record_alert_sent(a["ticker"], tenant_id=tid)
                     except Exception as e:
                         log.warning("sentinel_telegram_failed", tenant_id=tid, error=str(e))
 
@@ -307,10 +317,9 @@ async def run_scheduled() -> None:
                         alert_count=len(result.alerts),
                     )
                     try:
-                        from src.events.event_bus import EventBus, EventType
+                        from src.events.event_bus import EventType, event_bus
 
-                        bus = EventBus.get()
-                        bus.publish(
+                        event_bus.publish(
                             EventType.SENTINEL_ESCALATION,
                             tenant_id=tid,
                             data={"reason": "sentinel_critical", "alert_count": len(result.alerts)},
@@ -318,20 +327,24 @@ async def run_scheduled() -> None:
                     except Exception:
                         pass
 
-                    if can_escalate(max_per_day=settings.sentinel_max_escalations_per_day):
-                        try:
-                            log.info("sentinel_crisis_session_starting", tenant_id=tid)
-                            crisis_orchestrator = Orchestrator(db, notifier=notifier, executor=tenant_executor)
-                            await crisis_orchestrator.run_daily(
-                                session="Sentinel-Crisis",
-                                tenant_id=tid,
-                                run_portfolio_a=False,
-                                run_portfolio_b=True,
-                            )
-                            record_escalation()
-                            log.info("sentinel_crisis_session_complete", tenant_id=tid)
-                        except Exception as e:
-                            log.error("sentinel_crisis_session_failed", tenant_id=tid, error=str(e))
+                    if can_escalate(
+                        max_per_day=settings.sentinel_max_escalations_per_day,
+                        tenant_id=tid,
+                    ):
+                        async with _pipeline_lock:
+                            try:
+                                log.info("sentinel_crisis_session_starting", tenant_id=tid)
+                                crisis_orchestrator = Orchestrator(db, notifier=notifier, executor=tenant_executor)
+                                await crisis_orchestrator.run_daily(
+                                    session="Sentinel-Crisis",
+                                    tenant_id=tid,
+                                    run_portfolio_a=False,
+                                    run_portfolio_b=True,
+                                )
+                                record_escalation(tenant_id=tid)
+                                log.info("sentinel_crisis_session_complete", tenant_id=tid)
+                            except Exception as e:
+                                log.error("sentinel_crisis_session_failed", tenant_id=tid, error=str(e))
                     else:
                         log.info("sentinel_escalation_blocked", tenant_id=tid)
 
