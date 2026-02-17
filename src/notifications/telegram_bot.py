@@ -389,6 +389,120 @@ class TelegramNotifier:
         log.info("inverse_approval_timeout", request_id=request_id)
         return "reject"
 
+    async def send_large_trade_approval(
+        self,
+        trade: TradeSchema,
+        trade_pct: float,
+        approval_reason: str,
+        request_id: str,
+    ) -> int | None:
+        """Send a large trade approval request with inline keyboard.
+
+        Args:
+            trade: The proposed trade exceeding the threshold.
+            trade_pct: Trade value as % of portfolio.
+            approval_reason: Human-readable reason for the approval request.
+            request_id: Unique ID to match callback responses.
+
+        Returns:
+            Message ID if sent successfully, None otherwise.
+        """
+        if not self._chat_id:
+            log.warning("telegram_no_chat_id")
+            return None
+
+        text = (
+            f"⚠️ <b>Large Trade Approval</b>\n\n"
+            f"Portfolio {trade.portfolio.value} | "
+            f"{trade.side.value} {trade.shares:.0f} <b>{_escape_html(trade.ticker)}</b>\n"
+            f"Price: ~${trade.price:.2f} | Value: ${trade.total:,.0f}\n"
+            f"Portfolio weight: {trade_pct:.1f}%\n\n"
+            f"Reason: {_escape_html(trade.reason[:200])}\n\n"
+            f"⏰ Auto-reject in {settings.trade_approval_timeout_s // 60} minutes"
+        )
+
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("Approve", callback_data=f"{request_id}:approve"),
+                    InlineKeyboardButton("Reject", callback_data=f"{request_id}:reject"),
+                ]
+            ]
+        )
+
+        try:
+            msg = await self.bot.send_message(
+                chat_id=self._chat_id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboard,
+            )
+            log.info("large_trade_approval_sent", request_id=request_id, ticker=trade.ticker)
+            return msg.message_id
+        except Exception as e:
+            log.error("large_trade_approval_failed", error=str(e))
+            return None
+
+    async def wait_for_large_trade_approval(
+        self,
+        request_id: str,
+        timeout_seconds: int = 300,
+    ) -> str:
+        """Poll for user's large trade approval response.
+
+        Args:
+            request_id: The request ID to match in callback_data.
+            timeout_seconds: Max seconds to wait.
+
+        Returns:
+            "approve" or "reject". Defaults to "reject" on timeout.
+        """
+        elapsed = 0
+        poll_interval = 2
+        last_update_id: int | None = None
+
+        while elapsed < timeout_seconds:
+            try:
+                kwargs: dict = {"timeout": 1}
+                if last_update_id is not None:
+                    kwargs["offset"] = last_update_id + 1
+
+                updates = await self.bot.get_updates(**kwargs)
+                for update in updates:
+                    last_update_id = update.update_id
+                    if update.callback_query and update.callback_query.data:
+                        cb = update.callback_query
+                        cb_chat = str(
+                            getattr(cb.message, "chat_id", None)
+                            or getattr(getattr(cb.message, "chat", None), "id", None)
+                            or ""
+                        )
+                        if cb_chat != self._chat_id:
+                            log.warning(
+                                "large_trade_approval_rejected_wrong_chat",
+                                expected=self._chat_id,
+                                got=cb_chat,
+                            )
+                            continue
+                        data = cb.data
+                        if data.startswith(f"{request_id}:"):
+                            choice = data.split(":", 1)[1]
+                            if choice in ("approve", "reject"):
+                                log.info(
+                                    "large_trade_approval_received",
+                                    request_id=request_id,
+                                    choice=choice,
+                                )
+                                return choice
+            except Exception as e:
+                log.warning("large_trade_approval_poll_error", error=str(e))
+
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+        log.info("large_trade_approval_timeout", request_id=request_id)
+        return "reject"
+
     async def send_ticker_proposal(
         self,
         ticker_row: "DiscoveredTickerRow",

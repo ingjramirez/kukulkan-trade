@@ -999,6 +999,22 @@ class Orchestrator:
                             all_trades[:] = [t for t in all_trades if t is not inv_trade]
                         verdict.blocked.append((inv_trade, "Rejected via Telegram approval"))
 
+            # Handle large trades requiring approval (non-inverse, >threshold% of portfolio)
+            if verdict.requires_trade_approval:
+                for lg_trade, approval_reason in verdict.requires_trade_approval:
+                    trade_pct = (lg_trade.total / pval * 100) if pval > 0 else 0
+                    choice = await self._request_large_trade_approval(
+                        lg_trade, trade_pct, approval_reason, tenant_id
+                    )
+                    if choice == "approve":
+                        log.info("large_trade_approved", ticker=lg_trade.ticker)
+                    else:
+                        log.info("large_trade_rejected", ticker=lg_trade.ticker)
+                        if lg_trade in verdict.allowed:
+                            verdict.allowed.remove(lg_trade)
+                            all_trades[:] = [t for t in all_trades if t is not lg_trade]
+                        verdict.blocked.append((lg_trade, f"Rejected via Telegram: {approval_reason}"))
+
         # Merge trailing stop sells (bypass risk filter — stops ARE the risk mechanism)
         all_trades.extend(trailing_stop_sells)
         return all_trades
@@ -2727,6 +2743,81 @@ class Orchestrator:
         if msg_id is None:
             return "reject"
         return await self._notifier.wait_for_inverse_approval(request_id, timeout_seconds=300)
+
+    async def _request_large_trade_approval(
+        self,
+        trade: "TradeSchema",
+        trade_pct: float,
+        approval_reason: str,
+        tenant_id: str,
+    ) -> str:
+        """Send large trade approval request via Telegram and publish SSE events.
+
+        Args:
+            trade: The trade requiring approval (>threshold% of portfolio).
+            trade_pct: Trade value as % of portfolio.
+            approval_reason: Human-readable reason for the approval.
+            tenant_id: Tenant UUID.
+
+        Returns:
+            "approve" or "reject". Defaults to "reject" if no notifier.
+        """
+        # Publish SSE: approval requested
+        try:
+            from src.events.event_bus import Event, EventType, event_bus
+
+            event_bus.publish(
+                Event(
+                    type=EventType.TRADE_APPROVAL_REQUESTED,
+                    tenant_id=tenant_id,
+                    data={
+                        "ticker": trade.ticker,
+                        "side": trade.side.value,
+                        "shares": trade.shares,
+                        "price": trade.price,
+                        "value": round(trade.total, 2),
+                        "portfolio_pct": round(trade_pct, 1),
+                        "reason": approval_reason,
+                    },
+                )
+            )
+        except Exception:
+            pass
+
+        if not self._notifier_available():
+            log.info("large_trade_auto_reject_no_notifier", ticker=trade.ticker)
+            self._publish_trade_approval_resolved(tenant_id, trade.ticker, False)
+            return "reject"
+
+        request_id = uuid.uuid4().hex[:8]
+        msg_id = await self._notifier.send_large_trade_approval(
+            trade, trade_pct, approval_reason, request_id
+        )
+        if msg_id is None:
+            self._publish_trade_approval_resolved(tenant_id, trade.ticker, False)
+            return "reject"
+        choice = await self._notifier.wait_for_large_trade_approval(
+            request_id, timeout_seconds=settings.trade_approval_timeout_s
+        )
+        self._publish_trade_approval_resolved(tenant_id, trade.ticker, choice == "approve")
+        return choice
+
+    def _publish_trade_approval_resolved(
+        self, tenant_id: str, ticker: str, approved: bool
+    ) -> None:
+        """Publish SSE event for trade approval resolution."""
+        try:
+            from src.events.event_bus import Event, EventType, event_bus
+
+            event_bus.publish(
+                Event(
+                    type=EventType.TRADE_APPROVAL_RESOLVED,
+                    tenant_id=tenant_id,
+                    data={"ticker": ticker, "approved": approved},
+                )
+            )
+        except Exception:
+            pass
 
     async def _process_suggested_tickers(
         self,

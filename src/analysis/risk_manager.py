@@ -33,6 +33,7 @@ class RiskVerdict:
     allowed: list[TradeSchema] = field(default_factory=list)
     blocked: list[tuple[TradeSchema, str]] = field(default_factory=list)
     requires_approval: list[TradeSchema] = field(default_factory=list)
+    requires_trade_approval: list[tuple[TradeSchema, str]] = field(default_factory=list)
 
 
 # Inverse ETF risk constants
@@ -286,6 +287,19 @@ class RiskManager:
                     log.warning("risk_blocked_tech", trade=trade.ticker, reason=reason)
                     verdict.blocked.append((trade, reason))
                     continue
+
+            # Rule 4: Large trade approval (non-inverse BUYs > threshold % of portfolio)
+            if not is_inverse_buy and total_denominator > 0:
+                from config.settings import settings
+
+                trade_pct = (buy_value / total_denominator) * 100
+                if trade_pct > settings.trade_approval_threshold_pct:
+                    reason = (
+                        f"{trade.ticker} trade value ${buy_value:,.0f} is {trade_pct:.1f}% of portfolio "
+                        f"(threshold: {settings.trade_approval_threshold_pct}%)"
+                    )
+                    log.info("trade_requires_approval", trade=trade.ticker, reason=reason)
+                    verdict.requires_trade_approval.append((trade, reason))
 
             # Passed all checks — update projected state
             projected_values[trade.ticker] = new_position_value

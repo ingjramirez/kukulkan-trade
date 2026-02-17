@@ -21,8 +21,8 @@ class EventType(str, Enum):
     # Trading events
     TRADE_EXECUTED = "trade_executed"
     TRAILING_STOP_TRIGGERED = "trailing_stop_triggered"
-    TRADE_APPROVAL_REQUESTED = "trade_approval_requested"  # future
-    TRADE_APPROVAL_RESOLVED = "trade_approval_resolved"  # future
+    TRADE_APPROVAL_REQUESTED = "trade_approval_requested"
+    TRADE_APPROVAL_RESOLVED = "trade_approval_resolved"
 
     # Alert events
     CIRCUIT_BREAKER_TRIGGERED = "circuit_breaker_triggered"

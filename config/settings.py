@@ -100,6 +100,10 @@ class Settings(BaseSettings):
     dashboard: DashboardSettings = DashboardSettings()
     agent: AgentSettings = AgentSettings()
 
+    # Trade approval
+    trade_approval_threshold_pct: float = 10.0  # Trades > this % of portfolio require Telegram approval
+    trade_approval_timeout_s: int = 300  # Seconds to wait for Telegram response (5 min)
+
     # SSE (Server-Sent Events)
     sse_heartbeat_s: float = 30.0  # heartbeat interval in seconds
     sse_max_queue: int = 64  # max queued events per subscriber
