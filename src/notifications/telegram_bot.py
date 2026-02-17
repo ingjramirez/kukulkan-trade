@@ -171,6 +171,30 @@ class TelegramNotifier:
         text = f"⚠️ <b>Kukulkan Error</b>\n\n{_escape_html(error_msg)}"
         return await self.send_message(text)
 
+    async def send_sentinel_alert(self, alerts: list[dict], max_level: str) -> bool:
+        """Send a sentinel alert summary to Telegram.
+
+        Args:
+            alerts: List of alert dicts with level, check_type, ticker, message.
+            max_level: Highest alert level ("clear", "warning", "critical").
+
+        Returns:
+            True if sent successfully.
+        """
+        if not alerts:
+            return True
+
+        icon = {"critical": "🔴", "warning": "🟡", "clear": "🟢"}.get(max_level, "⚪")
+        header = f"{icon} <b>Sentinel {max_level.upper()}</b>\n"
+
+        lines = [header]
+        for a in alerts:
+            level_icon = {"critical": "🔴", "warning": "🟡", "clear": "🟢"}.get(a.get("level", ""), "⚪")
+            lines.append(f"{level_icon} <b>[{a.get('check_type', '')}]</b> {_escape_html(a.get('message', ''))}")
+
+        text = "\n".join(lines)
+        return await self.send_message(text)
+
     async def send_approval_request(
         self,
         complexity: "ComplexityResult",

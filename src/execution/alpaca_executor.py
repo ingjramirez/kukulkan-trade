@@ -566,3 +566,30 @@ class AlpacaExecutor:
             total_value=round(total_value, 2),
             daily_return=round(daily_return_pct, 2) if daily_return_pct else None,
         )
+
+    async def get_open_orders(self) -> list[dict]:
+        """List open orders from Alpaca (for sentinel fill verification).
+
+        Returns:
+            List of dicts with order_id, ticker, status, qty, filled_qty, created_at.
+        """
+        from alpaca.trading.enums import QueryOrderStatus
+        from alpaca.trading.requests import GetOrdersRequest
+
+        def _fetch() -> list:
+            request = GetOrdersRequest(status=QueryOrderStatus.OPEN)
+            return self._client.get_orders(filter=request)
+
+        raw_orders = await asyncio.to_thread(_fetch)
+
+        return [
+            {
+                "order_id": str(o.id),
+                "ticker": o.symbol,
+                "status": _order_status(o.status),
+                "qty": float(o.qty) if o.qty else 0,
+                "filled_qty": float(o.filled_qty) if o.filled_qty else 0,
+                "created_at": o.created_at,
+            }
+            for o in raw_orders
+        ]

@@ -109,6 +109,11 @@ class Settings(BaseSettings):
     sse_max_queue: int = 64  # max queued events per subscriber
     sse_history_size: int = 100  # recent events buffer for catch-up
 
+    # Sentinel (intraday monitoring)
+    sentinel_enabled: bool = True  # Enable sentinel checks
+    sentinel_interval_min: int = 30  # Check interval in minutes
+    sentinel_max_escalations_per_day: int = 2  # Max crisis sessions triggered per day
+
     # Pipeline tuning
     inter_tenant_delay: float = 2.0  # seconds between tenant runs (avoids Alpaca rate limits)
 

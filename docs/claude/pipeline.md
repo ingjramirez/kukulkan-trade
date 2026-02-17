@@ -14,7 +14,8 @@ Machine-readable context for Claude. Covers the orchestrator, strategies, execut
 | `src/execution/client_factory.py` | AlpacaClientFactory: per-tenant cached TradingClient |
 | `src/main.py` | APScheduler setup, job definitions (3x daily + intraday + weekly) |
 | `src/intraday.py` | 15-min portfolio snapshot collector |
-| `src/events/event_bus.py` | EventBus singleton: SSE pub/sub, 18 event types |
+| `src/agent/sentinel.py` | SentinelRunner: intraday stop/regime/fill checks, escalation guards |
+| `src/events/event_bus.py` | EventBus singleton: SSE pub/sub, 20 event types |
 | `src/notifications/telegram_bot.py` | TelegramNotifier: daily brief, trade confirmation, large trade + inverse approvals |
 | `src/notifications/telegram_factory.py` | TelegramFactory: per-tenant cached notifier |
 | `src/notifications/weekly_report.py` | WeeklyReporter: Friday performance summary |
@@ -170,10 +171,11 @@ class AlpacaClientFactory:
 ## Scheduler (`src/main.py`)
 
 | Job | Schedule (US/Eastern) | Function |
-|-----|-----------------------|----------|
+|-|-|-|
 | Morning | Mon-Fri 10:00 AM | `orchestrator.run_all_tenants(session="Morning")` |
 | Midday | Mon-Fri 12:30 PM | `orchestrator.run_all_tenants(session="Midday")` |
 | Closing | Mon-Fri 3:45 PM | `orchestrator.run_all_tenants(session="Closing")` |
+| Sentinel Checks | Every 30 min, 10-15 ET (Mon-Fri) | `SentinelRunner.run_all_checks()` |
 | Intraday Snapshots | Every 15 min, 9:30-16:00 ET (Mon-Fri) | `collect_intraday_snapshot()` |
 | Weekly Memory Compaction | Sunday 6:00 PM | `memory_manager.run_weekly_compaction()` |
 | Weekly Performance Report | Friday 5:00 PM | `WeeklyReporter.generate_and_send()` |
@@ -191,6 +193,28 @@ async def collect_intraday_snapshot(db: Database, tenant: TenantRow) -> int
 ```
 
 Fetches live Alpaca positions, sums per portfolio (positions_value + cash = total_value), stores `IntradaySnapshotRow`.
+
+## Sentinel (`src/agent/sentinel.py`)
+
+```python
+class SentinelRunner:
+    def __init__(self, db, executor=None, tenant_id="default", price_fetcher=None) -> None
+    async def run_all_checks(self) -> SentinelResult
+    async def check_stop_proximity(self) -> list[SentinelAlert]
+    async def check_regime_shift(self) -> list[SentinelAlert]
+    async def check_fills(self) -> list[SentinelAlert]
+```
+
+Three check types:
+1. **Stop proximity**: Fetches prices for active trailing stops. CLEAR >3%, WARNING 2-3%, CRITICAL <2%.
+2. **Regime shift**: VIX crossing 28 up (warning), VIX >35 (critical), SPY intraday >2% (warning), >3% (critical). Tracks previous values via module-level `_sentinel_state`.
+3. **Fill verification**: Queries executor `get_open_orders()`. Partial fills → warning, stale >30min → warning, stale >60min → critical.
+
+Escalation: `SentinelResult.needs_escalation` = True when any alert is CRITICAL. Scheduler triggers crisis session (`run_daily(session="Sentinel-Crisis", run_portfolio_a=False)`).
+
+Guards: `can_escalate()` checks daily limit (default 2) + 30min cooldown after scheduled sessions. `record_escalation()` / `record_session_time()` track state.
+
+SSE events: `SENTINEL_ALERT` (all warning/critical results), `SENTINEL_ESCALATION` (crisis triggered).
 
 ## Notifications
 
@@ -210,6 +234,7 @@ class TelegramNotifier:
     async def wait_for_inverse_approval(self, request_id, timeout_seconds=300) -> str  # "approve"|"reject"
     async def send_large_trade_approval(self, trade, trade_pct, approval_reason, request_id) -> int | None
     async def wait_for_large_trade_approval(self, request_id, timeout_seconds=300) -> str  # "approve"|"reject"
+    async def send_sentinel_alert(self, alerts: list[dict], max_level: str) -> bool
 ```
 
 ### TelegramFactory (`src/notifications/telegram_factory.py`)

@@ -39,6 +39,10 @@ class EventType(str, Enum):
     BUDGET_UPDATED = "budget_updated"
     WATCHLIST_UPDATED = "watchlist_updated"
 
+    # Sentinel events
+    SENTINEL_ALERT = "sentinel_alert"
+    SENTINEL_ESCALATION = "sentinel_escalation"
+
     # System
     SYSTEM_ERROR = "system_error"
     IMPROVEMENT_REPORT = "improvement_report"

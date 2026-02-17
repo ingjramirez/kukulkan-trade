@@ -149,6 +149,13 @@ async def run_scheduled() -> None:
             try:
                 results = await orchestrator.run_all_tenants(session=session)
                 log.info("scheduled_run_complete", session=session, tenants=len(results))
+                # Record session time for sentinel cooldown
+                try:
+                    from src.agent.sentinel import record_session_time
+
+                    record_session_time()
+                except Exception:
+                    pass
             except Exception as e:
                 log.error("scheduled_run_failed", session=session, error=str(e))
                 await notifier.send_error(f"Pipeline failed ({session}): {e}")
@@ -201,6 +208,147 @@ async def run_scheduled() -> None:
         ),
         id="intraday_snapshots",
         name="Kukulkan Intraday Snapshots",
+    )
+
+    # Sentinel checks: every 30 min during market hours (Mon-Fri 10:30-15:30 ET)
+    # Runs between the 3 scheduled sessions to catch stop proximity, regime shifts, fill issues
+
+    async def sentinel_check_job():
+        from datetime import date as _date
+
+        today = _date.today()
+        if not is_market_open(today):
+            return
+        if not settings.sentinel_enabled:
+            return
+        try:
+            from src.agent.sentinel import SentinelRunner
+            from src.notifications.telegram_factory import TelegramFactory
+
+            tenants = await db.get_active_tenants()
+            targets = tenants if tenants else [None]
+
+            for tenant in targets:
+                if tenant and not Orchestrator.tenant_fully_configured(tenant):
+                    continue
+                tid = tenant.id if tenant else "default"
+                tenant_executor = executor if not tenant else None
+                if tenant:
+                    try:
+                        from src.execution.client_factory import AlpacaClientFactory
+
+                        client = AlpacaClientFactory.get_trading_client(tenant)
+                        from src.execution.alpaca_executor import AlpacaExecutor
+
+                        tenant_executor = AlpacaExecutor(db, client)
+                    except Exception:
+                        tenant_executor = None
+
+                runner = SentinelRunner(db=db, executor=tenant_executor, tenant_id=tid)
+                result = await runner.run_all_checks()
+
+                # Publish SSE events for any alerts
+                if result.alerts:
+                    try:
+                        from src.events.event_bus import EventBus, EventType
+
+                        bus = EventBus.get()
+                        alert_dicts = [
+                            {
+                                "level": a.level.value,
+                                "check_type": a.check_type,
+                                "ticker": a.ticker,
+                                "message": a.message,
+                            }
+                            for a in result.alerts
+                        ]
+                        bus.publish(
+                            EventType.SENTINEL_ALERT,
+                            tenant_id=tid,
+                            data={
+                                "max_level": result.max_level.value,
+                                "alerts": alert_dicts,
+                                "checks_run": result.checks_run,
+                            },
+                        )
+                    except Exception as e:
+                        log.warning("sentinel_sse_publish_failed", error=str(e))
+
+                # Send Telegram alert if warning or critical
+                if result.max_level.value in ("warning", "critical"):
+                    try:
+                        tenant_notifier = notifier
+                        if tenant:
+                            try:
+                                tenant_notifier = TelegramFactory.get_notifier(tenant)
+                            except Exception:
+                                pass
+                        alert_dicts = [
+                            {
+                                "level": a.level.value,
+                                "check_type": a.check_type,
+                                "ticker": a.ticker,
+                                "message": a.message,
+                            }
+                            for a in result.alerts
+                        ]
+                        await tenant_notifier.send_sentinel_alert(alert_dicts, result.max_level.value)
+                    except Exception as e:
+                        log.warning("sentinel_telegram_failed", tenant_id=tid, error=str(e))
+
+                # Escalation: trigger crisis session if critical + guards allow
+                if result.needs_escalation:
+                    from src.agent.sentinel import can_escalate, record_escalation
+
+                    log.warning(
+                        "sentinel_escalation_needed",
+                        tenant_id=tid,
+                        max_level=result.max_level.value,
+                        alert_count=len(result.alerts),
+                    )
+                    try:
+                        from src.events.event_bus import EventBus, EventType
+
+                        bus = EventBus.get()
+                        bus.publish(
+                            EventType.SENTINEL_ESCALATION,
+                            tenant_id=tid,
+                            data={"reason": "sentinel_critical", "alert_count": len(result.alerts)},
+                        )
+                    except Exception:
+                        pass
+
+                    if can_escalate(max_per_day=settings.sentinel_max_escalations_per_day):
+                        try:
+                            log.info("sentinel_crisis_session_starting", tenant_id=tid)
+                            crisis_orchestrator = Orchestrator(db, notifier=notifier, executor=tenant_executor)
+                            await crisis_orchestrator.run_daily(
+                                session="Sentinel-Crisis",
+                                tenant_id=tid,
+                                run_portfolio_a=False,
+                                run_portfolio_b=True,
+                            )
+                            record_escalation()
+                            log.info("sentinel_crisis_session_complete", tenant_id=tid)
+                        except Exception as e:
+                            log.error("sentinel_crisis_session_failed", tenant_id=tid, error=str(e))
+                    else:
+                        log.info("sentinel_escalation_blocked", tenant_id=tid)
+
+            log.debug("sentinel_check_job_complete")
+        except Exception as e:
+            log.error("sentinel_check_job_failed", error=str(e))
+
+    scheduler.add_job(
+        sentinel_check_job,
+        CronTrigger(
+            minute="*/30",
+            hour="10-15",
+            day_of_week="mon-fri",
+            timezone="US/Eastern",
+        ),
+        id="sentinel_checks",
+        name="Kukulkan Sentinel Checks",
     )
 
     # Weekly memory compaction (Sunday 6 PM ET)
@@ -526,6 +674,7 @@ async def run_scheduled() -> None:
     log.info(
         "scheduler_started",
         schedule="Mon-Fri at 10:00, 12:30, 15:45 ET; "
+        "Sentinel every 30min 10-15 ET; "
         "Intraday every 15min 9-16 ET; "
         "Fri 17:00 ET report; Sun 17:00 ET playbook+calibration; "
         "Sun 18:00 ET compaction; "
