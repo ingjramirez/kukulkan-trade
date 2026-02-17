@@ -113,5 +113,5 @@ class TestConversationDetailEndpoint:
 
     async def test_nonexistent_returns_not_found(self, client: AsyncClient) -> None:
         r = await client.get("/api/agent/conversations/nonexistent")
-        assert r.status_code == 200  # Returns {"detail": "Session not found"}
+        assert r.status_code == 404
         assert r.json()["detail"] == "Session not found"

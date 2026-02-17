@@ -58,8 +58,7 @@ from src.utils.tenant_universe import get_tenant_universe
 
 log = structlog.get_logger()
 
-# Delay between tenant sessions to avoid Alpaca rate limits
-_INTER_TENANT_DELAY_SECONDS = 2.0
+# Delay between tenant sessions is configured via settings.inter_tenant_delay
 
 
 @dataclass
@@ -202,7 +201,7 @@ class Orchestrator:
         results: list[dict] = []
         for i, tenant in enumerate(tenants):
             # Skip tenants without complete credentials
-            if not self._tenant_fully_configured(tenant):
+            if not self.tenant_fully_configured(tenant):
                 log.info(
                     "tenant_skipped_incomplete_config",
                     tenant_id=tenant.id,
@@ -255,7 +254,7 @@ class Orchestrator:
 
             # Delay between tenants (except after the last one)
             if i < len(tenants) - 1:
-                await asyncio.sleep(_INTER_TENANT_DELAY_SECONDS)
+                await asyncio.sleep(settings.inter_tenant_delay)
 
         log.info(
             "all_tenants_complete",
@@ -2169,7 +2168,7 @@ class Orchestrator:
         return "\n".join(lines)
 
     @staticmethod
-    def _tenant_fully_configured(tenant: TenantRow) -> bool:
+    def tenant_fully_configured(tenant: TenantRow) -> bool:
         """Check if a tenant has all required credentials to run the bot."""
         return bool(
             tenant.alpaca_api_key_enc

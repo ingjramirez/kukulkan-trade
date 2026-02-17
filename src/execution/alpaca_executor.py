@@ -6,6 +6,7 @@ Same 3-method interface as PaperTrader.
 
 import asyncio
 from datetime import date, datetime
+from typing import Any
 
 import structlog
 from alpaca.trading.client import TradingClient
@@ -57,7 +58,7 @@ class AlpacaExecutor:
         self._pending_orders: list[dict] = []
 
     @retry_broker_read
-    def _fetch_alpaca_order(self, order_id: str):
+    def _fetch_alpaca_order(self, order_id: str) -> Any:
         """Fetch a single order by ID (with retry on transient errors)."""
         return self._client.get_order_by_id(order_id)
 

@@ -200,27 +200,40 @@ select = ["E", "F", "I", "W"]
 
 All scripts use `load_dotenv()` before imports (E402 acceptable).
 
+## Dev-Only Tools
+
+### Backtest Runner (`src/backtest/`)
+
+Offline simulation engine. **Not deployed to production** — dev/research use only. Replays historical data through the pipeline and records hypothetical decisions. Results stored in `data/backtest_decisions/`.
+
+### CLI (`src/cli/`)
+
+Admin command-line interface for tenant management and manual operations. **Not deployed as a service** — used for ad-hoc server administration via SSH. Commands: `create-tenant`, `list-tenants`, `test-connection`, `run-pipeline`.
+
 ## Settings (`config/settings.py`)
 
 ```python
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_nested_delimiter="__")
-
-    # Nested models
-    alpaca: AlpacaSettings    # api_key, secret_key, paper
-    finnhub: FinnhubSettings  # api_key
-    anthropic: AnthropicSettings  # api_key
+    # Sub-settings (env prefix: ALPACA_, TELEGRAM_, FINNHUB_, AGENT_, CHROMA_, DASHBOARD_)
+    alpaca: AlpacaSettings       # api_key, secret_key, paper
+    telegram: TelegramSettings   # bot_token, chat_id
+    finnhub: FinnhubSettings     # api_key
+    chroma: ChromaSettings       # host, port
+    dashboard: DashboardSettings # user, password
+    agent: AgentSettings         # strategy_mode, daily_budget, monthly_budget, scan_model, etc.
 
     # Direct fields
+    anthropic_api_key: str = ""
+    fred_api_key: str = ""
     database_url: str = "sqlite+aiosqlite:///data/kukulkan.db"
     executor: str = "paper"
-    jwt_secret: str
-    telegram_bot_token: str = ""
-    telegram_chat_id: str = ""
+    log_level: str = "INFO"
+    jwt_secret: str = "change-me-in-production"
     tenant_encryption_key: str = ""
-    fred_api_key: str = ""
-    dashboard_user: str = "admin"
-    dashboard_password: str = ""
+    inter_tenant_delay: float = 2.0  # seconds between tenant runs
+
+    # Paths
+    project_root: Path; data_dir: Path; logs_dir: Path
 
 settings = Settings()  # singleton, loaded at import
 ```

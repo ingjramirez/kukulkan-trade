@@ -86,7 +86,7 @@ _INTER_TENANT_DELAY_SECONDS = 2.0
 async def run_all_tenants(self, today, session):
     tenants = await db.get_active_tenants()
     for tenant in tenants:
-        if not _tenant_fully_configured(tenant): continue
+        if not tenant_fully_configured(tenant): continue
         # Create tenant-specific executor, notifier, allocations
         await self.run_tenant_session(tenant, today, session)
         await asyncio.sleep(_INTER_TENANT_DELAY_SECONDS)

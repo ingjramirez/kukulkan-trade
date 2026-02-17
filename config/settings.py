@@ -98,6 +98,9 @@ class Settings(BaseSettings):
     dashboard: DashboardSettings = DashboardSettings()
     agent: AgentSettings = AgentSettings()
 
+    # Pipeline tuning
+    inter_tenant_delay: float = 2.0  # seconds between tenant runs (avoids Alpaca rate limits)
+
     # Paths
     project_root: Path = Path(__file__).resolve().parent.parent
     data_dir: Path = project_root / "data"

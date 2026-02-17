@@ -13,11 +13,21 @@ Machine-readable context for Claude. Covers the agent subsystem, tool-use loop, 
 | `src/agent/strategy_directives.py` | CONSERVATIVE/STANDARD/AGGRESSIVE + SESSION_DIRECTIVES |
 | `src/agent/complexity_detector.py` | ComplexityDetector: 6-signal scoring for model escalation |
 | `src/agent/ticker_discovery.py` | TickerDiscovery: validation, propose, expire |
+| `src/agent/persistent_agent.py` | PersistentAgent wrapping AgentRunner with conversation persistence |
+| `src/agent/conversation_store.py` | SQLite-backed conversation save/load/compress/cleanup |
+| `src/agent/context_manager.py` | Context building: system prompt, messages, trigger messages, pinned context |
+| `src/agent/session_compressor.py` | Haiku compression + Sonnet validation for old sessions |
+| `src/agent/session_profiles.py` | SessionProfile enum (FULL/LIGHT/CRISIS/REVIEW/BUDGET_SAVING) |
+| `src/agent/haiku_scanner.py` | HaikuScanner for fast market triage (ScanResult: ROUTINE/INVESTIGATE/URGENT) |
+| `src/agent/opus_validator.py` | OpusValidator for trade review (ValidationResult: approved/concerns) |
+| `src/agent/tiered_runner.py` | TieredModelRunner orchestrating Haiku→Sonnet→Opus per session profile |
+| `src/agent/budget_tracker.py` | BudgetTracker (daily $3 / monthly $75 caps), BudgetStatus dataclass |
+| `src/agent/posture.py` | PostureLevel enum, PostureLimits, PostureManager (aggressive gate) |
 | `src/agent/tools/__init__.py` | ToolRegistry + ToolDefinition dataclass |
-| `src/agent/tools/portfolio.py` | 3 tools: get_current_positions, get_position_pnl, get_portfolio_summary |
-| `src/agent/tools/market.py` | 2 tools: get_price_and_technicals, get_market_context |
-| `src/agent/tools/news.py` | 1 tool: search_news |
-| `src/agent/tools/actions.py` | 3 tools: propose_trades, update_watchlist, save_memory_note + ActionState |
+| `src/agent/tools/portfolio.py` | 6 tools + 3 legacy aliases |
+| `src/agent/tools/market.py` | 4 tools + 2 legacy aliases |
+| `src/agent/tools/news.py` | 3 tools: search_news, search_historical_news, get_portfolio_a_status |
+| `src/agent/tools/actions.py` | 6 tools + 2 legacy aliases + ActionState + declare_posture |
 | `config/strategies.py` | PortfolioAConfig, PortfolioBConfig frozen dataclasses |
 
 ## ClaudeAgent (`src/agent/claude_agent.py`)
@@ -121,14 +131,31 @@ MODEL_PRICING: dict[str, tuple[float, float]] = {
     "claude-haiku-4-5-20251001": (1.0, 5.0),
 }
 
+# Prompt caching economics
+CACHE_WRITE_MULTIPLIER = 1.25   # Cache writes cost 1.25x base input price
+CACHE_READ_MULTIPLIER = 0.10    # Cache hits cost 0.10x base input price (90% savings)
+
 @dataclass
 class TokenTracker:
     session_budget_usd: float = 0.50
-    def record(self, model: str, input_tokens: int, output_tokens: int, turn: int) -> None
-    def summary(self) -> dict  # {total_input_tokens, total_output_tokens, total_cost_usd, budget_usd, ...}
+    def record(self, model: str, input_tokens: int, output_tokens: int, turn: int,
+               cache_creation_tokens: int = 0, cache_read_tokens: int = 0) -> None
+    def summary(self) -> dict  # includes cache_savings_usd
     @property
     def budget_exceeded(self) -> bool
+    @property
+    def cache_savings_usd(self) -> float  # full_price - cached_price for all cache_read_tokens
 ```
+
+### Prompt Caching
+
+System prompt blocks use `cache_control: {"type": "ephemeral"}` markers. Cost formula per call:
+
+```
+cost = (input * base + cache_write * base * 1.25 + cache_read * base * 0.10 + output * output_price) / 1M
+```
+
+Cached system prompt via `build_cached_system_prompt()` in `claude_agent.py`.
 
 ## Strategy Directives (`src/agent/strategy_directives.py`)
 
@@ -157,19 +184,49 @@ class ToolRegistry:
 
 **Important:** `execute()` does NOT catch errors. Errors propagate to `AgentRunner._execute_tool()` which logs them as `success=False`.
 
-### 9 Tools
+### 20 Tools (4 modules)
 
-| Tool | File | Input | Returns |
-|------|------|-------|---------|
-| `get_current_positions` | portfolio.py | `{}` | list of position dicts |
-| `get_position_pnl` | portfolio.py | `{ticker}` | P&L + trailing stop status |
-| `get_portfolio_summary` | portfolio.py | `{}` | cash, value, sector exposure |
-| `get_price_and_technicals` | market.py | `{ticker}` | price, returns, RSI, MACD, SMA |
-| `get_market_context` | market.py | `{}` | regime, VIX, yield curve, sector heatmap |
-| `search_news` | news.py | `{ticker?}` | filtered news articles |
-| `propose_trades` | actions.py | `{trades: [...]}` | accumulates, returns count |
-| `update_watchlist` | actions.py | `{updates: [...]}` | accumulates |
-| `save_memory_note` | actions.py | `{key, content}` | accumulates |
+**Portfolio tools** (`portfolio.py`):
+
+| Tool | Input | Returns |
+|------|-------|---------|
+| `get_portfolio_state` | `{}` | positions, cash, P&L, sector exposure, instrument_type |
+| `get_position_detail` | `{ticker}` | P&L, trailing stop, days held |
+| `get_portfolio_performance` | `{}` | returns, drawdown, Sharpe ratio |
+| `get_historical_trades` | `{days?}` | recent trade log |
+| `get_correlation_check` | `{}` | position correlation matrix |
+| `get_risk_assessment` | `{}` | risk metrics, inverse_exposure |
+| `get_portfolio_a_history` | `{days?}` | Portfolio A trades (read-only) |
+
+**Market tools** (`market.py`):
+
+| Tool | Input | Returns |
+|------|-------|---------|
+| `get_batch_technicals` | `{tickers}` | RSI, MACD, SMA for batch, instrument_type |
+| `get_sector_heatmap` | `{}` | sector performance + RSI |
+| `get_market_overview` | `{}` | regime, VIX, yield curve, breadth |
+| `get_earnings_calendar` | `{days?}` | upcoming earnings for held tickers |
+
+**News tools** (`news.py`):
+
+| Tool | Input | Returns |
+|------|-------|---------|
+| `search_news` | `{ticker?}` | today's news context |
+| `search_historical_news` | `{ticker, days?}` | ChromaDB vector search |
+| `get_portfolio_a_status` | `{}` | Portfolio A positions (read-only) |
+
+**Action tools** (`actions.py`):
+
+| Tool | Input | Returns |
+|------|-------|---------|
+| `execute_trade` | `{ticker, side, weight, conviction, reason}` | accumulates |
+| `set_trailing_stop` | `{ticker, trail_pct}` | override default stop |
+| `get_order_status` | `{ticker?}` | current order statuses |
+| `save_observation` | `{key, content}` | accumulates memory note |
+| `update_watchlist` | `{updates}` | accumulates |
+| `declare_posture` | `{posture, reason}` | sets session posture |
+
+Legacy aliases preserved: `get_current_positions`, `get_position_pnl`, `get_portfolio_summary`, `get_price_and_technicals`, `get_market_context`, `propose_trades`, `save_memory_note`.
 
 ### ActionState (`src/agent/tools/actions.py`)
 
@@ -186,11 +243,67 @@ Per-run isolation: one ActionState per agent session, accumulated across multipl
 ### Registration Functions
 
 ```python
-def register_portfolio_tools(registry, db, tenant_id, current_prices) -> None
-def register_market_tools(registry, closes, vix=None, yield_curve=None, regime=None) -> None
-def register_news_tools(registry, news_context) -> None
+def register_portfolio_tools(registry, db, tenant_id, current_prices, closes=None, held_tickers=None) -> None
+def register_market_tools(registry, closes, vix=None, yield_curve=None, regime=None, db=None, held_tickers=None) -> None
+def register_news_tools(registry, news_context, news_fetcher=None, current_prices=None) -> None
 def register_action_tools(registry, state) -> None
 ```
+
+## Persistent Agent (`src/agent/persistent_agent.py`)
+
+```python
+class PersistentAgent:
+    def __init__(self, api_key, db, tenant_id, model=None, max_turns=8, max_cost_usd=0.50)
+    async def run_session(self, system_prompt, user_message, trigger_type="scheduled",
+                          model_override=None) -> PersistentRunResult
+```
+
+Uses ConversationStore for SQLite persistence, ContextManager for prompt assembly, SessionCompressor for old session compaction (Haiku compress + Sonnet validate). Orchestrator routing: `use_persistent_agent` > `use_agent_loop` > single-shot.
+
+## Tiered Model Runner (`src/agent/tiered_runner.py`)
+
+```python
+class TieredModelRunner:
+    def __init__(self, api_key, db, tenant_id, ...)
+    async def run(self, system_prompt, user_message, ...) -> TieredRunResult
+```
+
+Flow per SessionProfile:
+- **FULL**: Haiku scan → Sonnet investigate → Opus validate trades
+- **LIGHT + ROUTINE**: Haiku scan only ($0.002), skip investigation
+- **LIGHT + INVESTIGATE/URGENT**: Haiku scan → Sonnet investigate
+- **CRISIS**: Always full investigation
+- **BUDGET_SAVING**: Haiku scan only
+
+### Session Profiles (`src/agent/session_profiles.py`)
+
+```python
+class SessionProfile(Enum):
+    FULL = "full"           # Morning session, complex market
+    LIGHT = "light"         # Midday/Closing, routine
+    CRISIS = "crisis"       # VIX > 30 or major regime change
+    REVIEW = "review"       # Weekend review
+    BUDGET_SAVING = "budget_saving"  # Budget > 80% spent
+
+def get_session_profile(session, vix, regime_changed, budget_pct_used) -> SessionProfile
+```
+
+### Budget Tracker (`src/agent/budget_tracker.py`)
+
+Daily $3 / monthly $75 caps (configurable via `AGENT_DAILY_BUDGET`, `AGENT_MONTHLY_BUDGET`). When monthly > 80%, forces `BUDGET_SAVING` profile (Haiku only).
+
+## Posture System (`src/agent/posture.py`)
+
+```python
+class PostureLevel(Enum):
+    DEFENSIVE = "defensive"; CAUTIOUS = "cautious"; NEUTRAL = "neutral"
+    OPPORTUNISTIC = "opportunistic"; AGGRESSIVE = "aggressive"; CRISIS = "crisis"
+
+class PostureManager:
+    def resolve_posture(self, declared, track_record) -> tuple[PostureLevel, PostureLimits]
+```
+
+Aggressive gate: requires 50+ trades, >55% win rate, positive alpha. `posture_limits` passed to `RiskManager.check_pre_trade()` — can only tighten, never loosen.
 
 ## AgentMemoryManager (`src/agent/memory.py`)
 

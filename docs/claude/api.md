@@ -12,7 +12,7 @@ Machine-readable context for Claude. Covers the FastAPI REST API, auth, routes, 
 | `src/api/rate_limit.py` | RateLimitMiddleware: sliding window per IP |
 | `src/api/schemas.py` | All Pydantic response/request models |
 | `src/api/alpaca_client.py` | Cached async Alpaca wrapper (30s TTL) |
-| `src/api/routes/` | 11 route modules |
+| `src/api/routes/` | 13 route modules |
 
 ## FastAPI App (`src/api/main.py`)
 
@@ -171,8 +171,8 @@ Note: Rankings are global (not tenant-scoped).
 |--------|------|------|---------|--------|
 | GET | `/me` | `get_current_user` | `TenantReadResponse` | 200 |
 | PATCH | `/me` | `get_current_user` | `TenantReadResponse` | 200 |
-| POST | `/me/test-alpaca` | `get_current_user` | `dict` | 200 |
-| POST | `/me/test-telegram` | `get_current_user` | `dict` | 200 |
+| POST | `/me/test-alpaca` | `get_current_user` | `ConnectionTestResponse` | 200 |
+| POST | `/me/test-telegram` | `get_current_user` | `ConnectionTestResponse` | 200 |
 
 **Admin CRUD:**
 
@@ -183,8 +183,8 @@ Note: Rankings are global (not tenant-scoped).
 | GET | `/{tenant_id}` | `require_admin` | `TenantReadResponse` | 200 |
 | PATCH | `/{tenant_id}` | `require_admin` | `TenantReadResponse` | 200 |
 | DELETE | `/{tenant_id}` | `require_admin` | None | 204 |
-| POST | `/{tenant_id}/test-alpaca` | `require_admin` | `dict` | 200 |
-| POST | `/{tenant_id}/test-telegram` | `require_admin` | `dict` | 200 |
+| POST | `/{tenant_id}/test-alpaca` | `require_admin` | `ConnectionTestResponse` | 200 |
+| POST | `/{tenant_id}/test-telegram` | `require_admin` | `ConnectionTestResponse` | 200 |
 
 ### `src/api/routes/universe.py` -- prefix `/api/universe`, tags `["universe"]`
 
@@ -196,7 +196,7 @@ Note: Rankings are global (not tenant-scoped).
 
 | Method | Path | Query | Auth | Returns |
 |--------|------|-------|------|---------|
-| GET | `/upcoming` | days_ahead (default 14) | `get_authorized_tenant_id` | `list[dict]` |
+| GET | `/upcoming` | days_ahead (default 14) | `get_authorized_tenant_id` | `list[EarningsUpcomingResponse]` |
 
 ### `src/api/routes/discovered.py` -- prefix `/api/discovered`, tags `["discovered"]`
 
@@ -231,6 +231,23 @@ _running: dict[str, bool] = {}; _last_trigger: dict[str, float] = {}
 def _reset_run_state() -> None  # for tests
 ```
 
+### `src/api/routes/agent_insights.py` -- prefix `/api/agent`, tags `["agent-insights"]`
+
+| Method | Path | Auth | Returns |
+|--------|------|------|---------|
+| GET | `/posture` | `get_authorized_tenant_id` | `list[PostureHistoryResponse]` |
+| GET | `/playbook` | `get_authorized_tenant_id` | `list[PlaybookCellResponse]` |
+| GET | `/calibration` | `get_authorized_tenant_id` | `list[ConvictionCalibrationResponse]` |
+| GET | `/budget` | `get_authorized_tenant_id` | `BudgetStatusResponse` |
+| GET | `/inverse-exposure` | `get_authorized_tenant_id` | `InverseExposureResponse` |
+
+### `src/api/routes/conversations.py` -- prefix `/api/agent`, tags `["agent"]`
+
+| Method | Path | Query | Auth | Returns |
+|--------|------|-------|------|---------|
+| GET | `/conversations` | limit (1-100, default 30) | `get_authorized_tenant_id` | `list[ConversationSessionResponse]` |
+| GET | `/conversations/{session_id}` | -- | `get_authorized_tenant_id` | `ConversationDetailResponse` |
+
 ## Alpaca Client (`src/api/alpaca_client.py`)
 
 ```python
@@ -260,6 +277,15 @@ Uses `asyncio.to_thread()` for sync Alpaca SDK calls. Must use `client.get_portf
 | `TrackRecordResponse` | total_trades, wins, losses, win_rate_pct, by_sector/conviction/regime/session |
 | `DecisionQualityResponse` | total_decisions, favorable_1d/3d/5d_pct |
 | `ToolCallLogResponse` | session_date, turn, tool_name, tool_input, success, influenced_decision |
+| `ConversationSessionResponse` | session_id, trigger_type, summary, token_count, cost_usd, session_status |
+| `ConversationDetailResponse` | session_id, tenant_id, trigger_type, messages, created_at |
+| `PostureHistoryResponse` | session_date, posture, effective_posture, reason |
+| `PlaybookCellResponse` | regime, sector, total_trades, win_rate_pct, recommendation |
+| `ConvictionCalibrationResponse` | conviction_level, win_rate_pct, assessment, suggested_multiplier |
+| `BudgetStatusResponse` | daily_spent/limit/remaining, monthly_spent/limit/remaining, haiku_only |
+| `InverseExposureResponse` | total_value, total_pct, net_equity_pct, positions, rules |
+| `EarningsUpcomingResponse` | ticker, earnings_date, source |
+| `ConnectionTestResponse` | success, equity, message, error |
 
 Custom validator: `UTCDatetime = Annotated[datetime, AfterValidator(_ensure_utc)]`
 

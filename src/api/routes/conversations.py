@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 
 from src.agent.conversation_store import ConversationStore
 from src.api.deps import get_authorized_tenant_id, get_db
-from src.api.schemas import ConversationSessionResponse
+from src.api.schemas import ConversationDetailResponse, ConversationSessionResponse
 from src.storage.database import Database
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
@@ -33,15 +33,27 @@ async def list_conversations(
     ]
 
 
-@router.get("/conversations/{session_id}")
+@router.get("/conversations/{session_id}", response_model=ConversationDetailResponse)
 async def get_conversation(
     session_id: str,
     tenant_id: str = Depends(get_authorized_tenant_id),
     db: Database = Depends(get_db),
-):
+) -> ConversationDetailResponse:
     """Get a single conversation session with full messages."""
+    from fastapi import HTTPException
+
     store = ConversationStore(db)
     session = await store.get_session(session_id)
     if session is None or session["tenant_id"] != tenant_id:
-        return {"detail": "Session not found"}
-    return session
+        raise HTTPException(status_code=404, detail="Session not found")
+    return ConversationDetailResponse(
+        session_id=session["session_id"],
+        tenant_id=session["tenant_id"],
+        trigger_type=session["trigger_type"],
+        summary=session.get("summary"),
+        token_count=session.get("token_count", 0),
+        cost_usd=session.get("cost_usd", 0.0),
+        session_status=session.get("session_status", "completed"),
+        messages=session.get("messages", []),
+        created_at=session["created_at"],
+    )

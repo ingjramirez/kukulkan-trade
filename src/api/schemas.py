@@ -344,6 +344,31 @@ class InverseExposureResponse(BaseModel):
     rules: dict
 
 
+class EarningsUpcomingResponse(BaseModel):
+    ticker: str
+    earnings_date: str
+    source: str
+
+
+class ConnectionTestResponse(BaseModel):
+    success: bool
+    equity: float | None = None
+    message: str | None = None
+    error: str | None = None
+
+
+class ConversationDetailResponse(BaseModel):
+    session_id: str
+    tenant_id: str
+    trigger_type: str
+    summary: str | None = None
+    token_count: int = 0
+    cost_usd: float = 0.0
+    session_status: str = "completed"
+    messages: list[dict] = []
+    created_at: UTCDatetime
+
+
 class TenantReadResponse(BaseModel):
     id: str
     name: str

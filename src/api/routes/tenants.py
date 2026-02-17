@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.deps import get_current_user, get_db, require_admin
 from src.api.schemas import (
+    ConnectionTestResponse,
     TenantCreateRequest,
     TenantReadResponse,
     TenantSelfUpdateRequest,
@@ -154,11 +155,11 @@ async def update_my_tenant(
     return _tenant_to_response(updated)
 
 
-@router.post("/me/test-alpaca")
+@router.post("/me/test-alpaca", response_model=ConnectionTestResponse)
 async def test_my_alpaca(
     db: Database = Depends(get_db),
     user: dict = Depends(get_current_user),
-) -> dict:
+) -> ConnectionTestResponse:
     """Test the current tenant user's own Alpaca connection."""
     tenant_id = user.get("tenant_id")
     if tenant_id is None:
@@ -168,7 +169,7 @@ async def test_my_alpaca(
         raise HTTPException(status_code=404, detail="Tenant not found")
 
     if not tenant.alpaca_api_key_enc or not tenant.alpaca_api_secret_enc:
-        return {"success": False, "error": "Alpaca credentials not configured"}
+        return ConnectionTestResponse(success=False, error="Alpaca credentials not configured")
 
     try:
         import asyncio
@@ -177,17 +178,17 @@ async def test_my_alpaca(
 
         client = AlpacaClientFactory.get_trading_client(tenant)
         account = await asyncio.to_thread(client.get_account)
-        return {"success": True, "equity": float(account.equity)}
+        return ConnectionTestResponse(success=True, equity=float(account.equity))
     except Exception:
         log.error("test_alpaca_failed", tenant_id=tenant_id)
-        return {"success": False, "error": "Connection failed. Check credentials and try again."}
+        return ConnectionTestResponse(success=False, error="Connection failed. Check credentials and try again.")
 
 
-@router.post("/me/test-telegram")
+@router.post("/me/test-telegram", response_model=ConnectionTestResponse)
 async def test_my_telegram(
     db: Database = Depends(get_db),
     user: dict = Depends(get_current_user),
-) -> dict:
+) -> ConnectionTestResponse:
     """Send a test message via the current tenant user's own Telegram bot."""
     tenant_id = user.get("tenant_id")
     if tenant_id is None:
@@ -197,24 +198,24 @@ async def test_my_telegram(
         raise HTTPException(status_code=404, detail="Tenant not found")
 
     if not tenant.telegram_bot_token_enc or not tenant.telegram_chat_id_enc:
-        return {"success": False, "error": "Telegram credentials not configured"}
+        return ConnectionTestResponse(success=False, error="Telegram credentials not configured")
 
     try:
         from src.notifications.telegram_factory import TelegramFactory
 
         notifier = TelegramFactory.get_notifier(tenant)
         success = await notifier.send_message(
-            "🐍 Kukulkan test message — connection verified!",
+            "\U0001f40d Kukulkan test message \u2014 connection verified!",
         )
         if success:
-            return {"success": True, "message": "Test message sent"}
-        return {"success": False, "error": "Send returned False"}
+            return ConnectionTestResponse(success=True, message="Test message sent")
+        return ConnectionTestResponse(success=False, error="Send returned False")
     except Exception:
         log.error("test_telegram_failed", tenant_id=tenant_id)
-        return {
-            "success": False,
-            "error": "Connection failed. Check credentials and try again.",
-        }
+        return ConnectionTestResponse(
+            success=False,
+            error="Connection failed. Check credentials and try again.",
+        )
 
 
 # ── Admin CRUD ───────────────────────────────────────────────────────────
@@ -399,7 +400,7 @@ async def deactivate_tenant(
     tenant_id: str,
     db: Database = Depends(get_db),
     _user: dict = Depends(require_admin),
-):
+) -> None:
     """Soft-delete a tenant (set is_active=False)."""
     found = await db.deactivate_tenant(tenant_id)
     if not found:
@@ -407,19 +408,19 @@ async def deactivate_tenant(
     return None
 
 
-@router.post("/{tenant_id}/test-alpaca")
+@router.post("/{tenant_id}/test-alpaca", response_model=ConnectionTestResponse)
 async def test_alpaca(
     tenant_id: str,
     db: Database = Depends(get_db),
     _user: dict = Depends(require_admin),
-) -> dict:
+) -> ConnectionTestResponse:
     """Test a tenant's Alpaca connection by calling get_account()."""
     tenant = await db.get_tenant(tenant_id)
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
     if not tenant.alpaca_api_key_enc or not tenant.alpaca_api_secret_enc:
-        return {"success": False, "error": "Alpaca credentials not configured"}
+        return ConnectionTestResponse(success=False, error="Alpaca credentials not configured")
 
     try:
         from src.execution.client_factory import AlpacaClientFactory
@@ -428,42 +429,39 @@ async def test_alpaca(
         import asyncio
 
         account = await asyncio.to_thread(client.get_account)
-        return {
-            "success": True,
-            "equity": float(account.equity),
-        }
+        return ConnectionTestResponse(success=True, equity=float(account.equity))
     except Exception:
         log.error("test_alpaca_failed", tenant_id=tenant_id)
-        return {"success": False, "error": "Connection failed. Check credentials and try again."}
+        return ConnectionTestResponse(success=False, error="Connection failed. Check credentials and try again.")
 
 
-@router.post("/{tenant_id}/test-telegram")
+@router.post("/{tenant_id}/test-telegram", response_model=ConnectionTestResponse)
 async def test_telegram(
     tenant_id: str,
     db: Database = Depends(get_db),
     _user: dict = Depends(require_admin),
-) -> dict:
+) -> ConnectionTestResponse:
     """Send a test message via a tenant's Telegram bot."""
     tenant = await db.get_tenant(tenant_id)
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
     if not tenant.telegram_bot_token_enc or not tenant.telegram_chat_id_enc:
-        return {"success": False, "error": "Telegram credentials not configured"}
+        return ConnectionTestResponse(success=False, error="Telegram credentials not configured")
 
     try:
         from src.notifications.telegram_factory import TelegramFactory
 
         notifier = TelegramFactory.get_notifier(tenant)
         success = await notifier.send_message(
-            "🐍 Kukulkan test message — connection verified!",
+            "\U0001f40d Kukulkan test message \u2014 connection verified!",
         )
         if success:
-            return {"success": True, "message": "Test message sent"}
-        return {"success": False, "error": "Send returned False"}
+            return ConnectionTestResponse(success=True, message="Test message sent")
+        return ConnectionTestResponse(success=False, error="Send returned False")
     except Exception:
         log.error("test_telegram_failed", tenant_id=tenant_id)
-        return {
-            "success": False,
-            "error": "Connection failed. Check credentials and try again.",
-        }
+        return ConnectionTestResponse(
+            success=False,
+            error="Connection failed. Check credentials and try again.",
+        )

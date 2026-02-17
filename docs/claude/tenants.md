@@ -60,7 +60,7 @@ Machine-readable context for Claude. Covers tenant model, lifecycle, credential 
 
 ### Credential Guards
 
-- **Orchestrator:** `_tenant_fully_configured()` skips tenants missing Alpaca or Telegram credentials
+- **Orchestrator:** `tenant_fully_configured()` skips tenants missing Alpaca or Telegram credentials
 - **API PATCH:** Rejects portfolio config changes (run_portfolio_a/b, strategy_mode) with 422 unless both Alpaca AND Telegram credentials are set
 - **Test endpoints:** Check credentials exist before attempting connection
 

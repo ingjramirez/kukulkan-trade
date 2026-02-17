@@ -62,7 +62,7 @@ async def trigger_run(
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
-    if not Orchestrator._tenant_fully_configured(tenant):
+    if not Orchestrator.tenant_fully_configured(tenant):
         raise HTTPException(
             status_code=422,
             detail="Alpaca and Telegram credentials must be configured before running.",

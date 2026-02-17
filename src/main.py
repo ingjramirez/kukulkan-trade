@@ -29,7 +29,34 @@ log = structlog.get_logger()
 
 
 def setup_logging() -> None:
-    """Configure structlog for the application."""
+    """Configure structlog for the application with optional file rotation."""
+    from logging.handlers import RotatingFileHandler
+
+    level = logging.getLevelName(settings.log_level)
+
+    # Console handler (always present)
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(level)
+
+    handlers: list[logging.Handler] = [console_handler]
+
+    # File handler with rotation (10 MB per file, 5 backups)
+    logs_dir = settings.logs_dir
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    file_handler = RotatingFileHandler(
+        logs_dir / "kukulkan.log",
+        maxBytes=10 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
+    )
+    file_handler.setLevel(level)
+    handlers.append(file_handler)
+
+    # Configure root logger so structlog output reaches both handlers
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+    root_logger.handlers = handlers
+
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
@@ -37,7 +64,8 @@ def setup_logging() -> None:
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.dev.ConsoleRenderer(),
         ],
-        wrapper_class=structlog.make_filtering_bound_logger(logging.getLevelName(settings.log_level)),
+        wrapper_class=structlog.make_filtering_bound_logger(level),
+        logger_factory=structlog.stdlib.LoggerFactory(),
     )
 
 
@@ -149,7 +177,7 @@ async def run_scheduled() -> None:
         try:
             tenants = await db.get_active_tenants()
             for tenant in tenants:
-                if not Orchestrator._tenant_fully_configured(tenant):
+                if not Orchestrator.tenant_fully_configured(tenant):
                     continue
                 try:
                     await collect_intraday_snapshot(db, tenant)
@@ -188,7 +216,7 @@ async def run_scheduled() -> None:
             tenants = await db.get_active_tenants()
             if tenants:
                 for tenant in tenants:
-                    if Orchestrator._tenant_fully_configured(tenant):
+                    if Orchestrator.tenant_fully_configured(tenant):
                         try:
                             # Compute outcome feedback for evaluation
                             outcome_summary = None
@@ -267,7 +295,7 @@ async def run_scheduled() -> None:
                 from src.notifications.telegram_factory import TelegramFactory
 
                 for tenant in tenants:
-                    if not Orchestrator._tenant_fully_configured(tenant):
+                    if not Orchestrator.tenant_fully_configured(tenant):
                         log.info(
                             "weekly_report_tenant_skipped",
                             tenant_id=tenant.id,
@@ -327,7 +355,7 @@ async def run_scheduled() -> None:
 
             for tenant in targets:
                 tid = tenant.id if tenant else "default"
-                if tenant and not Orchestrator._tenant_fully_configured(tenant):
+                if tenant and not Orchestrator.tenant_fully_configured(tenant):
                     continue
                 try:
                     tracker = OutcomeTracker(db)
