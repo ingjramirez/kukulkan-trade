@@ -18,9 +18,11 @@ from src.storage.models import (
     DailySnapshotRow,
     DiscoveredTickerRow,
     EarningsCalendarRow,
+    ImprovementSnapshotRow,
     IntradaySnapshotRow,
     MarketDataRow,
     MomentumRankingRow,
+    ParameterChangelogRow,
     PlaybookSnapshotRow,
     PortfolioRow,
     PositionRow,
@@ -1381,6 +1383,136 @@ class Database:
                 )
             )
             return float(result.scalar_one())
+
+    # ── Improvement Snapshot CRUD ────────────────────────────────────
+
+    async def save_improvement_snapshot(
+        self,
+        tenant_id: str,
+        week_start: date,
+        week_end: date,
+        total_trades: int,
+        win_rate_pct: float | None,
+        avg_pnl_pct: float | None,
+        avg_alpha_vs_spy: float | None,
+        total_cost_usd: float,
+        strategy_mode: str | None,
+        trailing_stop_multiplier: float | None,
+        proposal_json: str | None,
+        applied_changes: str | None,
+        report_text: str | None,
+    ) -> int:
+        """Save a weekly improvement snapshot. Returns the snapshot ID."""
+        async with self.session() as s:
+            row = ImprovementSnapshotRow(
+                tenant_id=tenant_id,
+                week_start=week_start,
+                week_end=week_end,
+                total_trades=total_trades,
+                win_rate_pct=win_rate_pct,
+                avg_pnl_pct=avg_pnl_pct,
+                avg_alpha_vs_spy=avg_alpha_vs_spy,
+                total_cost_usd=total_cost_usd,
+                strategy_mode=strategy_mode,
+                trailing_stop_multiplier=trailing_stop_multiplier,
+                proposal_json=proposal_json,
+                applied_changes=applied_changes,
+                report_text=report_text,
+            )
+            s.add(row)
+            await s.commit()
+            await s.refresh(row)
+            return row.id
+
+    async def get_improvement_snapshots(
+        self,
+        tenant_id: str = "default",
+        limit: int = 20,
+    ) -> list[ImprovementSnapshotRow]:
+        """Get recent improvement snapshots for a tenant, newest first."""
+        async with self.session() as s:
+            result = await s.execute(
+                select(ImprovementSnapshotRow)
+                .where(ImprovementSnapshotRow.tenant_id == tenant_id)
+                .order_by(ImprovementSnapshotRow.created_at.desc())
+                .limit(limit)
+            )
+            return list(result.scalars().all())
+
+    async def get_improvement_snapshot(
+        self,
+        snapshot_id: int,
+        tenant_id: str = "default",
+    ) -> ImprovementSnapshotRow | None:
+        """Get a single improvement snapshot by ID (tenant-scoped)."""
+        async with self.session() as s:
+            result = await s.execute(
+                select(ImprovementSnapshotRow).where(
+                    ImprovementSnapshotRow.id == snapshot_id,
+                    ImprovementSnapshotRow.tenant_id == tenant_id,
+                )
+            )
+            return result.scalar_one_or_none()
+
+    async def insert_parameter_changelog(
+        self,
+        tenant_id: str,
+        parameter: str,
+        old_value: str | None,
+        new_value: str | None,
+        reason: str | None = None,
+        snapshot_id: int | None = None,
+    ) -> None:
+        """Insert a parameter change audit entry."""
+        async with self.session() as s:
+            s.add(
+                ParameterChangelogRow(
+                    tenant_id=tenant_id,
+                    snapshot_id=snapshot_id,
+                    parameter=parameter,
+                    old_value=old_value,
+                    new_value=new_value,
+                    reason=reason,
+                )
+            )
+            await s.commit()
+
+    async def get_parameter_changelog(
+        self,
+        tenant_id: str = "default",
+        limit: int = 50,
+    ) -> list[ParameterChangelogRow]:
+        """Get recent parameter changelog entries, newest first."""
+        async with self.session() as s:
+            result = await s.execute(
+                select(ParameterChangelogRow)
+                .where(ParameterChangelogRow.tenant_id == tenant_id)
+                .order_by(ParameterChangelogRow.applied_at.desc())
+                .limit(limit)
+            )
+            return list(result.scalars().all())
+
+    async def get_parameter_changes_for(
+        self,
+        tenant_id: str,
+        parameter: str,
+        weeks: int = 4,
+    ) -> list[ParameterChangelogRow]:
+        """Get recent changes for a specific parameter (for flip-flop detection)."""
+        from datetime import timedelta
+
+        cutoff = datetime.now(timezone.utc) - timedelta(weeks=weeks)
+        async with self.session() as s:
+            result = await s.execute(
+                select(ParameterChangelogRow)
+                .where(
+                    ParameterChangelogRow.tenant_id == tenant_id,
+                    ParameterChangelogRow.parameter == parameter,
+                    ParameterChangelogRow.applied_at >= cutoff,
+                )
+                .order_by(ParameterChangelogRow.applied_at.desc())
+            )
+            return list(result.scalars().all())
 
     # ── Tenant CRUD ──────────────────────────────────────────────────
 

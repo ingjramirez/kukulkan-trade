@@ -429,6 +429,43 @@ class AgentBudgetLogRow(Base):
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
+class ImprovementSnapshotRow(Base):
+    """Weekly self-improvement snapshot — performance data + proposal + applied changes."""
+
+    __tablename__ = "improvement_snapshots"
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
+    week_start = Column(Date, nullable=False)
+    week_end = Column(Date, nullable=False)
+    total_trades = Column(Integer, nullable=False, default=0)
+    win_rate_pct = Column(Float, nullable=True)
+    avg_pnl_pct = Column(Float, nullable=True)
+    avg_alpha_vs_spy = Column(Float, nullable=True)
+    total_cost_usd = Column(Float, nullable=True, default=0.0)
+    strategy_mode = Column(String(20), nullable=True)
+    trailing_stop_multiplier = Column(Float, nullable=True, default=1.0)
+    proposal_json = Column(Text, nullable=True)  # Full Sonnet proposal JSON
+    applied_changes = Column(Text, nullable=True)  # JSON list of applied changes
+    report_text = Column(Text, nullable=True)  # Plain-text summary
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
+class ParameterChangelogRow(Base):
+    """Audit log of auto-applied parameter changes."""
+
+    __tablename__ = "parameter_changelog"
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
+    snapshot_id = Column(Integer, nullable=True)  # FK to improvement_snapshots.id
+    parameter = Column(String(50), nullable=False)
+    old_value = Column(Text, nullable=True)
+    new_value = Column(Text, nullable=True)
+    reason = Column(Text, nullable=True)
+    applied_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
 class TenantRow(Base):
     """Multi-tenant configuration: credentials, strategy, and universe."""
 
@@ -479,6 +516,9 @@ class TenantRow(Base):
 
     # Tiered model runner (Haiku scan → Sonnet investigate → Opus validate)
     use_tiered_models = Column(Boolean, nullable=False, default=False)
+
+    # Trailing stop multiplier (0.5-2.0, scales TRAIL_PCT matrix)
+    trailing_stop_multiplier = Column(Float, nullable=False, default=1.0)
 
     # Ticker customization (JSON arrays, nullable = use defaults)
     ticker_whitelist = Column(Text, nullable=True)  # JSON: ["AAPL","TSLA"]

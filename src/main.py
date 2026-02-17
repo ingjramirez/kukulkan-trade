@@ -340,6 +340,56 @@ async def run_scheduled() -> None:
         name="Kukulkan Weekly Report",
     )
 
+    # Weekly self-improvement loop (Sunday 4 PM ET)
+    async def weekly_improvement_loop():
+        try:
+            from src.analysis.improvement_pipeline import WeeklyImprovementPipeline
+
+            tenants = await db.get_active_tenants()
+            targets = tenants if tenants else []
+            if not targets:
+                targets = [None]
+
+            for tenant in targets:
+                tid = tenant.id if tenant else "default"
+                if tenant and not Orchestrator.tenant_fully_configured(tenant):
+                    continue
+                try:
+                    pipeline = WeeklyImprovementPipeline(db)
+                    notifier_instance = None
+                    if tenant:
+                        try:
+                            from src.notifications.telegram_bot import TelegramNotifier
+                            from src.utils.crypto import decrypt_value
+
+                            if tenant.telegram_bot_token_enc and tenant.telegram_chat_id_enc:
+                                notifier_instance = TelegramNotifier(
+                                    bot_token=decrypt_value(tenant.telegram_bot_token_enc),
+                                    chat_id=decrypt_value(tenant.telegram_chat_id_enc),
+                                )
+                        except Exception:
+                            pass
+                    result = await pipeline.run(tenant_id=tid, notifier=notifier_instance)
+                    log.info("weekly_improvement_tenant_done", tenant_id=tid, result=result)
+                except Exception as e:
+                    log.error("weekly_improvement_tenant_failed", tenant_id=tid, error=str(e))
+
+            log.info("weekly_improvement_loop_complete")
+        except Exception as e:
+            log.error("weekly_improvement_loop_failed", error=str(e))
+
+    scheduler.add_job(
+        weekly_improvement_loop,
+        CronTrigger(
+            day_of_week="sun",
+            hour=16,
+            minute=0,
+            timezone="US/Eastern",
+        ),
+        id="weekly_improvement_loop",
+        name="Kukulkan Weekly Self-Improvement",
+    )
+
     # Weekly playbook + calibration generation (Sunday 5 PM ET)
     async def weekly_playbook_calibration():
         try:

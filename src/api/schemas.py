@@ -392,3 +392,60 @@ class TenantReadResponse(BaseModel):
     dashboard_user: str | None = None
     created_at: UTCDatetime | None = None
     updated_at: UTCDatetime | None = None
+
+
+# ── Improvement Snapshots ─────────────────────────────────────────
+
+
+class ImprovementSnapshotListResponse(BaseModel):
+    id: int
+    week_start: date
+    week_end: date
+    total_trades: int
+    win_rate_pct: float | None = None
+    avg_pnl_pct: float | None = None
+    strategy_mode: str | None = None
+    trailing_stop_multiplier: float | None = None
+    created_at: UTCDatetime
+
+
+class ImprovementSnapshotDetailResponse(BaseModel):
+    id: int
+    week_start: date
+    week_end: date
+    total_trades: int
+    win_rate_pct: float | None = None
+    avg_pnl_pct: float | None = None
+    avg_alpha_vs_spy: float | None = None
+    total_cost_usd: float | None = None
+    strategy_mode: str | None = None
+    trailing_stop_multiplier: float | None = None
+    proposal_json: dict | None = None
+    applied_changes: list[dict] | None = None
+    report_text: str | None = None
+    created_at: UTCDatetime
+
+
+class ParameterChangelogResponse(BaseModel):
+    id: int
+    parameter: str
+    old_value: str | None = None
+    new_value: str | None = None
+    reason: str | None = None
+    snapshot_id: int | None = None
+    applied_at: UTCDatetime
+
+
+class ImprovementTrendDataPoint(BaseModel):
+    week_label: str
+    win_rate_pct: float | None = None
+    avg_pnl_pct: float | None = None
+    total_trades: int = 0
+
+
+class ImprovementTrendResponse(BaseModel):
+    classification: str
+    win_rate_slope: float
+    pnl_slope: float
+    data_points: list[ImprovementTrendDataPoint]
+    weeks_analyzed: int

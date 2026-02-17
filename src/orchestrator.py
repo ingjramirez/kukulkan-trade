@@ -128,11 +128,16 @@ def _active_portfolio_names(
     return active
 
 
-def _get_trail_pct(strategy_mode: str, trade: TradeSchema) -> float:
+def _get_trail_pct(strategy_mode: str, trade: TradeSchema, multiplier: float = 1.0) -> float:
     """Look up trailing stop percentage from strategy mode and trade conviction.
 
     Parses conviction from the trade reason (e.g. "high conviction" or
     "conviction: medium"). Falls back to "medium".
+
+    Args:
+        strategy_mode: conservative/standard/aggressive.
+        trade: The trade to look up trail pct for.
+        multiplier: Tenant trailing_stop_multiplier (0.5-2.0, default 1.0).
     """
     conviction = "medium"
     reason_lower = (trade.reason or "").lower()
@@ -141,7 +146,8 @@ def _get_trail_pct(strategy_mode: str, trade: TradeSchema) -> float:
             conviction = level
             break
     strategy_pcts = TRAIL_PCT.get(strategy_mode, TRAIL_PCT["conservative"])
-    return strategy_pcts.get(conviction, strategy_pcts["medium"])
+    base_pct = strategy_pcts.get(conviction, strategy_pcts["medium"])
+    return round(base_pct * multiplier, 4)
 
 
 class Orchestrator:
@@ -1001,9 +1007,15 @@ class Orchestrator:
             for req in b_tool_summary.get("trailing_stop_requests", []):
                 agent_stop_requests[req["ticker"]] = req["trail_pct"]
 
+        # Get tenant trailing stop multiplier (scales TRAIL_PCT matrix)
+        tenant = await self._db.get_tenant(tenant_id)
+        trail_multiplier = tenant.trailing_stop_multiplier if tenant and tenant.trailing_stop_multiplier else 1.0
+
         for trade in executed:
             if trade.side.value == "BUY":
-                trail_pct = agent_stop_requests.pop(trade.ticker, _get_trail_pct(active_strategy, trade))
+                trail_pct = agent_stop_requests.pop(
+                    trade.ticker, _get_trail_pct(active_strategy, trade, trail_multiplier)
+                )
                 try:
                     await self._db.create_trailing_stop(
                         tenant_id=tenant_id,
