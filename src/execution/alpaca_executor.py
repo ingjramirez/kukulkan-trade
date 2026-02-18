@@ -18,6 +18,7 @@ from src.storage.database import Database
 from src.storage.models import TradeSchema
 from src.utils.allocations import DEFAULT_ALLOCATIONS, TenantAllocations
 from src.utils.retry import retry_broker_read
+from src.utils.ticker_mapping import is_crypto_ticker, to_alpaca_format, to_canonical_format
 
 log = structlog.get_logger()
 
@@ -177,13 +178,18 @@ class AlpacaExecutor:
         """
         portfolio_name = trade.portfolio.value
         side = AlpacaSide.BUY if trade.side.value == "BUY" else AlpacaSide.SELL
+        crypto = is_crypto_ticker(trade.ticker)
 
         try:
+            alpaca_symbol = to_alpaca_format(trade.ticker)
+            qty = round(trade.shares, 8) if crypto else int(trade.shares)
+            tif = TimeInForce.GTC if crypto else TimeInForce.DAY
+
             order_request = MarketOrderRequest(
-                symbol=trade.ticker,
-                qty=int(trade.shares),
+                symbol=alpaca_symbol,
+                qty=qty,
                 side=side,
-                time_in_force=TimeInForce.DAY,
+                time_in_force=tif,
                 client_order_id=f"kk-{portfolio_name}-{trade.ticker}-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
             )
             order = self._client.submit_order(order_request)
@@ -192,9 +198,10 @@ class AlpacaExecutor:
                 "alpaca_order_submitted",
                 ticker=trade.ticker,
                 side=trade.side.value,
-                shares=int(trade.shares),
+                shares=qty,
                 order_id=str(order.id),
                 status=str(order.status),
+                crypto=crypto,
             )
 
             # Wait for fill
@@ -407,8 +414,9 @@ class AlpacaExecutor:
                     qty=qty,
                 )
                 continue
-            alpaca_map[pos.symbol] = qty
-            alpaca_price_map[pos.symbol] = float(pos.avg_entry_price)
+            canonical = to_canonical_format(pos.symbol)
+            alpaca_map[canonical] = qty
+            alpaca_price_map[canonical] = float(pos.avg_entry_price)
 
         # Build DB position map: ticker -> (portfolio, shares, avg_price)
         db_positions: dict[str, dict] = {}
@@ -585,7 +593,7 @@ class AlpacaExecutor:
         return [
             {
                 "order_id": str(o.id),
-                "ticker": o.symbol,
+                "ticker": to_canonical_format(o.symbol),
                 "status": _order_status(o.status),
                 "qty": float(o.qty) if o.qty else 0,
                 "filled_qty": float(o.filled_qty) if o.filled_qty else 0,

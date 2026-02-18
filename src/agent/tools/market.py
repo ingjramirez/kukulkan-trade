@@ -129,7 +129,7 @@ async def _get_market_overview(
     yield_curve: float | None,
     regime: str | None,
 ) -> dict:
-    """Broad market overview: SPY, VIX, yield curve, regime, and sector heatmap."""
+    """Broad market overview: SPY, VIX, yield curve, regime, BTC, and sector heatmap."""
     result: dict = {
         "regime": regime or "Unknown",
         "vix": round(vix, 1) if vix is not None else None,
@@ -147,6 +147,11 @@ async def _get_market_overview(
         if len(spy) >= 21:
             result["spy_20d_pct"] = round(((spy.iloc[-1] / spy.iloc[-21]) - 1) * 100, 2)
 
+    # BTC price from pre-fetched closes (if available in universe data)
+    btc_data = _get_btc_from_closes(closes)
+    if btc_data:
+        result["bitcoin"] = btc_data
+
     # Sector heatmap (1-week returns for sector ETFs)
     sector_returns: dict[str, float] = {}
     for sector, etf in SECTOR_ETF_MAP.items():
@@ -158,6 +163,35 @@ async def _get_market_overview(
 
     if sector_returns:
         result["sector_heatmap_1w"] = dict(sorted(sector_returns.items(), key=lambda x: -x[1]))
+
+    return result
+
+
+def _get_btc_from_closes(closes: pd.DataFrame) -> dict | None:
+    """Extract BTC price summary from pre-fetched closes DataFrame."""
+    if "BTC-USD" not in closes.columns:
+        return None
+
+    btc = closes["BTC-USD"].dropna()
+    if len(btc) < 2:
+        return None
+
+    current = float(btc.iloc[-1])
+    result: dict = {
+        "ticker": "BTC-USD",
+        "price": round(current, 2),
+    }
+
+    prev = float(btc.iloc[-2])
+    result["change_1d_pct"] = round(((current - prev) / prev) * 100, 2)
+
+    if len(btc) >= 6:
+        first_5d = float(btc.iloc[-6])
+        result["change_5d_pct"] = round(((current - first_5d) / first_5d) * 100, 2)
+
+    if len(btc) >= 21:
+        first_20d = float(btc.iloc[-21])
+        result["change_20d_pct"] = round(((current - first_20d) / first_20d) * 100, 2)
 
     return result
 

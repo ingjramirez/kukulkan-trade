@@ -49,7 +49,8 @@ class RiskRules:
     )
 
     # BTC risk signal thresholds
-    btc_proxy: str = "IBIT"
+    btc_ticker: str = "BTC-USD"  # Real BTC for crash detection
+    btc_proxy: str = "IBIT"  # ETF proxy for correlation
     btc_crash_threshold_pct: float = -0.20  # BTC down 20% = risk-off signal
 
     # Minimum cash buffer (not currently enforced in paper trading)

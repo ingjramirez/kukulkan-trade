@@ -20,6 +20,7 @@ class InstrumentType(str, Enum):
     ETF = "etf"
     INVERSE_ETF = "inverse_etf"
     CRYPTO_PROXY = "crypto_proxy"
+    CRYPTO = "crypto"
 
 
 # --- Core Sector ETFs (SPDR Select Sector) ---
@@ -95,6 +96,11 @@ CRYPTO: list[str] = [
     "IBIT",  # iShares Bitcoin Trust
 ]
 
+# --- Crypto (actual crypto assets) ---
+CRYPTO_TICKERS: list[str] = [
+    "BTC-USD",  # Bitcoin
+]
+
 # --- Fixed Income ETFs (bond ladder) ---
 FIXED_INCOME_ETFS: list[str] = ["BIL", "SHY", "IEF", "AGG", "VTIP"]
 # Note: TLT already in THEMATIC_ETFS, HYG already in THEMATIC_ETFS
@@ -130,6 +136,7 @@ PORTFOLIO_B_UNIVERSE: list[str] = (
     + COMMODITY_ETFS
     + INDIVIDUAL_STOCKS
     + CRYPTO
+    + CRYPTO_TICKERS
     + FIXED_INCOME_ETFS
     + INTERNATIONAL_ETFS
     + REAL_ESTATE_ETFS
@@ -191,6 +198,7 @@ SECTOR_MAP: dict[str, str] = {
     "SLV": "Commodities",
     "USO": "Commodities",
     "IBIT": "Crypto",
+    "BTC-USD": "Crypto",
     # Fixed Income (new)
     "BIL": "Fixed Income",
     "SHY": "Fixed Income",
@@ -261,6 +269,8 @@ def classify_instrument(ticker: str) -> InstrumentType:
     """
     if ticker in INVERSE_ETF_META:
         return InstrumentType.INVERSE_ETF
+    if ticker in CRYPTO_TICKERS:
+        return InstrumentType.CRYPTO
     if ticker in CRYPTO:
         return InstrumentType.CRYPTO_PROXY
     if ticker in INDIVIDUAL_STOCKS or ticker in ADDITIONAL_STOCKS:
