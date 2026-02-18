@@ -16,6 +16,7 @@ Machine-readable context for Claude. Covers regime classification, momentum, tec
 | `src/analysis/decision_quality.py` | DecisionQualityTracker: forward-return accuracy (1d/3d/5d) |
 | `config/risk_rules.py` | RiskRules dataclass: all limits and thresholds |
 | `config/strategies.py` | PortfolioAConfig, PortfolioBConfig |
+| `src/analysis/gap_risk.py` | GapRiskAnalyzer: overnight gap risk (earnings, sector, concentration) |
 | `config/universe.py` | SECTOR_MAP, SECTOR_ETF_MAP, ticker lists |
 
 ## Regime Classifier (`src/analysis/regime.py`)
@@ -222,6 +223,32 @@ Calculates 63-day return, skips last 5 days (mean reversion filter), selects top
 5. `DecisionQualityTracker.analyze_recent()` -> forward-return accuracy
 6. Available via API (`/api/portfolios/B/decision-quality`)
 7. Agent sees its own track record and adjusts strategy accordingly
+
+## Gap Risk Analyzer (`src/analysis/gap_risk.py`)
+
+```python
+class GapRiskAnalyzer:
+    EARNINGS_TONIGHT_MULT = 3.0    # Earnings reporting tonight
+    VOLATILE_SECTOR_MULT = 1.5     # Tech, Biotech, Crypto, Semiconductors
+    CONCENTRATION_MULT = 1.2       # Position > 15% of portfolio
+    INVERSE_ETF_MULT = 0.5         # Hedge positions (reduce risk)
+
+    async def analyze(self, db, tenant_id, earnings_tickers=None) -> GapRiskAssessment
+
+@dataclass
+class PositionGapRisk:
+    ticker: str; weight_pct: float; gap_risk_score: float
+    reasons: list[str]; recommendation: str | None
+
+@dataclass
+class GapRiskAssessment:
+    aggregate_risk_score: float; rating: str  # LOW|MODERATE|HIGH|EXTREME
+    earnings_tonight: list[str]; positions: list[PositionGapRisk]
+```
+
+Rating thresholds: LOW (0-5), MODERATE (5-15), HIGH (15-30), EXTREME (30+).
+Run at 2:45 PM ET. HIGH/EXTREME results injected into Closing session agent context.
+Uses `EarningsCalendar` for tonight's earnings, `SECTOR_MAP` for sector lookup, `classify_instrument()` for inverse ETF detection.
 
 ## Gotchas
 

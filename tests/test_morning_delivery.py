@@ -1,8 +1,6 @@
 """Tests for morning queue delivery via Telegram."""
 
-from unittest.mock import AsyncMock, patch
-
-import pytest
+from unittest.mock import AsyncMock
 
 from src.notifications.telegram_bot import TelegramNotifier
 
@@ -22,8 +20,16 @@ def _make_db(pending: list[dict] | None = None) -> AsyncMock:
 class TestMorningDelivery:
     async def test_morning_delivery_formats_critical_first(self) -> None:
         pending = [
-            {"id": 1, "action_type": "sell", "ticker": "AAPL", "reason": "Stop proximity 1.5%", "source": "afterhours_sentinel", "alert_level": "critical", "created_at": "2026-02-16T22:00:00"},
-            {"id": 2, "action_type": "review", "ticker": "MSFT", "reason": "VIX elevated", "source": "afterhours_sentinel", "alert_level": "warning", "created_at": "2026-02-16T22:30:00"},
+            {
+                "id": 1, "action_type": "sell", "ticker": "AAPL",
+                "reason": "Stop proximity 1.5%", "source": "afterhours_sentinel",
+                "alert_level": "critical", "created_at": "2026-02-16T22:00:00",
+            },
+            {
+                "id": 2, "action_type": "review", "ticker": "MSFT",
+                "reason": "VIX elevated", "source": "afterhours_sentinel",
+                "alert_level": "warning", "created_at": "2026-02-16T22:30:00",
+            },
         ]
         notifier = _make_notifier()
         db = _make_db(pending)
@@ -48,7 +54,11 @@ class TestMorningDelivery:
 
     async def test_morning_delivery_includes_commands(self) -> None:
         pending = [
-            {"id": 1, "action_type": "review", "ticker": "TSLA", "reason": "Gap risk", "source": "gap_risk", "alert_level": "warning", "created_at": "2026-02-16T23:00:00"},
+            {
+                "id": 1, "action_type": "review", "ticker": "TSLA",
+                "reason": "Gap risk", "source": "gap_risk",
+                "alert_level": "warning", "created_at": "2026-02-16T23:00:00",
+            },
         ]
         notifier = _make_notifier()
         db = _make_db(pending)
@@ -60,7 +70,11 @@ class TestMorningDelivery:
 
     async def test_morning_delivery_warnings_only(self) -> None:
         pending = [
-            {"id": 1, "action_type": "review", "ticker": "NVDA", "reason": "Earnings tonight", "source": "gap_risk", "alert_level": "warning", "created_at": "2026-02-16T23:00:00"},
+            {
+                "id": 1, "action_type": "review", "ticker": "NVDA",
+                "reason": "Earnings tonight", "source": "gap_risk",
+                "alert_level": "warning", "created_at": "2026-02-16T23:00:00",
+            },
         ]
         notifier = _make_notifier()
         db = _make_db(pending)

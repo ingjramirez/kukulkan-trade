@@ -2,9 +2,7 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
-from src.analysis.gap_risk import GapRiskAnalyzer, GapRiskAssessment
+from src.analysis.gap_risk import GapRiskAnalyzer
 
 
 def _make_position(

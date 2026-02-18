@@ -2,8 +2,6 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from src.api.routes.portfolios import get_after_hours_pnl
 from src.utils.market_time import MarketPhase
 

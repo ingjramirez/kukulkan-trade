@@ -140,7 +140,7 @@ async def client(db):
 
 ### Test Count
 
-932 tests as of 2026-02-13. ~17K lines of test code.
+1681 tests as of 2026-02-18.
 
 ## Ruff Configuration
 
@@ -182,6 +182,8 @@ select = ["E", "F", "I", "W"]
 | 010 | 33.2 | `posture_history`, `playbook_snapshots`, `conviction_calibration` tables |
 | 011 | 34 | `agent_budget_log` table + `use_tiered_models` tenant flag |
 | 012 | 36 | Foreign key constraints on all 16 `tenant_id` columns → `tenants(id) ON DELETE CASCADE` |
+| 013 | 38 | Improvement loop tables (proposals, trend analysis) |
+| 014 | 42 | Extended hours: `intraday_snapshots` columns, `sentinel_actions` table, tenant quiet hours |
 
 ### SQLite Constraints
 

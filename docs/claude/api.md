@@ -12,7 +12,7 @@ Machine-readable context for Claude. Covers the FastAPI REST API, auth, routes, 
 | `src/api/rate_limit.py` | RateLimitMiddleware: sliding window per IP |
 | `src/api/schemas.py` | All Pydantic response/request models |
 | `src/api/alpaca_client.py` | Cached async Alpaca wrapper (30s TTL) |
-| `src/api/routes/` | 14 route modules |
+| `src/api/routes/` | 15 route modules |
 | `src/events/event_bus.py` | EventType enum, Event dataclass, EventBus singleton (SSE) |
 
 ## FastAPI App (`src/api/main.py`)
@@ -135,6 +135,8 @@ History query params: `period: "1D|1W|1M|3M|1A"`, `timeframe: "1Min|5Min|15Min|1
 | GET | `/{name}/positions` | `get_authorized_tenant_id` | `list[PositionResponse]` |
 | GET | `/{name}/trailing-stops` | `get_authorized_tenant_id` | `list[dict]` |
 | GET | `/{name}/watchlist` | `get_authorized_tenant_id` | `list[dict]` |
+| GET | `/after-hours-pnl` | `get_authorized_tenant_id` | `dict` (P&L vs close snapshot) |
+| GET | `/overnight-risk` | `get_authorized_tenant_id` | `dict` (gap risk assessment) |
 
 ### `src/api/routes/snapshots.py` -- prefix `/api`, tags `["snapshots"]`
 
@@ -257,7 +259,7 @@ def _reset_run_state() -> None  # for tests
 | GET | `/recent` | tenant_id, limit (1-100) | `get_authorized_tenant_id` | `list[RecentEvent]` |
 | GET | `/connections` | -- | `require_admin` | `ConnectionsResponse` |
 
-SSE stream sends 18 event types (see `src/events/event_bus.py` EventType enum). Heartbeat every 30s. Full payload reference: `docs/frontend-api-phase39.md`.
+SSE stream sends 18 event types (see `src/events/event_bus.py` EventType enum). Heartbeat every 30s. Full payload reference: `docs/frontend-api-phase39.md`. Extended hours additions: `docs/frontend-api-phase42.md`.
 
 ## Alpaca Client (`src/api/alpaca_client.py`)
 
@@ -278,11 +280,11 @@ Uses `asyncio.to_thread()` for sync Alpaca SDK calls. Must use `client.get_portf
 | `PortfolioSummary` | name, cash, total_value, updated_at |
 | `PortfolioDetail` | name, cash, total_value, updated_at, positions |
 | `SnapshotResponse` | portfolio, date, total_value, cash, daily_return_pct, cumulative_return_pct |
-| `IntradaySnapshotResponse` | portfolio, timestamp, total_value, cash, positions_value |
+| `IntradaySnapshotResponse` | portfolio, timestamp, total_value, cash, positions_value, is_extended_hours, market_phase |
 | `TradeResponse` | id, portfolio, ticker, side, shares, price, total, reason, executed_at |
 | `AgentDecisionResponse` | id, date, proposed_trades, reasoning, model_used, tokens_used, regime, session_label |
 | `TenantCreateRequest` | name, username, password + optional credentials/config |
-| `TenantSelfUpdateRequest` | credentials, strategy_mode, portfolio toggles, tickers, use_agent_loop (NO username/password) |
+| `TenantSelfUpdateRequest` | credentials, strategy_mode, portfolio toggles, tickers, use_agent_loop, quiet_hours (NO username/password) |
 | `TenantReadResponse` | all fields, credentials masked, nullable |
 | `TradeOutcomeResponse` | ticker, side, pnl_pct, alpha_vs_spy, verdict, regime_at_entry, session_at_entry |
 | `TrackRecordResponse` | total_trades, wins, losses, win_rate_pct, by_sector/conviction/regime/session |

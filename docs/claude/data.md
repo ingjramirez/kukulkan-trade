@@ -16,7 +16,7 @@ Machine-readable context for Claude. Covers market data, news pipeline, database
 | `src/data/finnhub_news.py` | FinnhubNewsFetcher: company + general news |
 | `src/data/earnings_calendar.py` | EarningsCalendar: yfinance earnings dates |
 | `src/storage/database.py` | Database class: async SQLite, all CRUD methods |
-| `src/storage/models.py` | 18 ORM models + Pydantic schemas |
+| `src/storage/models.py` | 25 ORM models + Pydantic schemas |
 | `src/storage/vector_store.py` | ChromaDB client wrapper |
 | `config/universe.py` | 70 tickers, SECTOR_MAP, SECTOR_ETF_MAP, get_tenant_universe() |
 
@@ -36,6 +36,14 @@ class MarketData:
 ```
 
 All yfinance calls wrapped in `asyncio.to_thread()`.
+
+### Extended Hours Prices
+
+```python
+async def get_extended_hours_prices(tickers: list[str]) -> dict[str, float]
+    # yfinance fast_info with 5-minute TTL cache, wrapped in asyncio.to_thread()
+def _clear_price_cache() -> None  # for tests
+```
 
 ## Macro Data (`src/data/macro_data.py`)
 
@@ -148,8 +156,13 @@ class Database:
 - `save_snapshot(row)`, `get_snapshots(portfolio, since, tenant_id)`, `get_latest_snapshot(portfolio, tenant_id)`
 
 **Intraday:**
-- `save_intraday_snapshot(row)`, `get_intraday_snapshots(portfolio, since, tenant_id)`
+- `save_intraday_snapshot(row, is_extended_hours, market_phase)`, `get_intraday_snapshots(portfolio, since, tenant_id)`
 - `purge_old_intraday_snapshots(days, tenant_id)`
+- `get_last_market_hours_snapshot(tenant_id)` -- latest snapshot where `is_extended_hours=False`
+
+**Sentinel Actions:**
+- `save_sentinel_action(row)`, `get_pending_sentinel_actions(tenant_id)`
+- `resolve_sentinel_action(action_id, status, resolved_by)`
 
 **Momentum:**
 - `save_momentum_rankings(rows)`, `get_latest_rankings(tenant_id)`
@@ -185,7 +198,7 @@ class Database:
 
 ## ORM Models (`src/storage/models.py`)
 
-18 models total:
+25 models total:
 
 | Model | Key Columns | tenant_id? |
 |-------|-------------|------------|
@@ -193,7 +206,8 @@ class Database:
 | `PositionRow` | portfolio, ticker, shares, avg_price | yes |
 | `TradeRow` | portfolio, ticker, side, shares, price, reason, executed_at | yes |
 | `SnapshotRow` | portfolio, date, total_value, cash, daily_return_pct, cumulative_return_pct | yes |
-| `IntradaySnapshotRow` | portfolio, timestamp, total_value, cash, positions_value | yes |
+| `IntradaySnapshotRow` | portfolio, timestamp, total_value, cash, positions_value, is_extended_hours, market_phase | yes |
+| `SentinelActionRow` | action_type, ticker, reason, source, alert_level, status, resolved_at, resolved_by | yes |
 | `MomentumRankingRow` | date, ticker, return_63d, rank | no |
 | `AgentDecisionRow` | date, prompt_summary, response_summary, proposed_trades, reasoning, model_used, tokens_used, regime, session_label | yes |
 | `AgentMemoryRow` | category (short_term/weekly_summary/agent_note), memory_key, content, expires_at | yes |
@@ -202,7 +216,7 @@ class Database:
 | `WatchlistRow` | portfolio, ticker, reason, conviction, target_entry, added_date, expires_at | yes |
 | `DiscoveredTickerRow` | ticker, source, rationale, status, proposed_at, expires_at, sector, market_cap | yes (composite unique tenant_id+ticker) |
 | `ToolCallLogRow` | session_date, session_label, turn, tool_name, tool_input, tool_output_preview, success, error, influenced_decision | yes |
-| `TenantRow` | id, name, is_active, credentials (enc), config, allocations | -- |
+| `TenantRow` | id, name, is_active, credentials (enc), config, allocations, quiet_hours_start/end/timezone | -- |
 
 ## ChromaDB (`src/storage/vector_store.py`)
 

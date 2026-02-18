@@ -1,9 +1,6 @@
 """Tests for extended hours intraday snapshots."""
 
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
 
 from src.intraday import collect_intraday_snapshot
 from src.utils.market_time import MarketPhase

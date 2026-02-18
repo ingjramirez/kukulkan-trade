@@ -4,8 +4,6 @@ from datetime import datetime
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
-import pytest
-
 from src.utils.market_time import ET, MarketPhase, get_market_phase, is_trading_day
 
 

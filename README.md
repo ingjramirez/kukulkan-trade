@@ -55,9 +55,11 @@ Python 3.11 | FastAPI | SQLAlchemy + aiosqlite | ChromaDB | yfinance | `ta` | An
 - **Portfolio Toggle Lifecycle** — Enable/disable portfolios via API; positions are liquidated and cash is redistributed on next bot run
 - **Multi-Tenant** — Fernet-encrypted credentials, per-tenant data isolation, admin API + self-service, per-tenant ticker customization
 - **Intraday Sentinel** — Automated monitoring every 30 min: stop proximity alerts, VIX/SPY regime shift detection, stale order checks, crisis escalation with pipeline locking
+- **Extended Hours Monitoring** — Pre-market (7–9:30 AM ET) and after-hours (4–8 PM ET) snapshots + sentinel with phase-aware thresholds. Quiet hours queue Telegram overnight; morning summary delivered at 8 AM
+- **Overnight Gap Risk** — Earnings, volatile sector, concentration, and inverse ETF multipliers. 2:45 PM alert + close session context injection. Ratings: LOW/MODERATE/HIGH/EXTREME
 - **Security** — JWT auth (8h expiry + revocation), rate limiting, timing-safe auth, audit logging, IDOR protection
 - **Real-Time Events** — SSE streaming (20 event types) with reconnection, catch-up, per-tenant isolation, Telegram alert throttling
-- **Intraday Data** — 15-minute portfolio snapshots during market hours + Alpaca portfolio history passthrough for high-frequency charts
+- **Intraday Data** — 15-minute portfolio snapshots during market and extended hours + Alpaca portfolio history passthrough for high-frequency charts
 - **SQL Migrations** — Automated schema migrations in CI/CD with manual trigger option
 - **70-Ticker Universe** — ETFs + stocks across sectors, fixed income, international, thematic; per-tenant whitelist/additions/exclusions
 
@@ -136,6 +138,8 @@ GET   /api/tenants/me            — Tenant self-service profile
 PATCH /api/tenants/me            — Update own credentials, tickers, toggles
 POST  /api/tenants/me/test-alpaca    — Test Alpaca connection
 POST  /api/tenants/me/test-telegram  — Test Telegram connection
+GET   /api/portfolios/after-hours-pnl  — Extended hours P&L vs close
+GET   /api/portfolios/overnight-risk   — Overnight gap risk assessment
 GET   /api/events/stream           — SSE real-time event stream
 GET   /api/events/recent           — Recent events (catch-up)
 GET   /api/events/connections      — Active SSE connections (admin)
@@ -214,8 +218,9 @@ kukulkan-trade/
 │   │   ├── memory.py             # 3-tier agent memory system
 │   │   ├── strategy_directives.py # Strategy + session + regime prompts
 │   │   ├── ticker_discovery.py    # AI-suggested ticker additions
-│   │   └── sentinel.py            # Intraday sentinel: stop/regime/fill monitoring
+│   │   └── sentinel.py            # Intraday sentinel: stop/regime/fill monitoring (extended hours)
 │   ├── analysis/
+│   │   ├── gap_risk.py            # Overnight gap risk analyzer
 │   │   ├── momentum.py            # 63-day momentum with 5-day skip
 │   │   ├── performance.py         # Portfolio stats + SPY benchmarking
 │   │   ├── regime.py             # Market regime classifier (5 regimes)
@@ -235,7 +240,7 @@ kukulkan-trade/
 │   ├── cli/
 │   │   └── tenant_cli.py         # Tenant management CLI
 │   ├── data/
-│   │   ├── market_data.py         # yfinance price fetcher
+│   │   ├── market_data.py         # yfinance price fetcher + extended hours prices
 │   │   ├── macro_data.py          # FRED yield curve & VIX
 │   │   ├── news_fetcher.py        # News + ChromaDB vector search
 │   │   ├── news_aggregator.py     # Multi-source news collection
@@ -247,11 +252,12 @@ kukulkan-trade/
 │   ├── events/
 │   │   └── event_bus.py           # SSE event bus: pub/sub, 20 event types
 │   ├── notifications/
-│   │   ├── telegram_bot.py        # Daily briefs, trade alerts, sentinel alerts
+│   │   ├── telegram_bot.py        # Daily briefs, trade alerts, sentinel alerts, quiet hours queue
 │   │   ├── telegram_factory.py   # Per-tenant Telegram cache
+│   │   ├── quiet_hours.py         # Quiet hours manager: queue/deliver notifications
 │   │   └── weekly_report.py       # Friday performance report
 │   ├── storage/
-│   │   ├── models.py              # 24 SQLAlchemy tables + Pydantic schemas
+│   │   ├── models.py              # 25 SQLAlchemy tables + Pydantic schemas
 │   │   ├── database.py            # Async CRUD operations
 │   │   └── vector_store.py        # ChromaDB client
 │   ├── strategies/
@@ -261,6 +267,7 @@ kukulkan-trade/
 │   │   ├── allocations.py       # TenantAllocations + resolve helpers
 │   │   ├── crypto.py             # Fernet encryption for credentials
 │   │   ├── market_calendar.py    # NYSE trading calendar
+│   │   ├── market_time.py        # MarketPhase enum + phase detection
 │   │   └── tenant_universe.py    # Per-tenant ticker resolution
 │   ├── intraday.py                # 15-min intraday snapshot collector
 │   ├── orchestrator.py            # Daily pipeline coordinator
@@ -268,7 +275,7 @@ kukulkan-trade/
 ├── migrations/                    # SQL migration files
 ├── scripts/
 │   └── migrate.py                 # Migration runner
-├── tests/                         # 1610+ tests
+├── tests/                         # 1681 tests
 ├── deploy/
 │   ├── kukulkan-bot.service       # Bot systemd unit
 │   ├── kukulkan-api.service       # API systemd unit

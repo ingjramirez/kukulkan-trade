@@ -1,6 +1,6 @@
 """Tests for tenant quiet hours API settings."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from pydantic import ValidationError
@@ -75,10 +75,10 @@ class TestQuietHoursAPIIntegration:
 
     async def test_invalid_timezone_rejected(self) -> None:
         """Invalid timezone should raise 422."""
-        from fastapi import HTTPException
-
         # Simulate the validation logic from the route
         from zoneinfo import available_timezones
+
+        from fastapi import HTTPException
 
         tz = "Invalid/Timezone"
         if tz not in available_timezones():

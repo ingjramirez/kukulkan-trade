@@ -4,8 +4,6 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
-import pytest
-
 from src.notifications.quiet_hours import QuietHoursManager
 
 
@@ -102,7 +100,10 @@ class TestQueueNotification:
 class TestMorningSummary:
     async def test_morning_summary_returns_pending_only(self) -> None:
         pending = [
-            {"id": 1, "action_type": "sell", "ticker": "AAPL", "reason": "Stop", "source": "ah", "alert_level": "critical", "created_at": "2026-02-16T22:00:00"},
+            {
+                "id": 1, "action_type": "sell", "ticker": "AAPL", "reason": "Stop",
+                "source": "ah", "alert_level": "critical", "created_at": "2026-02-16T22:00:00",
+            },
         ]
         db = _make_db()
         db.get_pending_sentinel_actions = AsyncMock(return_value=pending)

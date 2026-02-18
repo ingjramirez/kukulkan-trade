@@ -14,11 +14,14 @@ Machine-readable context for Claude. Covers the orchestrator, strategies, execut
 | `src/execution/client_factory.py` | AlpacaClientFactory: per-tenant cached TradingClient |
 | `src/main.py` | APScheduler setup, job definitions (3x daily + intraday + weekly) |
 | `src/intraday.py` | 15-min portfolio snapshot collector |
-| `src/agent/sentinel.py` | SentinelRunner: intraday stop/regime/fill checks, escalation guards |
+| `src/agent/sentinel.py` | SentinelRunner: intraday stop/regime/fill checks, escalation guards, extended hours |
+| `src/analysis/gap_risk.py` | GapRiskAnalyzer: overnight gap risk (earnings, sector, concentration multipliers) |
 | `src/events/event_bus.py` | EventBus singleton: SSE pub/sub, 20 event types |
-| `src/notifications/telegram_bot.py` | TelegramNotifier: daily brief, trade confirmation, large trade + inverse approvals |
+| `src/notifications/telegram_bot.py` | TelegramNotifier: daily brief, trade confirmation, large trade + inverse approvals, quiet hours |
 | `src/notifications/telegram_factory.py` | TelegramFactory: per-tenant cached notifier |
+| `src/notifications/quiet_hours.py` | QuietHoursManager: queue/deliver overnight notifications |
 | `src/notifications/weekly_report.py` | WeeklyReporter: Friday performance summary |
+| `src/utils/market_time.py` | MarketPhase enum, get_market_phase(), is_trading_day() |
 
 ## Orchestrator (`src/orchestrator.py`)
 
@@ -55,6 +58,8 @@ run_daily() entry
 |-- Step 5.1: get_historical_context() -> append ChromaDB results
 |-- Step 5.5: earnings_calendar.get_upcoming() -> earnings_context [Morning only]
 |-- Step 5.6: cleanup_expired_watchlist() [Morning only]
+|-- Step 5.7: _process_morning_queue() -> overnight sentinel actions injected [Morning only]
+|-- Step 5.8: _build_gap_risk_context() -> gap risk injected [Closing only, HIGH/EXTREME]
 |-- Step 6: _run_portfolio_b() -> (trades_b, reasoning, tool_summary)
 |-- Step 6.5: risk_manager.check_pre_trade() -> RiskVerdict (allowed, blocked, requires_approval, requires_trade_approval)
 |   |-- Merge trailing_stop_sells (bypass risk filter)
@@ -172,11 +177,17 @@ class AlpacaClientFactory:
 
 | Job | Schedule (US/Eastern) | Function |
 |-|-|-|
+| Pre-Market Snapshots | Every 15 min, 7:00-9:00 ET (Mon-Fri) | `extended_snapshot_job(MarketPhase.PREMARKET)` |
 | Morning | Mon-Fri 10:00 AM | `orchestrator.run_all_tenants(session="Morning")` |
-| Midday | Mon-Fri 12:30 PM | `orchestrator.run_all_tenants(session="Midday")` |
-| Closing | Mon-Fri 3:45 PM | `orchestrator.run_all_tenants(session="Closing")` |
+| Intraday Snapshots | Every 15 min, 9:30-16:00 ET (Mon-Fri) | `collect_intraday_snapshot(MarketPhase.MARKET)` |
 | Sentinel Checks | Every 30 min, 10-15 ET (Mon-Fri) | `SentinelRunner.run_all_checks()` |
-| Intraday Snapshots | Every 15 min, 9:30-16:00 ET (Mon-Fri) | `collect_intraday_snapshot()` |
+| Midday | Mon-Fri 12:30 PM | `orchestrator.run_all_tenants(session="Midday")` |
+| Gap Risk Alert | Mon-Fri 2:45 PM | `gap_risk_alert_job()` |
+| Closing | Mon-Fri 3:45 PM | `orchestrator.run_all_tenants(session="Closing")` |
+| After-Hours Snapshots | Every 15 min, 16:00-20:00 ET (Mon-Fri) | `extended_snapshot_job(MarketPhase.AFTERHOURS)` |
+| Pre-Market Sentinel | Every 30 min, 7:00-9:00 ET (Mon-Fri) | `extended_sentinel_job()` |
+| After-Hours Sentinel | Every 30 min, 16:00-20:00 ET (Mon-Fri) | `extended_sentinel_job()` |
+| Morning Delivery | Mon-Fri 8:00 AM | `morning_delivery_job()` |
 | Weekly Memory Compaction | Sunday 6:00 PM | `memory_manager.run_weekly_compaction()` |
 | Weekly Performance Report | Friday 5:00 PM | `WeeklyReporter.generate_and_send()` |
 | Intraday Cleanup | Sunday 7:00 PM | `purge_old_intraday_snapshots(days=90)` |
@@ -189,16 +200,16 @@ async def run_scheduled() -> None  # APScheduler, recurring jobs
 ## Intraday Snapshots (`src/intraday.py`)
 
 ```python
-async def collect_intraday_snapshot(db: Database, tenant: TenantRow) -> int
+async def collect_intraday_snapshot(db: Database, tenant: TenantRow, market_phase: MarketPhase = MarketPhase.MARKET) -> int
 ```
 
-Fetches live Alpaca positions, sums per portfolio (positions_value + cash = total_value), stores `IntradaySnapshotRow`.
+Fetches live Alpaca positions (regular hours) or yfinance extended prices (pre-market/after-hours), sums per portfolio, stores `IntradaySnapshotRow` with `is_extended_hours` and `market_phase`. Publishes `intraday_update` SSE event with market phase context.
 
 ## Sentinel (`src/agent/sentinel.py`)
 
 ```python
 class SentinelRunner:
-    def __init__(self, db, executor=None, tenant_id="default", price_fetcher=None) -> None
+    def __init__(self, db, executor=None, tenant_id="default", price_fetcher=None, market_phase: str = "market") -> None
     async def run_all_checks(self) -> SentinelResult
     async def check_stop_proximity(self) -> list[SentinelAlert]
     async def check_regime_shift(self) -> list[SentinelAlert]
@@ -207,10 +218,12 @@ class SentinelRunner:
 
 Three check types:
 1. **Stop proximity**: Fetches prices for active trailing stops. CLEAR >3%, WARNING 2-3%, CRITICAL <2%.
-2. **Regime shift**: VIX crossing 28 up (warning), VIX >35 (critical), SPY intraday >2% (warning), >3% (critical). Tracks previous values via per-tenant state (`_get_state(tenant_id)`).
+2. **Regime shift**: VIX crossing thresholds, SPY intraday moves. Phase-aware thresholds:
+   - Market hours: VIX 28/35, SPY 2%/3%
+   - Extended hours: VIX 32/40, SPY 3%/4% (wider to account for lower volume noise)
 3. **Fill verification**: Queries executor `get_open_orders()`. Partial fills → warning, stale >30min → warning, stale >60min → critical.
 
-Escalation: `SentinelResult.needs_escalation` = True when any alert is CRITICAL. Scheduler triggers crisis session (`run_daily(session="Sentinel-Crisis", run_portfolio_a=False)`) under `_pipeline_lock`.
+Escalation: `SentinelResult.needs_escalation` = True when any alert is CRITICAL. During market hours, scheduler triggers crisis session (`run_daily(session="Sentinel-Crisis", run_portfolio_a=False)`) under `_pipeline_lock`. During extended hours, alerts are queued via `send_message_or_queue()` — no crisis sessions.
 
 Guards: `can_escalate(tenant_id=)` checks per-tenant daily limit (default 2) + configurable cooldown (`sentinel_escalation_cooldown_s`, default 1800s) after scheduled sessions. `record_escalation(tenant_id=)` / `record_session_time(tenant_id=)` track per-tenant state.
 
@@ -219,6 +232,33 @@ Telegram throttle: `should_send_alert(ticker, tenant_id)` deduplicates per-ticke
 Concurrency: `_pipeline_lock` (asyncio.Lock) in `main.py` prevents scheduled pipeline and sentinel crisis session from running simultaneously.
 
 SSE events: `SENTINEL_ALERT` (all warning/critical results), `SENTINEL_ESCALATION` (crisis triggered). Uses `event_bus` singleton (NOT `EventBus.get()`).
+
+## Gap Risk (`src/analysis/gap_risk.py`)
+
+```python
+class GapRiskAnalyzer:
+    EARNINGS_TONIGHT_MULT = 3.0
+    VOLATILE_SECTOR_MULT = 1.5
+    CONCENTRATION_MULT = 1.2  # position > 15%
+    INVERSE_ETF_MULT = 0.5
+    VOLATILE_SECTORS = {"Technology", "Biotechnology", "Cryptocurrency", "Semiconductors"}
+
+    async def analyze(self, db, tenant_id, earnings_tickers=None) -> GapRiskAssessment
+```
+
+Ratings: LOW (0-5), MODERATE (5-15), HIGH (15-30), EXTREME (30+). Run at 2:45 PM ET via `gap_risk_alert_job()`. HIGH/EXTREME results injected into Closing session context via `_build_gap_risk_context()`.
+
+## Quiet Hours (`src/notifications/quiet_hours.py`)
+
+```python
+class QuietHoursManager:
+    async def is_quiet(self, tenant_id: str) -> bool  # handles overnight spans
+    async def queue_notification(self, tenant_id, action_type, ticker, reason, source, alert_level) -> int
+    async def get_morning_summary(self, tenant_id: str) -> list[dict]
+    async def resolve_action(self, action_id: int, status: str, resolved_by: str) -> None
+```
+
+Per-tenant quiet hours (default 21:00–07:00 tenant timezone). During quiet hours, `send_message_or_queue()` queues to `sentinel_actions` table. Morning delivery at 8 AM ET sends summary with /execute-all, /cancel-all commands.
 
 ## Notifications
 
@@ -239,6 +279,8 @@ class TelegramNotifier:
     async def send_large_trade_approval(self, trade, trade_pct, approval_reason, request_id) -> int | None
     async def wait_for_large_trade_approval(self, request_id, timeout_seconds=300) -> str  # "approve"|"reject"
     async def send_sentinel_alert(self, alerts: list[dict], max_level: str) -> bool
+    async def send_message_or_queue(self, message, tenant_id, action_type, ticker, reason, source, alert_level) -> bool
+    async def deliver_morning_queue(self, tenant_id) -> bool
 ```
 
 ### TelegramFactory (`src/notifications/telegram_factory.py`)

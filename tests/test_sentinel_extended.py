@@ -1,18 +1,11 @@
 """Tests for extended hours sentinel — phase-aware thresholds and queue-based escalation."""
 
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.agent.sentinel import (
-    EXTENDED_SPY_MOVE_CRITICAL_PCT,
-    EXTENDED_SPY_MOVE_WARNING_PCT,
-    EXTENDED_VIX_CRITICAL_THRESHOLD,
     EXTENDED_VIX_HIGH_THRESHOLD,
-    SPY_MOVE_CRITICAL_PCT,
-    SPY_MOVE_WARNING_PCT,
-    VIX_CRITICAL_THRESHOLD,
     VIX_HIGH_THRESHOLD,
     AlertLevel,
     SentinelRunner,
