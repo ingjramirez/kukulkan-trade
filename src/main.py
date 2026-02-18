@@ -579,7 +579,7 @@ async def run_scheduled() -> None:
                     assessment = await analyzer.analyze(db, tenant.id)
                     if assessment.rating in ("HIGH", "EXTREME"):
                         message = (
-                            f"Overnight Gap Risk: {assessment.rating}\n"
+                            f"Pre-Close Gap Risk: {assessment.rating}\n"
                             f"Risk score: {assessment.aggregate_risk_score}\n\n"
                         )
                         if assessment.earnings_tonight:
