@@ -185,7 +185,7 @@ class TestMorningQueue:
         orch = Orchestrator(db=db)
         result = await orch._process_morning_queue("default")
         assert result is not None
-        assert "OVERNIGHT QUEUE" in result
+        assert "PRE-MARKET QUEUE" in result
         assert "AAPL" in result
         assert "CRITICAL" in result
 

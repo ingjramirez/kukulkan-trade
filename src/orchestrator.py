@@ -1366,7 +1366,7 @@ class Orchestrator:
         if not pending:
             return None
 
-        queue_context = "OVERNIGHT QUEUE — Review these before trading:\n\n"
+        queue_context = "PRE-MARKET QUEUE — Review these before trading:\n\n"
         for action in pending:
             queue_context += (
                 f"  [{action['alert_level'].upper()}] {action['action_type'].upper()} "
@@ -1388,7 +1388,7 @@ class Orchestrator:
             analyzer = GapRiskAnalyzer()
             assessment = await analyzer.analyze(self._db, tenant_id)
             if assessment.rating in ("HIGH", "EXTREME"):
-                ctx = f"OVERNIGHT GAP RISK: {assessment.rating} (score {assessment.aggregate_risk_score})\n"
+                ctx = f"PRE-CLOSE GAP RISK: {assessment.rating} (score {assessment.aggregate_risk_score})\n"
                 if assessment.earnings_tonight:
                     ctx += f"Earnings tonight: {', '.join(assessment.earnings_tonight)}\n"
                 for p in assessment.positions[:5]:
