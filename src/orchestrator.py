@@ -1142,8 +1142,24 @@ class Orchestrator:
         # Step 7.1.1: Apply agent stop requests for existing positions (not newly bought)
         for ticker, trail_pct in agent_stop_requests.items():
             try:
-                await self._db.update_trailing_stop_pct(tenant_id, "B", ticker, trail_pct)
-                log.info("agent_trailing_stop_updated", ticker=ticker, trail_pct=trail_pct)
+                updated = await self._db.update_trailing_stop_pct(tenant_id, "B", ticker, trail_pct)
+                if updated:
+                    log.info("agent_trailing_stop_updated", ticker=ticker, trail_pct=trail_pct)
+                else:
+                    # No existing stop — create one using position avg_price
+                    positions = await self._db.get_positions("B", tenant_id=tenant_id)
+                    pos = next((p for p in positions if p.ticker == ticker), None)
+                    if pos:
+                        await self._db.create_trailing_stop(
+                            tenant_id=tenant_id,
+                            portfolio="B",
+                            ticker=ticker,
+                            entry_price=pos.avg_price,
+                            trail_pct=trail_pct,
+                        )
+                        log.info("agent_trailing_stop_created", ticker=ticker, trail_pct=trail_pct)
+                    else:
+                        log.warning("agent_trailing_stop_no_position", ticker=ticker)
             except Exception as e:
                 log.warning("agent_trailing_stop_update_failed", ticker=ticker, error=str(e))
 

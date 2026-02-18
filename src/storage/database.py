@@ -774,10 +774,11 @@ class Database:
         portfolio: str,
         ticker: str,
         trail_pct: float,
-    ) -> None:
+    ) -> bool:
         """Update trail_pct on the active trailing stop for a tenant/portfolio/ticker.
 
         Recalculates stop_price based on current peak and new trail_pct.
+        Returns True if an existing stop was updated, False if none found.
         """
         async with self.session() as s:
             row = (
@@ -791,11 +792,12 @@ class Database:
                 )
             ).scalar_one_or_none()
             if row is None:
-                return
+                return False
             row.trail_pct = trail_pct
             row.stop_price = round(row.peak_price * (1 - trail_pct), 2)
             row.updated_at = datetime.now(timezone.utc)
             await s.commit()
+            return True
 
     # ── Earnings Calendar ────────────────────────────────────────
 
