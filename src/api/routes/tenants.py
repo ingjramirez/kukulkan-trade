@@ -50,6 +50,9 @@ def _tenant_to_response(tenant: TenantRow) -> TenantReadResponse:
         ticker_additions=(json.loads(tenant.ticker_additions) if tenant.ticker_additions else None),
         ticker_exclusions=(json.loads(tenant.ticker_exclusions) if tenant.ticker_exclusions else None),
         pending_rebalance=bool(tenant.pending_rebalance),
+        quiet_hours_start=getattr(tenant, "quiet_hours_start", "21:00") or "21:00",
+        quiet_hours_end=getattr(tenant, "quiet_hours_end", "07:00") or "07:00",
+        quiet_hours_timezone=getattr(tenant, "quiet_hours_timezone", "America/Mexico_City") or "America/Mexico_City",
         dashboard_user=tenant.dashboard_user,
         created_at=tenant.created_at,
         updated_at=tenant.updated_at,
@@ -139,6 +142,18 @@ async def update_my_tenant(
         toggle_changed = True
     if toggle_changed:
         updates["pending_rebalance"] = True
+
+    # Quiet hours settings
+    if body.quiet_hours_start is not None:
+        updates["quiet_hours_start"] = body.quiet_hours_start
+    if body.quiet_hours_end is not None:
+        updates["quiet_hours_end"] = body.quiet_hours_end
+    if body.quiet_hours_timezone is not None:
+        from zoneinfo import available_timezones
+
+        if body.quiet_hours_timezone not in available_timezones():
+            raise HTTPException(status_code=422, detail=f"Invalid timezone: {body.quiet_hours_timezone}")
+        updates["quiet_hours_timezone"] = body.quiet_hours_timezone
 
     if not updates:
         return _tenant_to_response(tenant)
@@ -370,6 +385,18 @@ async def update_tenant(
         updates["ticker_additions"] = json.dumps(body.ticker_additions) if body.ticker_additions else None
     if body.ticker_exclusions is not None:
         updates["ticker_exclusions"] = json.dumps(body.ticker_exclusions) if body.ticker_exclusions else None
+
+    # Quiet hours settings
+    if body.quiet_hours_start is not None:
+        updates["quiet_hours_start"] = body.quiet_hours_start
+    if body.quiet_hours_end is not None:
+        updates["quiet_hours_end"] = body.quiet_hours_end
+    if body.quiet_hours_timezone is not None:
+        from zoneinfo import available_timezones
+
+        if body.quiet_hours_timezone not in available_timezones():
+            raise HTTPException(status_code=422, detail=f"Invalid timezone: {body.quiet_hours_timezone}")
+        updates["quiet_hours_timezone"] = body.quiet_hours_timezone
 
     # Detect portfolio toggle changes → set pending_rebalance
     toggle_changed = False

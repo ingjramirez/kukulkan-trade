@@ -178,6 +178,7 @@ async def run_scheduled() -> None:
 
     # Intraday snapshots: every 15 min during market hours (Mon-Fri 9:30-16:00 ET)
     from src.intraday import collect_intraday_snapshot
+    from src.utils.market_time import MarketPhase
 
     async def intraday_snapshot_job():
         from datetime import date as _date
@@ -191,7 +192,7 @@ async def run_scheduled() -> None:
                 if not Orchestrator.tenant_fully_configured(tenant):
                     continue
                 try:
-                    await collect_intraday_snapshot(db, tenant)
+                    await collect_intraday_snapshot(db, tenant, market_phase=MarketPhase.MARKET)
                 except Exception as e:
                     log.warning(
                         "intraday_snapshot_tenant_failed",
@@ -212,6 +213,58 @@ async def run_scheduled() -> None:
         ),
         id="intraday_snapshots",
         name="Kukulkan Intraday Snapshots",
+    )
+
+    # Pre-market snapshots: every 15 min, 7:00-9:15 ET Mon-Fri
+    async def extended_snapshot_job(phase: MarketPhase):
+        from datetime import date as _date
+
+        today = _date.today()
+        if not is_market_open(today):
+            return
+        try:
+            tenants = await db.get_active_tenants()
+            for tenant in tenants:
+                if not Orchestrator.tenant_fully_configured(tenant):
+                    continue
+                try:
+                    await collect_intraday_snapshot(db, tenant, market_phase=phase)
+                except Exception as e:
+                    log.warning(
+                        "extended_snapshot_tenant_failed",
+                        tenant_id=tenant.id,
+                        phase=phase.value,
+                        error=str(e),
+                    )
+            log.debug("extended_snapshot_job_complete", phase=phase.value)
+        except Exception as e:
+            log.error("extended_snapshot_job_failed", phase=phase.value, error=str(e))
+
+    scheduler.add_job(
+        extended_snapshot_job,
+        CronTrigger(
+            minute="*/15",
+            hour="7-9",
+            day_of_week="mon-fri",
+            timezone="US/Eastern",
+        ),
+        args=[MarketPhase.PREMARKET],
+        id="intraday_premarket",
+        name="Kukulkan Pre-Market Snapshots",
+    )
+
+    # After-hours snapshots: every 15 min, 16:00-19:45 ET Mon-Fri
+    scheduler.add_job(
+        extended_snapshot_job,
+        CronTrigger(
+            minute="*/15",
+            hour="16-19",
+            day_of_week="mon-fri",
+            timezone="US/Eastern",
+        ),
+        args=[MarketPhase.AFTERHOURS],
+        id="intraday_afterhours",
+        name="Kukulkan After-Hours Snapshots",
     )
 
     # Sentinel checks: every 30 min during market hours (Mon-Fri 10:30-15:30 ET)
@@ -362,6 +415,201 @@ async def run_scheduled() -> None:
         ),
         id="sentinel_checks",
         name="Kukulkan Sentinel Checks",
+    )
+
+    # Extended hours sentinel: pre-market (7:00-9:00 ET) and after-hours (16:30-19:30 ET)
+    async def extended_sentinel_job(phase_str: str):
+        from datetime import date as _date
+
+        today = _date.today()
+        if not is_market_open(today):
+            return
+        if not settings.sentinel_enabled:
+            return
+        try:
+            from src.agent.sentinel import SentinelRunner
+            from src.notifications.telegram_factory import TelegramFactory
+
+            tenants = await db.get_active_tenants()
+            for tenant in tenants:
+                if not Orchestrator.tenant_fully_configured(tenant):
+                    continue
+                tid = tenant.id
+                runner = SentinelRunner(db=db, tenant_id=tid, market_phase=phase_str)
+                result = await runner.run_all_checks()
+
+                # SSE event (always fires)
+                if result.alerts:
+                    try:
+                        from src.events.event_bus import EventType, event_bus
+
+                        alert_dicts = [
+                            {
+                                "level": a.level.value,
+                                "check_type": a.check_type,
+                                "ticker": a.ticker,
+                                "message": a.message,
+                                "market_phase": phase_str,
+                            }
+                            for a in result.alerts
+                        ]
+                        event_bus.publish(
+                            EventType.SENTINEL_ALERT,
+                            tenant_id=tid,
+                            data={
+                                "max_level": result.max_level.value,
+                                "alerts": alert_dicts,
+                                "market_phase": phase_str,
+                            },
+                        )
+                    except Exception:
+                        pass
+
+                # Queue actions instead of crisis session
+                if result.max_level.value in ("warning", "critical"):
+                    from src.agent.sentinel import record_alert_sent, should_send_alert
+
+                    for a in result.alerts:
+                        if a.level.value in ("warning", "critical"):
+                            action_type = "sell" if a.level == AlertLevel.CRITICAL else "review"
+                            await db.save_sentinel_action(
+                                tenant_id=tid,
+                                action_type=action_type,
+                                ticker=a.ticker,
+                                reason=a.message,
+                                source=f"{phase_str}_sentinel",
+                                alert_level=a.level.value,
+                            )
+
+                    # Send or queue Telegram alert
+                    try:
+                        tenant_notifier = TelegramFactory.get_notifier(tenant)
+                        unsent = [a for a in result.alerts if should_send_alert(a.ticker, tenant_id=tid)]
+                        if unsent:
+                            phase_label = "PRE-MARKET" if phase_str == "premarket" else "AFTER HOURS"
+                            alert_msg = f"{phase_label} Sentinel Alert\n\n"
+                            for a in unsent:
+                                alert_msg += f"[{a.level.value.upper()}] {a.ticker}: {a.message}\n"
+                            alert_msg += "\nAction queued for morning session."
+                            await tenant_notifier.send_message_or_queue(
+                                db=db,
+                                tenant_id=tid,
+                                message=alert_msg,
+                                action_type="review",
+                                ticker=unsent[0].ticker,
+                                alert_level=result.max_level.value,
+                                source=f"{phase_str}_sentinel",
+                            )
+                            for a in unsent:
+                                record_alert_sent(a.ticker, tenant_id=tid)
+                    except Exception as e:
+                        log.warning("extended_sentinel_telegram_failed", tenant_id=tid, error=str(e))
+
+            log.debug("extended_sentinel_job_complete", phase=phase_str)
+        except Exception as e:
+            log.error("extended_sentinel_job_failed", phase=phase_str, error=str(e))
+
+    from src.agent.sentinel import AlertLevel
+
+    # Pre-market sentinel: every 30 min, 7:00-9:00 ET
+    scheduler.add_job(
+        extended_sentinel_job,
+        CronTrigger(minute="0,30", hour="7-9", day_of_week="mon-fri", timezone="US/Eastern"),
+        args=["premarket"],
+        id="sentinel_premarket",
+        name="Kukulkan Pre-Market Sentinel",
+    )
+
+    # After-hours sentinel: every 30 min, 16:30-19:30 ET
+    scheduler.add_job(
+        extended_sentinel_job,
+        CronTrigger(minute="0,30", hour="16-19", day_of_week="mon-fri", timezone="US/Eastern"),
+        args=["afterhours"],
+        id="sentinel_afterhours",
+        name="Kukulkan After-Hours Sentinel",
+    )
+
+    # Morning queue delivery: 8:00 AM ET (before morning session)
+    async def morning_delivery_job():
+        from datetime import date as _date
+
+        today = _date.today()
+        if not is_market_open(today):
+            return
+        try:
+            from src.notifications.telegram_factory import TelegramFactory
+
+            tenants = await db.get_active_tenants()
+            for tenant in tenants:
+                if not Orchestrator.tenant_fully_configured(tenant):
+                    continue
+                try:
+                    tenant_notifier = TelegramFactory.get_notifier(tenant)
+                    await tenant_notifier.deliver_morning_queue(db, tenant.id)
+                except Exception as e:
+                    log.warning("morning_delivery_failed", tenant_id=tenant.id, error=str(e))
+            log.debug("morning_delivery_job_complete")
+        except Exception as e:
+            log.error("morning_delivery_job_failed", error=str(e))
+
+    scheduler.add_job(
+        morning_delivery_job,
+        CronTrigger(hour=8, minute=0, day_of_week="mon-fri", timezone="US/Eastern"),
+        id="morning_delivery",
+        name="Kukulkan Morning Queue Delivery",
+    )
+
+    # Gap risk alert: 2:45 PM ET (15 min before close session)
+    async def gap_risk_alert_job():
+        from datetime import date as _date
+
+        today = _date.today()
+        if not is_market_open(today):
+            return
+        try:
+            from src.analysis.gap_risk import GapRiskAnalyzer
+            from src.notifications.telegram_factory import TelegramFactory
+
+            analyzer = GapRiskAnalyzer()
+            tenants = await db.get_active_tenants()
+            for tenant in tenants:
+                if not Orchestrator.tenant_fully_configured(tenant):
+                    continue
+                try:
+                    assessment = await analyzer.analyze(db, tenant.id)
+                    if assessment.rating in ("HIGH", "EXTREME"):
+                        message = (
+                            f"Overnight Gap Risk: {assessment.rating}\n"
+                            f"Risk score: {assessment.aggregate_risk_score}\n\n"
+                        )
+                        if assessment.earnings_tonight:
+                            message += f"Earnings tonight: {', '.join(assessment.earnings_tonight)}\n\n"
+                        for p in assessment.positions[:5]:
+                            if p.recommendation:
+                                message += f"  {p.ticker} (score {p.gap_risk_score}): {p.recommendation}\n"
+                        message += "\nClose session at 3:45 PM will review these."
+
+                        tenant_notifier = TelegramFactory.get_notifier(tenant)
+                        await tenant_notifier.send_message_or_queue(
+                            db=db,
+                            tenant_id=tenant.id,
+                            message=message,
+                            action_type="review",
+                            ticker=assessment.earnings_tonight[0] if assessment.earnings_tonight else "",
+                            alert_level="warning",
+                            source="gap_risk",
+                        )
+                except Exception as e:
+                    log.warning("gap_risk_alert_tenant_failed", tenant_id=tenant.id, error=str(e))
+            log.debug("gap_risk_alert_job_complete")
+        except Exception as e:
+            log.error("gap_risk_alert_job_failed", error=str(e))
+
+    scheduler.add_job(
+        gap_risk_alert_job,
+        CronTrigger(hour=14, minute=45, day_of_week="mon-fri", timezone="US/Eastern"),
+        id="gap_risk_alert",
+        name="Kukulkan Gap Risk Alert",
     )
 
     # Weekly memory compaction (Sunday 6 PM ET)

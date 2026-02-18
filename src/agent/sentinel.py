@@ -38,6 +38,12 @@ SPY_MOVE_CRITICAL_PCT = 3.0  # SPY intraday >3% → critical
 FILL_STALE_WARNING_MINUTES = 30  # Open order >30min → warning
 FILL_STALE_CRITICAL_MINUTES = 60  # Open order >60min → critical
 
+# Extended hours: wider thresholds (AH/PM moves are noisier, lower volume)
+EXTENDED_VIX_HIGH_THRESHOLD = 32.0
+EXTENDED_VIX_CRITICAL_THRESHOLD = 40.0
+EXTENDED_SPY_MOVE_WARNING_PCT = 3.0
+EXTENDED_SPY_MOVE_CRITICAL_PCT = 4.0
+
 # ── Types ────────────────────────────────────────────────────────────────────
 
 PriceFetcher = Callable[[list[str]], Coroutine[Any, Any, dict[str, float]]]
@@ -212,6 +218,7 @@ class SentinelRunner:
     """Lightweight intraday monitor that runs between scheduled sessions.
 
     Constructor accepts injectable dependencies for testability.
+    Supports extended hours with wider thresholds and queue-based escalation.
     """
 
     def __init__(
@@ -220,11 +227,14 @@ class SentinelRunner:
         executor: Any | None = None,
         tenant_id: str = "default",
         price_fetcher: PriceFetcher | None = None,
+        market_phase: str = "market",
     ) -> None:
         self._db = db
         self._executor = executor
         self._tenant_id = tenant_id
         self._price_fetcher = price_fetcher or _fetch_latest_prices
+        self._market_phase = market_phase
+        self._is_extended = market_phase in ("premarket", "afterhours")
 
     async def run_all_checks(self) -> SentinelResult:
         """Run all sentinel checks and aggregate results."""
@@ -330,30 +340,33 @@ class SentinelRunner:
         return alerts
 
     def _evaluate_vix(self, vix: float) -> list[SentinelAlert]:
-        """Evaluate VIX level and crossing."""
+        """Evaluate VIX level and crossing (phase-aware thresholds)."""
         alerts: list[SentinelAlert] = []
         last_vix = _get_state(self._tenant_id)["last_vix"]
 
-        if vix >= VIX_CRITICAL_THRESHOLD:
+        vix_critical = EXTENDED_VIX_CRITICAL_THRESHOLD if self._is_extended else VIX_CRITICAL_THRESHOLD
+        vix_high = EXTENDED_VIX_HIGH_THRESHOLD if self._is_extended else VIX_HIGH_THRESHOLD
+
+        if vix >= vix_critical:
             alerts.append(
                 SentinelAlert(
                     level=AlertLevel.CRITICAL,
                     check_type="regime_shift",
                     ticker="^VIX",
                     message=f"VIX at {vix:.1f} — extreme fear",
-                    details={"vix": vix, "threshold": VIX_CRITICAL_THRESHOLD, "previous_vix": last_vix},
+                    details={"vix": vix, "threshold": vix_critical, "previous_vix": last_vix},
                 )
             )
-        elif vix >= VIX_HIGH_THRESHOLD:
-            if last_vix is not None and last_vix < VIX_HIGH_THRESHOLD:
+        elif vix >= vix_high:
+            if last_vix is not None and last_vix < vix_high:
                 # Crossed up
                 alerts.append(
                     SentinelAlert(
                         level=AlertLevel.WARNING,
                         check_type="regime_shift",
                         ticker="^VIX",
-                        message=f"VIX crossed above {VIX_HIGH_THRESHOLD} → now {vix:.1f}",
-                        details={"vix": vix, "threshold": VIX_HIGH_THRESHOLD, "previous_vix": last_vix},
+                        message=f"VIX crossed above {vix_high} → now {vix:.1f}",
+                        details={"vix": vix, "threshold": vix_high, "previous_vix": last_vix},
                     )
                 )
             elif last_vix is None:
@@ -363,12 +376,12 @@ class SentinelRunner:
                         level=AlertLevel.WARNING,
                         check_type="regime_shift",
                         ticker="^VIX",
-                        message=f"VIX elevated at {vix:.1f} (above {VIX_HIGH_THRESHOLD})",
-                        details={"vix": vix, "threshold": VIX_HIGH_THRESHOLD, "previous_vix": None},
+                        message=f"VIX elevated at {vix:.1f} (above {vix_high})",
+                        details={"vix": vix, "threshold": vix_high, "previous_vix": None},
                     )
                 )
             # else: staying elevated, no new alert
-        elif last_vix is not None and last_vix >= VIX_HIGH_THRESHOLD and vix < VIX_LOW_THRESHOLD:
+        elif last_vix is not None and last_vix >= vix_high and vix < VIX_LOW_THRESHOLD:
             # Significant calming
             alerts.append(
                 SentinelAlert(
@@ -383,17 +396,20 @@ class SentinelRunner:
         return alerts
 
     def _evaluate_spy(self, spy: float) -> list[SentinelAlert]:
-        """Evaluate SPY intraday move."""
+        """Evaluate SPY intraday move (phase-aware thresholds)."""
         alerts: list[SentinelAlert] = []
         last_spy = _get_state(self._tenant_id)["last_spy_close"]
 
         if last_spy is None or last_spy <= 0:
             return alerts
 
+        spy_critical = EXTENDED_SPY_MOVE_CRITICAL_PCT if self._is_extended else SPY_MOVE_CRITICAL_PCT
+        spy_warning = EXTENDED_SPY_MOVE_WARNING_PCT if self._is_extended else SPY_MOVE_WARNING_PCT
+
         move_pct = abs((spy - last_spy) / last_spy) * 100
         direction = "up" if spy > last_spy else "down"
 
-        if move_pct >= SPY_MOVE_CRITICAL_PCT:
+        if move_pct >= spy_critical:
             alerts.append(
                 SentinelAlert(
                     level=AlertLevel.CRITICAL,
@@ -403,7 +419,7 @@ class SentinelRunner:
                     details={"spy": spy, "previous_spy": last_spy, "move_pct": round(move_pct, 2)},
                 )
             )
-        elif move_pct >= SPY_MOVE_WARNING_PCT:
+        elif move_pct >= spy_warning:
             alerts.append(
                 SentinelAlert(
                     level=AlertLevel.WARNING,

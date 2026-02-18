@@ -3,7 +3,8 @@
 Provides OHLCV data for the full ticker universe with caching to SQLite.
 """
 
-from datetime import date
+import asyncio
+from datetime import date, datetime
 
 import pandas as pd
 import structlog
@@ -180,3 +181,55 @@ class MarketDataFetcher:
         except Exception:
             log.warning("latest_price_failed", ticker=ticker)
         return None
+
+
+# ── Extended Hours Prices ─────────────────────────────────────────────────
+
+_price_cache: dict[str, tuple[float, datetime]] = {}
+PRICE_CACHE_TTL_S = 300  # 5 minutes
+
+
+def _clear_price_cache() -> None:
+    """Clear price cache (for testing)."""
+    _price_cache.clear()
+
+
+async def get_extended_hours_prices(tickers: list[str]) -> dict[str, float]:
+    """Fetch current prices including pre/post market.
+
+    Uses yfinance fast_info with a 5-minute TTL cache to avoid
+    excessive API calls during extended hours monitoring.
+    """
+    now = datetime.utcnow()
+    results: dict[str, float] = {}
+    tickers_to_fetch: list[str] = []
+
+    for ticker in tickers:
+        if ticker in _price_cache:
+            price, cached_at = _price_cache[ticker]
+            if (now - cached_at).total_seconds() < PRICE_CACHE_TTL_S:
+                results[ticker] = price
+                continue
+        tickers_to_fetch.append(ticker)
+
+    if tickers_to_fetch:
+
+        def _fetch() -> dict[str, float]:
+            prices: dict[str, float] = {}
+            for t in tickers_to_fetch:
+                try:
+                    info = yf.Ticker(t).fast_info
+                    last_price = info.get("lastPrice") or info.get("last_price")
+                    if last_price is not None:
+                        prices[t] = float(last_price)
+                except Exception:
+                    log.warning("extended_price_fetch_failed", ticker=t)
+            return prices
+
+        fetched = await asyncio.to_thread(_fetch)
+        fetch_time = datetime.utcnow()
+        for ticker, price in fetched.items():
+            results[ticker] = price
+            _price_cache[ticker] = (price, fetch_time)
+
+    return results

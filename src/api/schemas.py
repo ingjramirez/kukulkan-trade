@@ -99,6 +99,8 @@ class IntradaySnapshotResponse(BaseModel):
     total_value: float
     cash: float
     positions_value: float
+    is_extended_hours: bool = False
+    market_phase: str = "market"
 
 
 class PortfolioHistoryResponse(BaseModel):
@@ -175,6 +177,9 @@ class TenantUpdateRequest(BaseModel):
     username: str | None = None
     password: str | None = None
     use_agent_loop: bool | None = None
+    quiet_hours_start: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    quiet_hours_end: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    quiet_hours_timezone: str | None = None
 
 
 class TenantSelfUpdateRequest(BaseModel):
@@ -195,6 +200,9 @@ class TenantSelfUpdateRequest(BaseModel):
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None
     use_agent_loop: bool | None = None
+    quiet_hours_start: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    quiet_hours_end: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    quiet_hours_timezone: str | None = None
 
 
 # ── Outcome & Track Record Schemas ─────────────────────────────────
@@ -386,6 +394,9 @@ class TenantReadResponse(BaseModel):
     portfolio_b_pct: float
     pending_rebalance: bool = False
     use_agent_loop: bool = False
+    quiet_hours_start: str = "21:00"
+    quiet_hours_end: str = "07:00"
+    quiet_hours_timezone: str = "America/Mexico_City"
     ticker_whitelist: list[str] | None = None
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None

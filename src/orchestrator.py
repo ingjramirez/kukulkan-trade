@@ -857,6 +857,20 @@ class Orchestrator:
             except Exception as e:
                 log.warning("watchlist_cleanup_failed", error=str(e))
 
+        # Step 5.7: Morning queue — inject overnight sentinel actions into context
+        if session == "Morning":
+            queue_ctx = await self._process_morning_queue(tenant_id)
+            if queue_ctx:
+                news_context = queue_ctx + "\n\n" + news_context
+                summary["overnight_queue_items"] = queue_ctx.count("[")
+
+        # Step 5.8: Gap risk — inject into close session context
+        if session == "Closing":
+            gap_ctx = await self._build_gap_risk_context(tenant_id)
+            if gap_ctx:
+                news_context = gap_ctx + "\n\n" + news_context
+                summary["gap_risk_injected"] = True
+
         return NewsContext(news_context=news_context, earnings_context=earnings_context)
 
     async def _filter_and_approve_trades(
@@ -1036,9 +1050,7 @@ class Orchestrator:
             if verdict.requires_trade_approval:
                 for lg_trade, approval_reason in verdict.requires_trade_approval:
                     trade_pct = (lg_trade.total / pval * 100) if pval > 0 else 0
-                    choice = await self._request_large_trade_approval(
-                        lg_trade, trade_pct, approval_reason, tenant_id
-                    )
+                    choice = await self._request_large_trade_approval(lg_trade, trade_pct, approval_reason, tenant_id)
                     if choice == "approve":
                         log.info("large_trade_approved", ticker=lg_trade.ticker)
                     else:
@@ -1326,6 +1338,51 @@ class Orchestrator:
             cash=cash,
             total_value=total_value,
         )
+
+    async def _process_morning_queue(self, tenant_id: str) -> str | None:
+        """Process queued sentinel actions. Returns context for agent or None."""
+        try:
+            pending = await self._db.get_pending_sentinel_actions(tenant_id)
+        except Exception as e:
+            log.warning("morning_queue_fetch_failed", tenant_id=tenant_id, error=str(e))
+            return None
+
+        if not pending:
+            return None
+
+        queue_context = "OVERNIGHT QUEUE — Review these before trading:\n\n"
+        for action in pending:
+            queue_context += (
+                f"  [{action['alert_level'].upper()}] {action['action_type'].upper()} "
+                f"{action['ticker']} — {action['reason']}\n"
+                f"  Detected: {action['created_at']} | Source: {action['source']}\n\n"
+            )
+        queue_context += (
+            "For each item: execute the action, modify it, or cancel it. "
+            "Use execute_trade or save_observation to document your decision."
+        )
+        log.info("morning_queue_loaded", tenant_id=tenant_id, items=len(pending))
+        return queue_context
+
+    async def _build_gap_risk_context(self, tenant_id: str) -> str | None:
+        """Build gap risk context for the close session."""
+        try:
+            from src.analysis.gap_risk import GapRiskAnalyzer
+
+            analyzer = GapRiskAnalyzer()
+            assessment = await analyzer.analyze(self._db, tenant_id)
+            if assessment.rating in ("HIGH", "EXTREME"):
+                ctx = f"OVERNIGHT GAP RISK: {assessment.rating} (score {assessment.aggregate_risk_score})\n"
+                if assessment.earnings_tonight:
+                    ctx += f"Earnings tonight: {', '.join(assessment.earnings_tonight)}\n"
+                for p in assessment.positions[:5]:
+                    if p.recommendation:
+                        ctx += f"  {p.ticker}: {p.recommendation}\n"
+                ctx += "\nConsider reducing high-risk positions before close."
+                return ctx
+        except Exception as e:
+            log.warning("gap_risk_context_failed", tenant_id=tenant_id, error=str(e))
+        return None
 
     async def _build_outcome_feedback(
         self,
@@ -2849,9 +2906,7 @@ class Orchestrator:
             return "reject"
 
         request_id = uuid.uuid4().hex
-        msg_id = await self._notifier.send_large_trade_approval(
-            trade, trade_pct, approval_reason, request_id
-        )
+        msg_id = await self._notifier.send_large_trade_approval(trade, trade_pct, approval_reason, request_id)
         if msg_id is None:
             self._publish_trade_approval_resolved(tenant_id, trade.ticker, False)
             return "reject"
@@ -2861,9 +2916,7 @@ class Orchestrator:
         self._publish_trade_approval_resolved(tenant_id, trade.ticker, choice == "approve")
         return choice
 
-    def _publish_trade_approval_resolved(
-        self, tenant_id: str, ticker: str, approved: bool
-    ) -> None:
+    def _publish_trade_approval_resolved(self, tenant_id: str, ticker: str, approved: bool) -> None:
         """Publish SSE event for trade approval resolution."""
         try:
             from src.events.event_bus import Event, EventType, event_bus

@@ -60,6 +60,8 @@ async def list_intraday_snapshots(
             total_value=r.total_value,
             cash=r.cash,
             positions_value=r.positions_value,
+            is_extended_hours=getattr(r, "is_extended_hours", False),
+            market_phase=getattr(r, "market_phase", "market"),
         )
         for r in rows
     ]

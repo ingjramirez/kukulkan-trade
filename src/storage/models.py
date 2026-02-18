@@ -321,6 +321,26 @@ class IntradaySnapshotRow(Base):
     total_value = Column(Float, nullable=False)
     cash = Column(Float, nullable=False)
     positions_value = Column(Float, nullable=False)
+    is_extended_hours = Column(Boolean, nullable=False, default=False)
+    market_phase = Column(String(20), nullable=False, default="market")
+
+
+class SentinelActionRow(Base):
+    """Queued sentinel actions for after-hours and quiet hours."""
+
+    __tablename__ = "sentinel_actions"
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    action_type = Column(String(20), nullable=False)  # sell | reduce | hedge | review
+    ticker = Column(String(10), nullable=False)
+    reason = Column(Text, nullable=False)
+    source = Column(String(30), nullable=False)  # afterhours_sentinel | premarket_sentinel | quiet_hours | gap_risk
+    alert_level = Column(String(10), nullable=False)  # warning | critical
+    status = Column(String(20), nullable=False, default="pending")  # pending | executed | cancelled
+    resolved_at = Column(DateTime, nullable=True)
+    resolved_by = Column(String(20), nullable=True)  # agent | owner_telegram | auto_expired
 
 
 class ToolCallLogRow(Base):
@@ -458,9 +478,7 @@ class ParameterChangelogRow(Base):
 
     id = Column(Integer, primary_key=True)
     tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
-    snapshot_id = Column(
-        Integer, ForeignKey("improvement_snapshots.id", ondelete="SET NULL"), nullable=True
-    )
+    snapshot_id = Column(Integer, ForeignKey("improvement_snapshots.id", ondelete="SET NULL"), nullable=True)
     parameter = Column(String(50), nullable=False)
     old_value = Column(Text, nullable=True)
     new_value = Column(Text, nullable=True)
@@ -521,6 +539,11 @@ class TenantRow(Base):
 
     # Trailing stop multiplier (0.5-2.0, scales TRAIL_PCT matrix)
     trailing_stop_multiplier = Column(Float, nullable=False, default=1.0)
+
+    # Quiet hours (no Telegram during sleep window)
+    quiet_hours_start = Column(String(5), nullable=False, default="21:00")
+    quiet_hours_end = Column(String(5), nullable=False, default="07:00")
+    quiet_hours_timezone = Column(String(40), nullable=False, default="America/Mexico_City")
 
     # Ticker customization (JSON arrays, nullable = use defaults)
     ticker_whitelist = Column(Text, nullable=True)  # JSON: ["AAPL","TSLA"]
@@ -645,6 +668,9 @@ class TenantUpdate(BaseModel):
     dashboard_user: str | None = None
     dashboard_password: str | None = None
     use_agent_loop: bool | None = None
+    quiet_hours_start: str | None = None
+    quiet_hours_end: str | None = None
+    quiet_hours_timezone: str | None = None
 
 
 class TenantRead(BaseModel):
@@ -669,6 +695,9 @@ class TenantRead(BaseModel):
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None
     use_agent_loop: bool = False
+    quiet_hours_start: str = "21:00"
+    quiet_hours_end: str = "07:00"
+    quiet_hours_timezone: str = "America/Mexico_City"
     dashboard_user: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

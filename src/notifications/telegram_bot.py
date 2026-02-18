@@ -96,6 +96,78 @@ class TelegramNotifier:
                     return False
         return False  # unreachable, but satisfies type checker
 
+    async def send_message_or_queue(
+        self,
+        db: object,
+        tenant_id: str,
+        message: str,
+        action_type: str = "review",
+        ticker: str = "",
+        alert_level: str = "warning",
+        source: str = "system",
+    ) -> bool:
+        """Send Telegram message, or queue if quiet hours.
+
+        Returns True if sent immediately, False if queued.
+        """
+        from src.notifications.quiet_hours import QuietHoursManager
+
+        quiet_mgr = QuietHoursManager(db)
+        if await quiet_mgr.is_quiet(tenant_id):
+            await quiet_mgr.queue_notification(
+                tenant_id=tenant_id,
+                action_type=action_type,
+                ticker=ticker,
+                reason=message,
+                source=source,
+                alert_level=alert_level,
+            )
+            log.info("quiet_hours_queued", tenant_id=tenant_id, ticker=ticker)
+            return False
+        await self.send_message(message)
+        return True
+
+    async def deliver_morning_queue(self, db: object, tenant_id: str) -> bool:
+        """Deliver all queued notifications as a single morning summary.
+
+        Returns True if a summary was sent, False if queue was empty.
+        """
+        from src.notifications.quiet_hours import QuietHoursManager
+
+        quiet_mgr = QuietHoursManager(db)
+        pending = await quiet_mgr.get_morning_summary(tenant_id)
+        if not pending:
+            return False
+
+        critical = [a for a in pending if a["alert_level"] == "critical"]
+        warnings = [a for a in pending if a["alert_level"] == "warning"]
+
+        message = "Morning Queue — Items from overnight\n\n"
+
+        if critical:
+            message += "CRITICAL:\n"
+            for i, action in enumerate(critical, 1):
+                message += (
+                    f"  {i}. [{action['action_type'].upper()}] {action['ticker']}"
+                    f" — {action['reason'][:100]}\n"
+                    f"     Source: {action['source']} | {action['created_at']}\n"
+                )
+        if warnings:
+            message += "\nWARNINGS:\n"
+            for i, action in enumerate(warnings, len(critical) + 1):
+                message += f"  {i}. [{action['action_type'].upper()}] {action['ticker']} — {action['reason'][:100]}\n"
+
+        message += (
+            f"\nTotal: {len(critical)} critical, {len(warnings)} warnings\n\n"
+            "Reply:\n"
+            "  /execute-all — execute all queued actions at market open\n"
+            "  /cancel-all — cancel all queued actions\n"
+            "  /cancel N — cancel specific item by number\n"
+            "  (Or wait — morning AI session will review and decide)"
+        )
+        await self.send_message(message, parse_mode=None)
+        return True
+
     async def send_daily_brief(
         self,
         brief_date: date,

@@ -27,6 +27,7 @@ from src.storage.models import (
     PortfolioRow,
     PositionRow,
     PostureHistoryRow,
+    SentinelActionRow,
     TenantRow,
     ToolCallLogRow,
     TradeRow,
@@ -990,6 +991,8 @@ class Database:
         total_value: float,
         cash: float,
         positions_value: float,
+        is_extended_hours: bool = False,
+        market_phase: str = "market",
     ) -> None:
         """Save an intraday portfolio snapshot (replaces if exists)."""
         async with self.session() as s:
@@ -1008,6 +1011,8 @@ class Database:
                     total_value=total_value,
                     cash=cash,
                     positions_value=positions_value,
+                    is_extended_hours=is_extended_hours,
+                    market_phase=market_phase,
                 )
             )
             await s.commit()
@@ -1614,3 +1619,90 @@ class Database:
             await s.commit()
         log.info("tenant_deactivated", tenant_id=tenant_id)
         return True
+
+    # ── Sentinel Actions ──────────────────────────────────────────────
+
+    async def save_sentinel_action(
+        self,
+        tenant_id: str,
+        action_type: str,
+        ticker: str,
+        reason: str,
+        source: str,
+        alert_level: str,
+        status: str = "pending",
+    ) -> int:
+        """Save a queued sentinel action. Returns the new row ID."""
+        async with self.session() as s:
+            row = SentinelActionRow(
+                tenant_id=tenant_id,
+                action_type=action_type,
+                ticker=ticker,
+                reason=reason,
+                source=source,
+                alert_level=alert_level,
+                status=status,
+            )
+            s.add(row)
+            await s.commit()
+            await s.refresh(row)
+            return row.id
+
+    async def get_pending_sentinel_actions(self, tenant_id: str) -> list[dict]:
+        """Get all pending sentinel actions for a tenant, ordered by creation time."""
+        async with self.session() as s:
+            result = await s.execute(
+                select(SentinelActionRow)
+                .where(
+                    SentinelActionRow.tenant_id == tenant_id,
+                    SentinelActionRow.status == "pending",
+                )
+                .order_by(SentinelActionRow.created_at)
+            )
+            rows = list(result.scalars().all())
+            return [
+                {
+                    "id": r.id,
+                    "action_type": r.action_type,
+                    "ticker": r.ticker,
+                    "reason": r.reason,
+                    "source": r.source,
+                    "alert_level": r.alert_level,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+                for r in rows
+            ]
+
+    async def resolve_sentinel_action(
+        self,
+        action_id: int,
+        status: str,
+        resolved_by: str,
+    ) -> bool:
+        """Resolve a sentinel action (executed/cancelled). Returns True if found."""
+        async with self.session() as s:
+            row = await s.get(SentinelActionRow, action_id)
+            if row is None:
+                return False
+            row.status = status
+            row.resolved_by = resolved_by
+            row.resolved_at = datetime.now(timezone.utc)
+            await s.commit()
+            return True
+
+    async def get_last_market_hours_snapshot(
+        self,
+        tenant_id: str,
+        portfolio: str | None = None,
+    ) -> IntradaySnapshotRow | None:
+        """Get the most recent market-hours (not extended) intraday snapshot."""
+        async with self.session() as s:
+            stmt = select(IntradaySnapshotRow).where(
+                IntradaySnapshotRow.tenant_id == tenant_id,
+                IntradaySnapshotRow.market_phase == "market",
+            )
+            if portfolio:
+                stmt = stmt.where(IntradaySnapshotRow.portfolio == portfolio)
+            stmt = stmt.order_by(IntradaySnapshotRow.timestamp.desc()).limit(1)
+            result = await s.execute(stmt)
+            return result.scalar_one_or_none()
