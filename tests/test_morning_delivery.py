@@ -1,8 +1,14 @@
 """Tests for morning queue delivery via Telegram."""
 
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 from src.notifications.telegram_bot import TelegramNotifier
+
+
+def _recent_ts(hours_ago: int = 2) -> str:
+    """Generate a recent ISO timestamp for test fixtures."""
+    return (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).isoformat()
 
 
 def _make_notifier() -> TelegramNotifier:
@@ -23,12 +29,12 @@ class TestMorningDelivery:
             {
                 "id": 1, "action_type": "sell", "ticker": "AAPL",
                 "reason": "Stop proximity 1.5%", "source": "afterhours_sentinel",
-                "alert_level": "critical", "created_at": "2026-02-16T22:00:00",
+                "alert_level": "critical", "created_at": _recent_ts(3),
             },
             {
                 "id": 2, "action_type": "review", "ticker": "MSFT",
                 "reason": "VIX elevated", "source": "afterhours_sentinel",
-                "alert_level": "warning", "created_at": "2026-02-16T22:30:00",
+                "alert_level": "warning", "created_at": _recent_ts(2),
             },
         ]
         notifier = _make_notifier()
@@ -57,7 +63,7 @@ class TestMorningDelivery:
             {
                 "id": 1, "action_type": "review", "ticker": "TSLA",
                 "reason": "Gap risk", "source": "gap_risk",
-                "alert_level": "warning", "created_at": "2026-02-16T23:00:00",
+                "alert_level": "warning", "created_at": _recent_ts(1),
             },
         ]
         notifier = _make_notifier()
@@ -73,7 +79,7 @@ class TestMorningDelivery:
             {
                 "id": 1, "action_type": "review", "ticker": "NVDA",
                 "reason": "Earnings tonight", "source": "gap_risk",
-                "alert_level": "warning", "created_at": "2026-02-16T23:00:00",
+                "alert_level": "warning", "created_at": _recent_ts(1),
             },
         ]
         notifier = _make_notifier()

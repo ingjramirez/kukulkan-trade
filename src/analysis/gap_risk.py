@@ -45,6 +45,9 @@ class GapRiskAnalyzer:
 
     VOLATILE_SECTORS = {"Technology", "Biotechnology", "Cryptocurrency", "Semiconductors"}
 
+    REDUCE_THRESHOLD = 20  # risk score above this → "Consider reducing before close"
+    EARNINGS_REVIEW_THRESHOLD = 10  # risk score above this + earnings → "Review position size"
+
     RATING_THRESHOLDS = [
         ("LOW", 0, 5),
         ("MODERATE", 5, 15),
@@ -82,7 +85,11 @@ class GapRiskAnalyzer:
 
         for pos in positions:
             mv = pos.market_value
-            market_value = (mv or 0.0) if mv else pos.shares * (pos.current_price or pos.avg_price)
+            if mv is not None and mv > 0:
+                market_value = mv
+            else:
+                price = pos.current_price or pos.avg_price or 0.0
+                market_value = pos.shares * price
             weight = (market_value / portfolio_value * 100) if portfolio_value > 0 else 0
             risk_score = weight
             reasons: list[str] = []
@@ -110,9 +117,9 @@ class GapRiskAnalyzer:
                 pass
 
             recommendation = None
-            if risk_score > 20:
+            if risk_score > self.REDUCE_THRESHOLD:
                 recommendation = "Consider reducing before close"
-            elif risk_score > 10 and "Earnings tonight" in reasons:
+            elif risk_score > self.EARNINGS_REVIEW_THRESHOLD and "Earnings tonight" in reasons:
                 recommendation = "Earnings risk — review position size"
 
             position_risks.append(
@@ -132,7 +139,7 @@ class GapRiskAnalyzer:
                 rating = r
                 break
 
-        position_risks.sort(key=lambda p: p.gap_risk_score, reverse=True)
+        position_risks.sort(key=lambda p: (-p.gap_risk_score, p.ticker))
 
         held_earnings = list(earnings_tickers & {p.ticker for p in positions})
 
@@ -152,7 +159,7 @@ class GapRiskAnalyzer:
             upcoming = await cal.get_upcoming(db, tickers, days_ahead=1)
             return {row.ticker for row in upcoming}
         except Exception as e:
-            log.warning("earnings_fetch_for_gap_risk_failed", error=str(e))
+            log.warning("earnings_fetch_for_gap_risk_failed", error=str(e), tickers=tickers[:10], count=len(tickers))
             return set()
 
     def _get_sector(self, ticker: str) -> str:

@@ -11,7 +11,7 @@ Morning delivery:
 
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import datetime, time, timedelta, timezone
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
@@ -70,9 +70,27 @@ class QuietHoursManager:
             status="pending",
         )
 
-    async def get_morning_summary(self, tenant_id: str) -> list[dict]:
-        """Get all pending sentinel actions for morning delivery."""
-        return await self.db.get_pending_sentinel_actions(tenant_id)
+    async def get_morning_summary(self, tenant_id: str, max_age_hours: int = 24) -> list[dict]:
+        """Get pending sentinel actions for morning delivery, filtered by age."""
+        actions = await self.db.get_pending_sentinel_actions(tenant_id)
+        if not actions or max_age_hours <= 0:
+            return actions
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+        result = []
+        for a in actions:
+            created = a.get("created_at", "")
+            if isinstance(created, str) and created:
+                try:
+                    dt = datetime.fromisoformat(created)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    if dt < cutoff:
+                        log.debug("morning_summary_skipped_stale", action_id=a.get("id"), age_hours=max_age_hours)
+                        continue
+                except (ValueError, TypeError):
+                    pass  # Include actions with unparseable dates
+            result.append(a)
+        return result
 
     async def resolve_action(self, action_id: int, status: str, resolved_by: str) -> None:
         """Resolve a queued sentinel action."""
