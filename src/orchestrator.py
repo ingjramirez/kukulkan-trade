@@ -864,8 +864,8 @@ class Orchestrator:
                 news_context = queue_ctx + "\n\n" + news_context
                 summary["overnight_queue_items"] = queue_ctx.count("[")
 
-        # Step 5.8: Gap risk — inject into close session context
-        if session == "Closing":
+        # Step 5.8: Gap risk — inject into close and manual session context
+        if session in ("Closing", "Manual"):
             gap_ctx = await self._build_gap_risk_context(tenant_id)
             if gap_ctx:
                 news_context = gap_ctx + "\n\n" + news_context

@@ -105,7 +105,7 @@ class PersistentAgent:
         log.info("persistent_session_started", session_id=session_id, trigger=trigger_type)
 
         try:
-            async with asyncio.timeout(300):  # 5 minute max per session
+            async with asyncio.timeout(480):  # 8 minute max per session
                 result = await self._execute_session(
                     session_id=session_id,
                     trigger_type=trigger_type,
