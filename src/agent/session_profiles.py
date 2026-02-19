@@ -21,7 +21,7 @@ class SessionProfile(str, Enum):
 # Default mapping from trigger type to session profile
 SESSION_PROFILE_MAP: dict[str, SessionProfile] = {
     "morning": SessionProfile.FULL,
-    "midday": SessionProfile.LIGHT,
+    "midday": SessionProfile.FULL,
     "close": SessionProfile.LIGHT,
     "event": SessionProfile.CRISIS,
     "weekly_review": SessionProfile.REVIEW,

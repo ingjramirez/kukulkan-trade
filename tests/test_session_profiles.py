@@ -7,8 +7,8 @@ def test_morning_maps_to_full():
     assert get_session_profile("morning") == SessionProfile.FULL
 
 
-def test_midday_maps_to_light():
-    assert get_session_profile("midday") == SessionProfile.LIGHT
+def test_midday_maps_to_full():
+    assert get_session_profile("midday") == SessionProfile.FULL
 
 
 def test_close_maps_to_light():

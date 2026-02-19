@@ -2123,6 +2123,32 @@ class Orchestrator:
                 cal_text = ConvictionCalibrator().format_for_prompt(buckets)
                 if cal_text:
                     pinned_context += f"\n\n{cal_text}"
+            # Decision quality feedback (causal — did your specific calls work?)
+            try:
+                from src.analysis.decision_quality import DecisionQualityTracker
+
+                dq = DecisionQualityTracker(self._db)
+                qualities = await dq.analyze_recent(days=14, tenant_id=tenant_id)
+                if qualities:
+                    summary = DecisionQualityTracker.summarize(qualities)
+                    dq_text = DecisionQualityTracker.format_for_prompt(summary)
+                    if dq_text:
+                        pinned_context += f"\n\n## Your Decision Accuracy\n{dq_text}"
+            except Exception as e:
+                log.warning("pinned_context_decision_quality_failed", error=str(e))
+
+            # Portfolio A benchmark
+            try:
+                a_snaps = await self._db.get_snapshots("A", tenant_id=tenant_id)
+                if a_snaps:
+                    a_return = ((a_snaps[-1].total_value - 33_000.0) / 33_000.0) * 100
+                    pinned_context += (
+                        f"\n\n## Benchmark: Portfolio A (Momentum)\n"
+                        f"Return: {a_return:+.1f}% — you must outperform this."
+                    )
+            except Exception as e:
+                log.warning("pinned_context_benchmark_failed", error=str(e))
+
         except Exception as e:
             log.warning("pinned_context_build_failed", error=str(e))
 
@@ -2187,13 +2213,30 @@ class Orchestrator:
                 _posture_val = "balanced"
             extra_runner_kwargs["posture"] = _posture_val
 
+        # Resolve strategy directive
+        from src.agent.strategy_directives import SESSION_DIRECTIVES, STRATEGY_MAP
+
+        strategy_directive = STRATEGY_MAP.get(settings.agent.strategy_mode, "")
+        session_label = {"morning": "Morning", "midday": "Midday", "close": "Closing"}.get(trigger_type)
+        if session_label and session_label in SESSION_DIRECTIVES:
+            strategy_directive += SESSION_DIRECTIVES[session_label]
+
+        strategy_directive += (
+            "\n\n## Position Sizing Philosophy\n"
+            "Portfolio A (your benchmark) uses extreme concentration: 100% in one ETF.\n"
+            "Its outperformance shows that conviction > diversification for paper trading.\n"
+            "- Aim for 5-8 high-conviction positions, NOT 15-20 small ones\n"
+            "- Size top 3 ideas at 10-20% each\n"
+            "- A position under 3% of portfolio is noise — size up or skip it"
+        )
+
         # Build system prompt (cached if enabled and tiered)
         if use_tiered and settings.agent.enable_cache:
             from src.agent.context_manager import ContextManager as CtxCached
 
             cached_prompt = CtxCached().build_cached_system_prompt(
                 pinned_context=pinned_context,
-                strategy_directive="",
+                strategy_directive=strategy_directive,
             )
             extra_runner_kwargs["cached_system_prompt"] = cached_prompt
 
@@ -2213,7 +2256,7 @@ class Orchestrator:
                 **extra_runner_kwargs,
             },
             pinned_context=pinned_context,
-            strategy_directive="",
+            strategy_directive=strategy_directive,
         )
 
         response = result.response

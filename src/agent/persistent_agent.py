@@ -156,8 +156,12 @@ class PersistentAgent:
         from config.settings import settings
 
         skip_triggers = [t.strip() for t in settings.agent.agent_skip_history_triggers.split(",")]
-        recent_n = 0 if trigger_type in skip_triggers else settings.agent.agent_history_recent_n
-        summaries_n = 5 if trigger_type in skip_triggers else settings.agent.agent_history_summaries_n
+        if trigger_type in skip_triggers:
+            recent_n = settings.agent.agent_event_history_recent_n
+            summaries_n = settings.agent.agent_history_summaries_n
+        else:
+            recent_n = settings.agent.agent_history_recent_n
+            summaries_n = settings.agent.agent_history_summaries_n
 
         summaries = await self._store.load_summaries(self._tenant_id, n=summaries_n)
         recent_sessions = await self._store.load_recent(self._tenant_id, n=recent_n)

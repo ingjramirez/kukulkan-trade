@@ -1,6 +1,6 @@
 """Tests for TieredModelRunner — Haiku→Sonnet→Opus flow."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -143,19 +143,31 @@ class TestFullProfile:
 
 class TestLightProfile:
     @pytest.mark.asyncio
-    async def test_light_routine_skips_investigation(self, tiered, mock_scanner, mock_runner):
+    async def test_light_routine_mini_investigation(self, tiered, mock_scanner, mock_runner):
+        """LIGHT+ROUTINE now runs a mini Sonnet investigation (limited turns)."""
         mock_scanner.scan.return_value = _routine_scan()
+        mock_runner.run.return_value = _agent_result(trades=[])
+        mock_runner._max_turns = 8  # default
 
-        result = await tiered.run(
-            system_prompt="test",
-            user_message="test",
-            session_profile=SessionProfile.LIGHT,
-            market_data={"regime": "BULL"},
-            portfolio_summary={"cash": 10000},
-        )
-        assert result.skipped_investigation is True
-        assert result.response["trades"] == []
-        mock_runner.run.assert_not_called()
+        with patch("config.settings.settings") as mock_settings:
+            mock_settings.agent.agent_routine_max_turns = 3
+            result = await tiered.run(
+                system_prompt="test",
+                user_message="test",
+                session_profile=SessionProfile.LIGHT,
+                market_data={"regime": "BULL"},
+                portfolio_summary={"cash": 10000},
+            )
+
+        assert result.skipped_investigation is False
+        assert result.turns >= 1
+        mock_runner.run.assert_called_once()
+        # Verify max_turns was restored after the call
+        assert mock_runner._max_turns == 8
+        # Verify Haiku scan context was appended to user_message
+        call_args = mock_runner.run.call_args
+        user_msg = call_args.kwargs.get("user_message", "")
+        assert "[Haiku scan: ROUTINE" in user_msg
 
     @pytest.mark.asyncio
     async def test_light_investigate_escalates_to_full(self, tiered, mock_scanner, mock_runner, mock_validator):

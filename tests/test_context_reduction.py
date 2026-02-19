@@ -57,8 +57,8 @@ async def test_recent_sessions_default_2():
 
 
 @pytest.mark.asyncio
-async def test_manual_run_skips_recent_history():
-    """Manual triggers skip recent history (n=0) and reduce summaries (n=5)."""
+async def test_manual_run_gets_minimal_history():
+    """Manual triggers get 1 recent session and full summaries."""
     from src.agent.persistent_agent import PersistentAgent
 
     mock_db = AsyncMock()
@@ -89,6 +89,7 @@ async def test_manual_run_skips_recent_history():
         mock_settings.agent.agent_history_recent_n = 2
         mock_settings.agent.agent_history_summaries_n = 10
         mock_settings.agent.agent_skip_history_triggers = "manual,event"
+        mock_settings.agent.agent_event_history_recent_n = 1
         await agent._execute_session(
             session_id="test-session",
             trigger_type="manual",
@@ -99,13 +100,13 @@ async def test_manual_run_skips_recent_history():
             strategy_directive="",
         )
 
-    mock_store.load_recent.assert_called_once_with("default", n=0)
-    mock_store.load_summaries.assert_called_once_with("default", n=5)
+    mock_store.load_recent.assert_called_once_with("default", n=1)
+    mock_store.load_summaries.assert_called_once_with("default", n=10)
 
 
 @pytest.mark.asyncio
-async def test_event_trigger_skips_recent_history():
-    """Event triggers also skip recent history."""
+async def test_event_trigger_gets_minimal_history():
+    """Event triggers get 1 recent session (not 0)."""
     from src.agent.persistent_agent import PersistentAgent
 
     mock_db = AsyncMock()
@@ -136,6 +137,7 @@ async def test_event_trigger_skips_recent_history():
         mock_settings.agent.agent_history_recent_n = 2
         mock_settings.agent.agent_history_summaries_n = 10
         mock_settings.agent.agent_skip_history_triggers = "manual,event"
+        mock_settings.agent.agent_event_history_recent_n = 1
         await agent._execute_session(
             session_id="test-session",
             trigger_type="event",
@@ -146,7 +148,7 @@ async def test_event_trigger_skips_recent_history():
             strategy_directive="",
         )
 
-    mock_store.load_recent.assert_called_once_with("default", n=0)
+    mock_store.load_recent.assert_called_once_with("default", n=1)
 
 
 @pytest.mark.asyncio
@@ -200,9 +202,9 @@ async def test_scheduled_run_normal_context():
 
 
 def test_tool_result_truncation_in_replayed_history():
-    """Tool result content is truncated in replayed session messages."""
+    """Most recent session gets higher truncation limit (1500 chars)."""
     cm = ContextManager()
-    long_content = "X" * 1000
+    long_content = "X" * 2000
     recent = [
         {
             "session_id": "s1",
@@ -218,13 +220,62 @@ def test_tool_result_truncation_in_replayed_history():
             ],
         },
     ]
-    messages = cm.build_messages([], recent, "new trigger")
+    with patch("config.settings.settings") as mock_settings:
+        mock_settings.agent.agent_tool_result_max_chars = 1500
+        messages = cm.build_messages([], recent, "new trigger")
 
-    # The tool result in replayed history should be truncated
+    # Most recent session gets 1500-char truncation
     tool_msg = messages[1]
     tool_content = tool_msg["content"][0]["content"]
-    assert len(tool_content) < 1000
+    assert len(tool_content) < 2000
     assert "[truncated]" in tool_content
+    # Should be 1500 + len(" [truncated]")
+    assert len(tool_content) == 1500 + len(" [truncated]")
+
+
+def test_older_session_gets_lower_truncation():
+    """Older sessions get 500-char truncation, most recent gets 1500."""
+    cm = ContextManager()
+    long_content = "X" * 2000
+    recent = [
+        {
+            "session_id": "s1",
+            "messages": [
+                {"role": "user", "content": "older trigger"},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "t1", "content": long_content},
+                    ],
+                },
+                {"role": "assistant", "content": "older analysis"},
+            ],
+        },
+        {
+            "session_id": "s2",
+            "messages": [
+                {"role": "user", "content": "newer trigger"},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "t2", "content": long_content},
+                    ],
+                },
+                {"role": "assistant", "content": "newer analysis"},
+            ],
+        },
+    ]
+    with patch("config.settings.settings") as mock_settings:
+        mock_settings.agent.agent_tool_result_max_chars = 1500
+        messages = cm.build_messages([], recent, "new trigger")
+
+    # Older session (s1) → 500-char truncation
+    older_tool = messages[1]["content"][0]["content"]
+    assert len(older_tool) == 500 + len(" [truncated]")
+
+    # Newer session (s2) → 1500-char truncation
+    newer_tool = messages[4]["content"][0]["content"]
+    assert len(newer_tool) == 1500 + len(" [truncated]")
 
 
 def test_current_turn_tool_results_not_truncated():

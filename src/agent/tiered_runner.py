@@ -174,18 +174,28 @@ class TieredModelRunner:
         self._record_scan_cost(scan)
 
         if scan.verdict == "ROUTINE":
-            log.info("light_session_routine_skip", summary=scan.summary)
+            log.info("light_session_mini_investigation", summary=scan.summary)
+            from config.settings import settings
+
+            saved_max = self._runner._max_turns
+            self._runner._max_turns = settings.agent.agent_routine_max_turns
+            try:
+                result = await self._runner.run(
+                    system_prompt=system_prompt,
+                    user_message=user_message + f"\n\n[Haiku scan: ROUTINE — {scan.summary}]",
+                    messages_override=messages_override,
+                )
+            finally:
+                self._runner._max_turns = saved_max
             return TieredRunResult(
-                response={
-                    "regime_assessment": scan.summary,
-                    "reasoning": f"Light session — scan ROUTINE. {scan.summary}",
-                    "trades": [],
-                    "risk_notes": "No anomalies detected. Skipping investigation.",
-                },
+                response=result.response,
                 scan_result=scan,
+                tool_calls=result.tool_calls,
+                turns=result.turns,
                 session_profile=SessionProfile.LIGHT,
-                skipped_investigation=True,
+                skipped_investigation=False,
                 token_tracker=self._token_tracker,
+                raw_messages=result.raw_messages,
             )
 
         # INVESTIGATE or URGENT: proceed to full pipeline

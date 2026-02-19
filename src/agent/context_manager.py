@@ -202,10 +202,13 @@ class ContextManager:
                 }
             )
 
-        # 2. Replay recent sessions (with truncated tool results to save tokens)
-        for session in recent_sessions:
+        # 2. Replay recent sessions (tiered truncation: most recent gets more detail)
+        from config.settings import settings
+
+        for i, session in enumerate(recent_sessions):
+            max_chars = settings.agent.agent_tool_result_max_chars if i == len(recent_sessions) - 1 else 500
             for msg in session["messages"]:
-                messages.append(_truncate_tool_results(msg, max_chars=300))
+                messages.append(_truncate_tool_results(msg, max_chars=max_chars))
 
         # 3. New trigger message
         messages.append({"role": "user", "content": trigger_message})
