@@ -57,6 +57,7 @@ class AgentSettings(BaseSettings):
     enable_cache: bool = True  # env: AGENT_ENABLE_CACHE
     max_retries: int = 5  # env: AGENT_MAX_RETRIES — SDK retries on 429/5xx
     fallback_model: str = "claude-sonnet-4-6"  # env: AGENT_FALLBACK_MODEL
+    agent_turn_delay_seconds: float = 5.0  # env: AGENT_AGENT_TURN_DELAY_SECONDS — pacing between turns
 
     model_config = {"env_prefix": "AGENT_", "env_file": ".env", "extra": "ignore"}
 

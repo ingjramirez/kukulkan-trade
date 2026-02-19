@@ -1714,6 +1714,7 @@ class Orchestrator:
                 model=settings.agent.agent_tool_model,
                 max_turns=settings.agent.agent_max_turns,
                 max_cost_usd=settings.agent.agent_session_budget,
+                turn_delay=settings.agent.agent_turn_delay_seconds,
             )
 
             current_prices = {t: float(closes[t].iloc[-1]) for t in closes.columns if not pd.isna(closes[t].iloc[-1])}
@@ -1995,6 +1996,7 @@ class Orchestrator:
             model=settings.agent.agent_tool_model,
             max_turns=settings.agent.agent_max_turns,
             max_cost_usd=settings.agent.agent_session_budget,
+            turn_delay=settings.agent.agent_turn_delay_seconds,
         )
 
         # Register tools

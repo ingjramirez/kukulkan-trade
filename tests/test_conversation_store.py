@@ -379,3 +379,40 @@ async def test_get_session_returns_none_for_nonexistent(store: ConversationStore
     """get_session returns None for a session ID that doesn't exist."""
     result = await store.get_session("nonexistent-id")
     assert result is None
+
+
+async def test_mark_session_failed_updates_status_and_tokens(store: ConversationStore):
+    """mark_session_failed transitions started → failed with partial tokens."""
+    await store.mark_session_started("t1", "sess-fail", "morning")
+
+    await store.mark_session_failed("sess-fail", token_count=1500, cost_usd=0.04)
+
+    session = await store.get_session("sess-fail")
+    assert session is not None
+    assert session["session_status"] == "failed"
+    assert session["token_count"] == 1500
+    assert session["cost_usd"] == 0.04
+
+
+async def test_mark_session_failed_not_in_crashed(store: ConversationStore):
+    """Failed sessions are not returned by check_crashed_sessions (only 'started' are)."""
+    await store.mark_session_started("t1", "sess-fail", "morning")
+    await store.mark_session_failed("sess-fail", token_count=500, cost_usd=0.01)
+
+    crashed = await store.check_crashed_sessions("t1")
+    assert "sess-fail" not in crashed
+
+
+async def test_mark_session_failed_not_in_load_recent(store: ConversationStore):
+    """Failed sessions are not returned by load_recent (only 'completed' are)."""
+    await store.mark_session_started("t1", "sess-fail", "morning")
+    await store.mark_session_failed("sess-fail", token_count=500, cost_usd=0.01)
+
+    sessions = await store.load_recent("t1")
+    assert len(sessions) == 0
+
+
+async def test_mark_session_failed_nonexistent_is_noop(store: ConversationStore):
+    """mark_session_failed on a nonexistent session doesn't raise."""
+    # Should not raise — just a no-op update affecting 0 rows
+    await store.mark_session_failed("nonexistent", token_count=0, cost_usd=0.0)

@@ -2,7 +2,7 @@
 
 import json
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -266,3 +266,74 @@ async def test_invalid_json_fallback():
     assert result.response["regime_assessment"] == ""
     assert result.response["reasoning"] == "This is not JSON at all"
     assert result.response["trades"] == []
+
+
+@pytest.mark.asyncio
+async def test_turn_delay_sleeps_between_turns():
+    """AgentRunner sleeps between turns when turn_delay > 0."""
+    tool_response = _make_tool_use_response("get_price", {"ticker": "SPY"})
+    final_response = _make_text_response(
+        json.dumps({"regime_assessment": "Ok", "reasoning": "Done", "trades": [], "risk_notes": ""})
+    )
+
+    call_count = 0
+
+    def side_effect(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return tool_response
+        return final_response
+
+    mock_sleep = AsyncMock()
+    with (
+        patch("src.agent.agent_runner.anthropic") as mock_anthropic,
+        patch("asyncio.sleep", mock_sleep),
+    ):
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = side_effect
+        mock_anthropic.Anthropic.return_value = mock_client
+        mock_anthropic.NOT_GIVEN = object()
+
+        runner = AgentRunner(api_key="test-key", turn_delay=2.0)
+
+        async def mock_tool(**kwargs) -> dict:
+            return {"price": 200.0}
+
+        runner.registry.register("get_price", "Get price", {"type": "object", "properties": {}}, mock_tool)
+        result = await runner.run("system", "user")
+
+    assert result.turns == 2
+    # Sleep should have been called once (before turn 2, not before turn 1)
+    mock_sleep.assert_called_once_with(2.0)
+
+
+@pytest.mark.asyncio
+async def test_turn_delay_zero_no_sleep():
+    """AgentRunner does not sleep when turn_delay=0."""
+    response_json = json.dumps(
+        {"regime_assessment": "Ok", "reasoning": "Done", "trades": [], "risk_notes": ""}
+    )
+    mock_response = _make_text_response(response_json)
+
+    mock_sleep = AsyncMock()
+    with (
+        patch("src.agent.agent_runner.anthropic") as mock_anthropic,
+        patch("asyncio.sleep", mock_sleep),
+    ):
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = mock_response
+        mock_anthropic.Anthropic.return_value = mock_client
+        mock_anthropic.NOT_GIVEN = object()
+
+        runner = AgentRunner(api_key="test-key", turn_delay=0)
+        await runner.run("system", "user")
+
+    mock_sleep.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_turn_delay_default():
+    """AgentRunner default turn_delay is 5.0."""
+    runner = AgentRunner(api_key="test-key")
+    assert runner._turn_delay == 5.0

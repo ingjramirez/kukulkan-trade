@@ -103,6 +103,38 @@ class ConversationStore:
             log.error("conversation_mark_started_failed", session_id=session_id, error=str(e))
             raise
 
+    async def mark_session_failed(
+        self,
+        session_id: str,
+        token_count: int,
+        cost_usd: float,
+    ) -> None:
+        """Update a 'started' session to 'failed', preserving partial token spend.
+
+        Called from error handlers so the conversation row reflects actual API cost
+        even when the session crashes (e.g. 429 rate-limit on turn 3).
+        """
+        try:
+            async with self.db.session() as s:
+                await s.execute(
+                    update(AgentConversationRow)
+                    .where(AgentConversationRow.session_id == session_id)
+                    .values(
+                        session_status="failed",
+                        token_count=token_count,
+                        cost_usd=cost_usd,
+                    )
+                )
+                await s.commit()
+            log.info(
+                "conversation_session_marked_failed",
+                session_id=session_id,
+                token_count=token_count,
+                cost_usd=cost_usd,
+            )
+        except Exception as e:
+            log.error("conversation_mark_failed_error", session_id=session_id, error=str(e))
+
     async def load_recent(
         self,
         tenant_id: str,

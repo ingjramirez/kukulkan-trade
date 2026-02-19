@@ -59,10 +59,12 @@ class AgentRunner:
         model: str = "claude-sonnet-4-6",
         max_turns: int = 8,
         max_cost_usd: float = 0.50,
+        turn_delay: float = 5.0,
     ) -> None:
         self._api_key = api_key
         self._model = model
         self._max_turns = max_turns
+        self._turn_delay = turn_delay
         self._registry = ToolRegistry()
         self._token_tracker = TokenTracker(session_budget_usd=max_cost_usd)
 
@@ -107,6 +109,12 @@ class AgentRunner:
 
         while turn < self._max_turns:
             turn += 1
+
+            # Rate-limit pacing: sleep between turns to avoid 429s
+            if turn > 1 and self._turn_delay > 0:
+                import asyncio as _asyncio
+
+                await _asyncio.sleep(self._turn_delay)
 
             # Check budget before calling
             if self._token_tracker.budget_exceeded:

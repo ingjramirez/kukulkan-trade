@@ -74,6 +74,7 @@ class PersistentAgent:
         self._store = ConversationStore(db)
         self._context = ContextManager()
         self._compressor = SessionCompressor(api_key=api_key)
+        self._last_token_tracker: TokenTracker | None = None
 
     async def run_session(
         self,
@@ -118,9 +119,11 @@ class PersistentAgent:
             return result
         except TimeoutError:
             log.error("persistent_session_timeout", session_id=session_id)
+            await self._save_partial_tokens(session_id)
             raise
         except Exception:
             log.exception("persistent_session_failed", session_id=session_id)
+            await self._save_partial_tokens(session_id)
             raise
 
     async def _execute_session(
@@ -137,6 +140,7 @@ class PersistentAgent:
         from src.agent.agent_runner import AgentRunner
 
         runner: AgentRunner = runner_kwargs["runner"]
+        self._last_token_tracker = runner._token_tracker
         base_system_prompt: str = runner_kwargs.get("system_prompt", "")
 
         # 1. Build persistent system prompt
@@ -164,6 +168,8 @@ class PersistentAgent:
 
         # 5. Run agent loop with conversation context (or tiered runner)
         tiered_runner = runner_kwargs.get("tiered_runner")
+        if tiered_runner and hasattr(tiered_runner, "_token_tracker"):
+            self._last_token_tracker = tiered_runner._token_tracker
         if tiered_runner:
             from src.agent.tiered_runner import TieredRunResult
 
@@ -234,6 +240,19 @@ class PersistentAgent:
             tool_summary=tool_summary,
             compressed_count=compressed_count,
         )
+
+    async def _save_partial_tokens(self, session_id: str) -> None:
+        """Best-effort save of partial token spend on a failed session."""
+        try:
+            tracker = self._last_token_tracker
+            if tracker is None:
+                tokens, cost = 0, 0.0
+            else:
+                tokens = tracker.total_input_tokens + tracker.total_output_tokens
+                cost = round(tracker.total_cost_usd, 4)
+            await self._store.mark_session_failed(session_id, tokens, cost)
+        except Exception:
+            log.warning("save_partial_tokens_failed", session_id=session_id, exc_info=True)
 
     async def _compress_old_sessions(self) -> int:
         """Compress sessions that are older than the recent window.

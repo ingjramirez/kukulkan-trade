@@ -327,3 +327,57 @@ async def test_run_session_tenant_isolation(db: Database):
     t2_sessions = await store.load_recent("t2")
     assert len(t1_sessions) == 1
     assert len(t2_sessions) == 1
+
+
+async def test_run_session_saves_partial_tokens_on_exception(db: Database):
+    """When _execute_session raises, partial tokens are saved to a 'failed' row."""
+    agent = PersistentAgent(db=db, api_key="test-key", tenant_id="t1")
+
+    # Runner whose run() raises after accumulating some tokens
+    tracker = TokenTracker()
+    tracker.record(model="claude-sonnet-4-6", input_tokens=800, output_tokens=200, turn=1)
+    mock_runner = MagicMock()
+    mock_runner._token_tracker = tracker
+    mock_runner.run = AsyncMock(side_effect=RuntimeError("429 rate limit"))
+
+    with pytest.raises(RuntimeError, match="429"):
+        await agent.run_session(
+            trigger_type="morning",
+            market_data={"regime": "BULL", "vix": 15.0},
+            portfolio_summary={"total_value": 66000, "cash": 25000},
+            runner_kwargs={"runner": mock_runner, "system_prompt": ""},
+        )
+
+    # Verify the session was marked failed with partial tokens
+    from src.agent.conversation_store import ConversationStore
+
+    store = ConversationStore(db)
+    sessions = await store.list_sessions("t1")
+    assert len(sessions) == 1
+    assert sessions[0]["session_status"] == "failed"
+    assert sessions[0]["token_count"] == 1000  # 800 + 200
+    assert sessions[0]["cost_usd"] > 0
+
+
+async def test_run_session_saves_zero_tokens_when_no_tracker(db: Database):
+    """When exception happens before runner is accessed, saves 0 tokens."""
+    agent = PersistentAgent(db=db, api_key="test-key", tenant_id="t1")
+
+    # Patch _execute_session to raise before touching runner
+    with patch.object(agent, "_execute_session", new_callable=AsyncMock) as mock_exec:
+        mock_exec.side_effect = RuntimeError("early failure")
+        with pytest.raises(RuntimeError, match="early"):
+            await agent.run_session(
+                trigger_type="morning",
+                market_data={},
+                portfolio_summary={},
+                runner_kwargs={"runner": MagicMock(), "system_prompt": ""},
+            )
+
+    from src.agent.conversation_store import ConversationStore
+
+    store = ConversationStore(db)
+    sessions = await store.list_sessions("t1")
+    assert len(sessions) == 1
+    assert sessions[0]["session_status"] == "failed"
+    assert sessions[0]["token_count"] == 0
