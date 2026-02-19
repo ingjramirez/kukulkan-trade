@@ -555,7 +555,14 @@ def register_action_tools(
 
     registry.register(
         name="update_watchlist",
-        description="Add or remove tickers from the watchlist for future monitoring.",
+        description=(
+            "Add or remove tickers from the AI watchlist for future monitoring. "
+            "Use this proactively when: (1) news signals a potential opportunity but risk/timing isn't right yet, "
+            "(2) a ticker shows strong momentum but is overextended — waiting for a pullback, "
+            "(3) a sector rotation thesis is forming and you want to track candidates, "
+            "(4) earnings are upcoming and you want to revisit after results. "
+            "The watchlist is injected into every session so you remember what to follow up on."
+        ),
         input_schema={
             "type": "object",
             "properties": {

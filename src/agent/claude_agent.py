@@ -319,7 +319,15 @@ Rules for watchlist_updates:
 - Added items expire after 14 days if not acted on
 - When you include a watchlist ticker in your trades, it auto-removes from watchlist
 - Max 10 watchlist items. If full, remove lowest conviction before adding.
-- If no changes needed, return an empty array or omit the field."""
+- If no changes needed, return an empty array or omit the field.
+
+When to use watchlist proactively:
+- Strong news catalyst but position sizing isn't justified yet → add with target_entry
+- Ticker is overextended (RSI>75) but thesis is intact → add to revisit on pullback
+- Sector rotation forming — interesting candidates you want to track
+- Earnings coming up: add now, revisit after results
+- Signal rankings show a fast riser you're not positioned in yet → add to monitor
+- Your watchlist is shown every session — use it as your "to watch" memory across days."""
 
 
 def build_positions_text(positions: list[dict]) -> str:
