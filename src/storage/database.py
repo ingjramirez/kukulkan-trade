@@ -27,6 +27,7 @@ from src.storage.models import (
     PortfolioRow,
     PositionRow,
     PostureHistoryRow,
+    SentimentIndicatorRow,
     SentinelActionRow,
     TenantRow,
     TickerSignalRow,
@@ -1787,3 +1788,45 @@ class Database:
         closes = pd.DataFrame(closes_dict).sort_index()
         volumes = pd.DataFrame(volumes_dict).sort_index()
         return closes, volumes
+
+    # ── Sentiment Indicators ──────────────────────────────────────────────────
+
+    async def save_sentiment_indicator(
+        self,
+        tenant_id: str,
+        name: str,
+        value: float,
+        classification: str,
+        sub_indicators: str | None = None,
+    ) -> None:
+        """Save a sentiment indicator reading (e.g., Fear & Greed Index)."""
+        async with self.session() as s:
+            s.add(
+                SentimentIndicatorRow(
+                    tenant_id=tenant_id,
+                    name=name,
+                    value=value,
+                    classification=classification,
+                    sub_indicators=sub_indicators,
+                    fetched_at=datetime.now(timezone.utc),
+                )
+            )
+            await s.commit()
+
+    async def get_latest_sentiment(
+        self,
+        tenant_id: str,
+        name: str,
+    ) -> SentimentIndicatorRow | None:
+        """Get the most recent reading for a named sentiment indicator."""
+        async with self.session() as s:
+            result = await s.execute(
+                select(SentimentIndicatorRow)
+                .where(
+                    SentimentIndicatorRow.tenant_id == tenant_id,
+                    SentimentIndicatorRow.name == name,
+                )
+                .order_by(SentimentIndicatorRow.fetched_at.desc())
+                .limit(1)
+            )
+            return result.scalar_one_or_none()

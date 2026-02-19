@@ -371,9 +371,14 @@ class ContextManager:
         positions_count = portfolio.get("positions_count", 0)
         total_value = portfolio.get("total_value", "N/A")
 
+        indicators_line = f"Regime: {regime}. VIX: {vix}. SPY overnight: {spy_change}%."
+        fg = market.get("fear_greed")
+        if fg:
+            indicators_line += f" F&G: {fg}."
+
         parts = [
             "Good morning. Markets are open.",
-            f"Regime: {regime}. VIX: {vix}. SPY overnight: {spy_change}%.",
+            indicators_line,
             f"Portfolio B: ${total_value} total, ${cash} cash, {positions_count} positions.",
             "Review your positions and the market. Make trades if warranted.",
         ]
@@ -392,9 +397,14 @@ class ContextManager:
         cash = portfolio.get("cash", "N/A")
         total_value = portfolio.get("total_value", "N/A")
 
+        midday_line = f"VIX: {vix}. Portfolio B: ${total_value}, ${cash} cash."
+        fg = market.get("fear_greed")
+        if fg:
+            midday_line += f" F&G: {fg}."
+
         parts = [
             "Midday update.",
-            f"VIX: {vix}. Portfolio B: ${total_value}, ${cash} cash.",
+            midday_line,
             "Check for any significant moves since morning. Act if needed.",
         ]
         if market.get("alerts"):

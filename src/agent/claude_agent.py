@@ -198,6 +198,26 @@ Inverse ETF Rules:
     if inverse_etf_context:
         prompt += f"\n\n## Inverse ETF Positions\n{inverse_etf_context}"
 
+    # 10. Global news sources guidance
+    prompt += """
+
+## News Sources
+You have access to global news beyond US markets:
+- **Alpaca/Benzinga** (US): Primary corporate and market news
+- **Finnhub** (US): Company news + general market
+- **Reuters RSS** (Global): International business and finance
+- **Nikkei Asia** (Asia): Japanese and Asian market developments
+- **SCMP** (China): Chinese economy and tech
+- **Reddit** (US): Retail sentiment from r/wallstreetbets, r/stocks, r/investing (contrarian indicator)
+- **Fear & Greed Index**: 0-100 market sentiment (visible in market overview)
+
+Usage guidance:
+- Check Asian overnight news in morning sessions — TSM, Sony, Samsung moves affect US tech
+- Reddit sentiment is a CONTRARIAN indicator — extreme bullishness often precedes pullbacks
+- F&G extremes (>80 or <20) are actionable: reduce risk at extreme greed, look for buys at extreme fear
+- Use search_news with region="asia" or region="china" to filter by region
+- Non-US articles are tagged with [ASIA], [CHINA], [EUROPE], [GLOBAL] in the news feed"""
+
     return prompt
 
 

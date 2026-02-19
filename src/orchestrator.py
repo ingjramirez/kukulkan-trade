@@ -172,6 +172,7 @@ class Orchestrator:
         self._notifier = notifier or TelegramNotifier()
         self._news_fetcher = NewsFetcher()
         self._news_aggregator = NewsAggregator()
+        self._register_extra_fetchers()
         self._news_compactor = NewsCompactor()
         self._complexity_detector = ComplexityDetector()
         self._ticker_discovery = TickerDiscovery(db)
@@ -179,6 +180,31 @@ class Orchestrator:
         self._performance_tracker = PerformanceTracker()
         self._memory_manager = AgentMemoryManager()
         self._regime_classifier = RegimeClassifier()
+
+    def _register_extra_fetchers(self) -> None:
+        """Register additional news fetchers (Reddit, RSS) if configured."""
+        # Reddit (requires credentials)
+        try:
+            if settings.reddit.client_id and settings.reddit.client_secret:
+                from src.data.reddit_news import RedditNewsFetcher
+
+                self._news_aggregator.register(
+                    RedditNewsFetcher(
+                        client_id=settings.reddit.client_id,
+                        client_secret=settings.reddit.client_secret,
+                    )
+                )
+        except Exception as e:
+            log.debug("reddit_fetcher_registration_failed", error=str(e))
+
+        # RSS feeds (no credentials needed)
+        try:
+            from src.data.rss_news import create_default_rss_fetchers
+
+            for fetcher in create_default_rss_fetchers():
+                self._news_aggregator.register(fetcher)
+        except Exception as e:
+            log.debug("rss_fetcher_registration_failed", error=str(e))
 
     async def run_all_tenants(
         self,
@@ -2012,6 +2038,15 @@ class Orchestrator:
         action_state = ActionState()
         register_portfolio_tools(runner.registry, self._db, tenant_id, current_prices, closes=closes)
         held_tickers = [p["ticker"] for p in positions_for_agent] if positions_for_agent else []
+        # Fetch Fear & Greed for tool context
+        fear_greed_data: dict | None = None
+        try:
+            fg_row = await self._db.get_latest_sentiment(tenant_id, "fear_greed_index")
+            if fg_row:
+                fear_greed_data = {"value": fg_row.value, "classification": fg_row.classification}
+        except Exception as e:
+            log.debug("fear_greed_for_tools_failed", error=str(e))
+
         register_market_tools(
             runner.registry,
             closes,
@@ -2021,6 +2056,7 @@ class Orchestrator:
             db=self._db,
             held_tickers=held_tickers,
             tenant_id=tenant_id,
+            fear_greed=fear_greed_data,
         )
         register_news_tools(
             runner.registry,
@@ -2053,6 +2089,14 @@ class Orchestrator:
             "cash": cash,
             "positions_count": len(positions_for_agent),
         }
+
+        # Inject Fear & Greed index if available (already fetched above)
+        if fear_greed_data:
+            from src.data.fear_greed import format_for_context
+
+            market_data["fear_greed"] = format_for_context(
+                fear_greed_data["value"], fear_greed_data["classification"]
+            )
 
         # Inject signal rankings if available (from signal_engine_job)
         try:

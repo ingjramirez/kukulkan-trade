@@ -128,13 +128,18 @@ async def _get_market_overview(
     vix: float | None,
     yield_curve: float | None,
     regime: str | None,
+    fear_greed: dict | None = None,
 ) -> dict:
-    """Broad market overview: SPY, VIX, yield curve, regime, BTC, and sector heatmap."""
+    """Broad market overview: SPY, VIX, yield curve, regime, BTC, F&G, and sector heatmap."""
     result: dict = {
         "regime": regime or "Unknown",
         "vix": round(vix, 1) if vix is not None else None,
         "yield_curve_10y_2y": round(yield_curve, 2) if yield_curve is not None else None,
     }
+
+    # Fear & Greed Index
+    if fear_greed:
+        result["fear_greed_index"] = fear_greed
 
     # SPY performance
     if "SPY" in closes.columns:
@@ -472,6 +477,7 @@ def register_market_tools(
     db: Database | None = None,
     held_tickers: list[str] | None = None,
     tenant_id: str = "default",
+    fear_greed: dict | None = None,
 ) -> None:
     """Register market data tools with pre-fetched data.
 
@@ -484,6 +490,7 @@ def register_market_tools(
         db: Database instance (needed for earnings calendar + discovery).
         held_tickers: List of currently held tickers (for earnings context).
         tenant_id: Tenant UUID (for discovery status checks).
+        fear_greed: Fear & Greed index data dict (value, classification).
     """
     # ── Phase 2 tools ────────────────────────────────────────────────────────
     registry.register(
@@ -516,9 +523,12 @@ def register_market_tools(
 
     registry.register(
         name="get_market_overview",
-        description="Broad market overview: regime, VIX, yield curve, SPY stats, and sector 1-week heatmap.",
+        description=(
+            "Broad market overview: regime, VIX, yield curve, SPY stats, Fear & Greed Index, "
+            "and sector 1-week heatmap."
+        ),
         input_schema={"type": "object", "properties": {}},
-        handler=partial(_get_market_overview, closes, vix, yield_curve, regime),
+        handler=partial(_get_market_overview, closes, vix, yield_curve, regime, fear_greed),
     )
 
     if db is not None:

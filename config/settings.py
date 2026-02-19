@@ -68,6 +68,15 @@ class AgentSettings(BaseSettings):
     model_config = {"env_prefix": "AGENT_", "env_file": ".env", "extra": "ignore"}
 
 
+class RedditSettings(BaseSettings):
+    """Reddit API settings (OAuth2 app-only flow)."""
+
+    client_id: str = ""
+    client_secret: str = ""
+
+    model_config = {"env_prefix": "REDDIT_", "env_file": ".env", "extra": "ignore"}
+
+
 class ChromaSettings(BaseSettings):
     """ChromaDB connection settings."""
 
@@ -103,6 +112,7 @@ class Settings(BaseSettings):
     alpaca: AlpacaSettings = AlpacaSettings()
     telegram: TelegramSettings = TelegramSettings()
     finnhub: FinnhubSettings = FinnhubSettings()
+    reddit: RedditSettings = RedditSettings()
     chroma: ChromaSettings = ChromaSettings()
     dashboard: DashboardSettings = DashboardSettings()
     agent: AgentSettings = AgentSettings()

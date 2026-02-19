@@ -1,6 +1,6 @@
-"""News aggregator combining Alpaca, Finnhub, and yfinance sources.
+"""News aggregator combining multiple sources with registry pattern.
 
-Priority order: Alpaca (highest quality) → Finnhub → yfinance (fallback).
+Priority order: Alpaca (highest quality) → Finnhub → registered sources → yfinance (fallback).
 Deduplicates by headline word overlap (>50% = same story).
 """
 
@@ -12,6 +12,7 @@ import structlog
 import yfinance as yf
 
 from src.data.alpaca_news import AlpacaNewsFetcher
+from src.data.base_fetcher import BaseNewsFetcher
 from src.data.finnhub_news import FinnhubNewsFetcher
 from src.data.news_article import NewsArticle
 from src.utils.retry import retry_news_api
@@ -83,7 +84,10 @@ def _headlines_overlap(h1: str, h2: str, threshold: float = 0.50) -> bool:
 
 
 class NewsAggregator:
-    """Fetches news from all sources in priority order with deduplication."""
+    """Fetches news from all sources in priority order with deduplication.
+
+    Supports a registry of additional fetchers beyond the built-in Alpaca/Finnhub.
+    """
 
     def __init__(
         self,
@@ -92,6 +96,21 @@ class NewsAggregator:
     ) -> None:
         self._alpaca = alpaca_fetcher or AlpacaNewsFetcher()
         self._finnhub = finnhub_fetcher or FinnhubNewsFetcher()
+        self._extra_fetchers: list[BaseNewsFetcher] = []
+
+    def register(self, fetcher: BaseNewsFetcher) -> None:
+        """Register an additional news fetcher.
+
+        Args:
+            fetcher: A BaseNewsFetcher instance (RSS, Reddit, etc.).
+        """
+        self._extra_fetchers.append(fetcher)
+        log.info("news_fetcher_registered", source=fetcher.source_name, region=fetcher.region)
+
+    @property
+    def registered_sources(self) -> list[str]:
+        """Return names of all registered extra fetchers."""
+        return [f.source_name for f in self._extra_fetchers]
 
     def fetch_all(
         self,
@@ -100,7 +119,7 @@ class NewsAggregator:
     ) -> list[NewsArticle]:
         """Fetch from all sources in priority order, deduplicate.
 
-        Order: 1. Alpaca → 2. Finnhub → 3. yfinance fallback.
+        Order: 1. Alpaca → 2. Finnhub → 3. Extra fetchers → 4. yfinance fallback.
         Deduplicates by headline word overlap.
 
         Args:
@@ -111,19 +130,33 @@ class NewsAggregator:
             Deduplicated list of NewsArticle objects.
         """
         all_articles: list[NewsArticle] = []
+        source_counts: dict[str, int] = {}
 
         # Layer 1: Alpaca
         alpaca_articles = self._alpaca.fetch(tickers)
         all_articles.extend(alpaca_articles)
+        source_counts["alpaca"] = len(alpaca_articles)
 
         # Layer 2: Finnhub
         finnhub_articles = self._finnhub.fetch(tickers)
         all_articles.extend(finnhub_articles)
+        source_counts["finnhub"] = len(finnhub_articles)
 
-        # Layer 3: yfinance fallback (only if layers 1+2 got fewer than 10)
+        # Layer 3: Extra registered fetchers
+        for fetcher in self._extra_fetchers:
+            try:
+                extra_articles = fetcher.fetch(tickers)
+                all_articles.extend(extra_articles)
+                source_counts[fetcher.source_name] = len(extra_articles)
+            except Exception as e:
+                log.warning("extra_fetcher_failed", source=fetcher.source_name, error=str(e))
+                source_counts[fetcher.source_name] = 0
+
+        # Layer 4: yfinance fallback (only if other sources got fewer than 10)
         if len(all_articles) < 10:
             yf_articles = self._fetch_yfinance(tickers)
             all_articles.extend(yf_articles)
+            source_counts["yfinance"] = len(yf_articles)
 
         # Deduplicate
         deduped = self._deduplicate(all_articles)
@@ -132,8 +165,7 @@ class NewsAggregator:
             "news_aggregated",
             raw=len(all_articles),
             deduped=len(deduped),
-            alpaca=len(alpaca_articles),
-            finnhub=len(finnhub_articles),
+            sources=source_counts,
         )
 
         return deduped[:max_articles]

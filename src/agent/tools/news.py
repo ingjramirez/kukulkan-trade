@@ -20,12 +20,14 @@ log = structlog.get_logger()
 async def _search_news(
     news_context: str,
     ticker: str | None = None,
+    region: str | None = None,
 ) -> dict:
-    """Filter pre-fetched news by ticker.
+    """Filter pre-fetched news by ticker and/or region.
 
     Args:
         news_context: Full news context string from the compactor.
         ticker: Optional ticker to filter for.
+        region: Optional region filter ("us", "asia", "europe", "china", "global").
 
     Returns:
         Dict with filtered news lines.
@@ -35,16 +37,28 @@ async def _search_news(
 
     lines = news_context.strip().split("\n")
 
+    # Apply region filter
+    if region:
+        region_upper = region.upper()
+        if region_upper == "US":
+            # US articles have no region tag
+            filtered = [line for line in lines if not line.startswith("[")]
+        else:
+            filtered = [line for line in lines if f"[{region_upper}]" in line.upper()]
+        lines = filtered if filtered else lines
+
     if ticker:
         ticker_upper = ticker.upper()
         filtered = [line for line in lines if ticker_upper in line.upper()]
         return {
             "ticker": ticker_upper,
+            "region": region,
             "articles": filtered if filtered else [f"No news found for {ticker_upper}"],
             "total": len(filtered),
         }
 
     return {
+        "region": region,
         "articles": lines[:20],
         "total": len(lines),
     }
@@ -230,13 +244,20 @@ def register_news_tools(
     """
     registry.register(
         name="search_news",
-        description="Search today's news articles. Optionally filter by ticker symbol.",
+        description=(
+            "Search today's news articles. Filter by ticker and/or region. "
+            "Regions: us, asia, europe, china, global."
+        ),
         input_schema={
             "type": "object",
             "properties": {
                 "ticker": {
                     "type": "string",
                     "description": "Optional ticker to filter news for",
+                },
+                "region": {
+                    "type": "string",
+                    "description": "Optional region filter: us, asia, europe, china, global",
                 },
             },
         },

@@ -572,7 +572,9 @@ class NewsCompactor:
                 signal = cluster.signal
                 headline = compress_headline(cluster.representative.headline)
                 sources = cluster.source_count
-                lines.append(f"{ticker}|{signal}|{headline}|{sources}")
+                region = cluster.representative.region
+                region_tag = f"[{region.upper()}] " if region != "us" else ""
+                lines.append(f"{region_tag}{ticker}|{signal}|{headline}|{sources}")
 
         if discovery_clusters:
             lines.append("")

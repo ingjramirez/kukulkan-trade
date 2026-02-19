@@ -1,6 +1,6 @@
 """Unified news data models used across all news sources.
 
-NewsArticle: standardized article from any source (Alpaca, Finnhub, yfinance).
+NewsArticle: standardized article from any source (Alpaca, Finnhub, yfinance, RSS, Reddit).
 NewsCluster: group of articles about the same event.
 """
 
@@ -22,6 +22,9 @@ class NewsArticle:
     published_at: datetime | None = None
     url: str = ""
     sentiment: float | None = None  # -1.0 to 1.0 if available
+    region: str = "us"  # "us", "europe", "asia", "china", "global"
+    source_language: str = "en"
+    metadata: dict = field(default_factory=dict)
 
 
 @dataclass

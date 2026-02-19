@@ -768,6 +768,36 @@ async def run_scheduled() -> None:
         name="Kukulkan Signal Engine (10-min ticker ranking)",
     )
 
+    # Fear & Greed Index: fetch twice daily (9:30 AM + 4:30 PM ET)
+    async def fear_greed_job():
+        from datetime import date as _date
+
+        today = _date.today()
+        if not is_market_open(today):
+            return
+        try:
+            from src.data.fear_greed import fetch_and_save
+
+            tenants = await db.get_active_tenants()
+            tenant_list = tenants if tenants else []
+            if not tenant_list:
+                tenant_list = [type("T", (), {"id": "default", "is_active": True})()]
+            for tenant in tenant_list:
+                try:
+                    await fetch_and_save(db, tenant.id)
+                except Exception as e:
+                    log.warning("fear_greed_tenant_failed", tenant_id=tenant.id, error=str(e))
+            log.debug("fear_greed_job_complete")
+        except Exception as e:
+            log.error("fear_greed_job_failed", error=str(e))
+
+    scheduler.add_job(
+        fear_greed_job,
+        CronTrigger(hour="9,16", minute=30, day_of_week="mon-fri", timezone="US/Eastern"),
+        id="fear_greed",
+        name="Kukulkan Fear & Greed Index",
+    )
+
     # Weekly memory compaction (Sunday 6 PM ET)
     memory_manager = AgentMemoryManager()
     agent = ClaudeAgent()

@@ -558,6 +558,20 @@ class TenantRow(Base):
         return f"<Tenant id={self.id!r} name={self.name!r} active={self.is_active} strategy={self.strategy_mode!r}>"
 
 
+class SentimentIndicatorRow(Base):
+    """External sentiment indicators (Fear & Greed, put/call ratio, etc.)."""
+
+    __tablename__ = "sentiment_indicators"
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
+    name = Column(String(50), nullable=False)  # "fear_greed_index", "put_call_ratio", etc.
+    value = Column(Float, nullable=False)  # Numeric value (0-100 for F&G)
+    classification = Column(String(30), nullable=False)  # "Extreme Fear", "Fear", "Neutral", "Greed", "Extreme Greed"
+    sub_indicators = Column(Text, nullable=True)  # JSON: component breakdown
+    fetched_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
 class TickerSignalRow(Base):
     """Ticker signal rankings computed by the local SignalEngine (every 10 min)."""
 

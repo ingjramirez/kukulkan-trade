@@ -11,14 +11,18 @@ from datetime import date, datetime, timedelta
 import structlog
 
 from config.settings import settings
+from src.data.base_fetcher import BaseNewsFetcher
 from src.data.news_article import NewsArticle
 from src.utils.retry import retry_news_api
 
 log = structlog.get_logger()
 
 
-class FinnhubNewsFetcher:
+class FinnhubNewsFetcher(BaseNewsFetcher):
     """Fetches news from Finnhub's company-news and general-news endpoints."""
+
+    source_name = "finnhub"
+    region = "us"
 
     def __init__(self, api_key: str | None = None) -> None:
         self._api_key = api_key or settings.finnhub.api_key

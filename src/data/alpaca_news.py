@@ -11,14 +11,18 @@ from datetime import datetime
 import structlog
 
 from config.settings import settings
+from src.data.base_fetcher import BaseNewsFetcher
 from src.data.news_article import NewsArticle
 from src.utils.retry import retry_news_api
 
 log = structlog.get_logger()
 
 
-class AlpacaNewsFetcher:
+class AlpacaNewsFetcher(BaseNewsFetcher):
     """Fetches news from Alpaca's data API (Benzinga)."""
+
+    source_name = "alpaca"
+    region = "us"
 
     def __init__(
         self,
