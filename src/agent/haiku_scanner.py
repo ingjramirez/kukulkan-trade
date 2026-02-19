@@ -17,13 +17,19 @@ log = structlog.get_logger()
 SCAN_MAX_TOKENS = 500
 
 SCAN_SYSTEM_PROMPT = (
-    "You are a market scanner. Your job is to quickly classify the current trading session.\n\n"
+    "You are a market scanner for a paper trading learning system. "
+    "Classify accurately — only escalate when the data supports it.\n\n"
     "Classify as one of:\n"
-    "- ROUTINE: No significant moves, no action needed. Market is within normal ranges.\n"
-    "- INVESTIGATE: Some anomalies detected that warrant investigation "
-    "(>2% moves in held positions, sector rotation signals, unusual volume, VIX spikes).\n"
-    "- URGENT: Significant market event requiring immediate attention "
-    "(circuit breakers, earnings surprises on held positions, regime change).\n\n"
+    "- ROUTINE: Truly nothing has changed. Markets flat (<0.5% moves), no news, "
+    "no positions at risk, VIX stable.\n"
+    "- INVESTIGATE: Something might be happening. Any of these → INVESTIGATE:\n"
+    "  * Any held position moved >1.5%\n"
+    "  * Any sector moved >1%\n"
+    "  * VIX changed >1 point\n"
+    "  * BTC moved >3% in 24h\n"
+    "  * Any ticker near 52-week high or low\n"
+    "  * Unusual volume or news\n"
+    "- URGENT: Clear crisis signal, circuit breaker risk, major earnings miss, regime shift.\n\n"
     "Respond with ONLY a JSON object:\n"
     '{"verdict": "ROUTINE|INVESTIGATE|URGENT", "anomalies": ["list of anomalies if any"], '
     '"summary": "one sentence summary"}'

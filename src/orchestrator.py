@@ -1033,8 +1033,8 @@ class Orchestrator:
                 except Exception as exc:
                     log.debug("event_publish_failed", error=str(exc))
 
-            # Handle inverse trades requiring approval
-            if verdict.requires_approval:
+            # Handle inverse trades requiring approval (skipped when approval disabled)
+            if verdict.requires_approval and settings.trade_approval_enabled:
                 for inv_trade in verdict.requires_approval:
                     approved = await self._request_inverse_trade_approval(inv_trade, regime_result)
                     if approved == "approve":
@@ -1046,8 +1046,8 @@ class Orchestrator:
                             all_trades[:] = [t for t in all_trades if t is not inv_trade]
                         verdict.blocked.append((inv_trade, "Rejected via Telegram approval"))
 
-            # Handle large trades requiring approval (non-inverse, >threshold% of portfolio)
-            if verdict.requires_trade_approval:
+            # Handle large trades requiring approval (skipped when approval disabled)
+            if verdict.requires_trade_approval and settings.trade_approval_enabled:
                 for lg_trade, approval_reason in verdict.requires_trade_approval:
                     trade_pct = (lg_trade.total / pval * 100) if pval > 0 else 0
                     choice = await self._request_large_trade_approval(lg_trade, trade_pct, approval_reason, tenant_id)

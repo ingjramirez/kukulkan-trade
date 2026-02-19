@@ -22,22 +22,22 @@ class TestDefaultStrategy:
     def test_default_is_conservative(self) -> None:
         """build_system_prompt() defaults to conservative directive."""
         prompt = build_system_prompt()
-        assert "CONSERVATIVE CAPITAL PRESERVATION" in prompt
+        assert "CONSERVATIVE" in prompt
 
     def test_standard_mode(self) -> None:
         prompt = build_system_prompt(strategy_mode="standard")
         assert "BALANCED" in prompt
-        assert "CONSERVATIVE CAPITAL PRESERVATION" not in prompt
+        assert "CONSERVATIVE" not in prompt
 
     def test_aggressive_mode(self) -> None:
         prompt = build_system_prompt(strategy_mode="aggressive")
         assert "AGGRESSIVE GROWTH" in prompt
-        assert "CONSERVATIVE CAPITAL PRESERVATION" not in prompt
+        assert "CONSERVATIVE" not in prompt
 
     def test_unknown_mode_no_directive(self) -> None:
         """Unknown strategy mode should not inject any directive."""
         prompt = build_system_prompt(strategy_mode="unknown")
-        assert "CONSERVATIVE CAPITAL PRESERVATION" not in prompt
+        assert "CONSERVATIVE" not in prompt
         assert "BALANCED" not in prompt
         assert "AGGRESSIVE GROWTH" not in prompt
         # But base prompt should still be there
@@ -67,20 +67,19 @@ class TestStrategyModeFromEnv:
 
 class TestDirectiveContent:
     def test_conservative_key_phrases(self) -> None:
-        assert "40%" in CONSERVATIVE_DIRECTIVE
-        assert "cut losses at -5%" in CONSERVATIVE_DIRECTIVE.lower()
-        assert "defensive assets" in CONSERVATIVE_DIRECTIVE.lower()
-        assert "GLD" in CONSERVATIVE_DIRECTIVE
-        assert "TLT" in CONSERVATIVE_DIRECTIVE
-        assert "XLP" in CONSERVATIVE_DIRECTIVE
+        assert "CONSERVATIVE" in CONSERVATIVE_DIRECTIVE
+        assert "guidelines" in CONSERVATIVE_DIRECTIVE.lower()
+        assert "BULL" in CONSERVATIVE_DIRECTIVE
+        assert "CRISIS" in CONSERVATIVE_DIRECTIVE
 
     def test_standard_key_phrases(self) -> None:
-        assert "20-30% cash" in STANDARD_DIRECTIVE
-        assert "8-12 positions" in STANDARD_DIRECTIVE
+        assert "BALANCED" in STANDARD_DIRECTIVE
+        assert "guidelines" in STANDARD_DIRECTIVE.lower()
 
     def test_aggressive_key_phrases(self) -> None:
-        assert "80-95% invested" in AGGRESSIVE_DIRECTIVE
-        assert "5-6" in AGGRESSIVE_DIRECTIVE
+        assert "AGGRESSIVE GROWTH" in AGGRESSIVE_DIRECTIVE
+        assert "paper trading" in AGGRESSIVE_DIRECTIVE.lower()
+        assert "experiment" in AGGRESSIVE_DIRECTIVE.lower()
 
     def test_strategy_map_has_all_modes(self) -> None:
         assert set(STRATEGY_MAP.keys()) == {"conservative", "standard", "aggressive"}
@@ -97,13 +96,12 @@ class TestDirectiveContent:
     def test_aggressive_directive_in_map(self) -> None:
         assert STRATEGY_MAP["aggressive"] is AGGRESSIVE_DIRECTIVE
 
-    def test_regime_rules_in_conservative(self) -> None:
-        """Conservative directive includes regime-adaptive rules."""
-        assert "Regime-Adaptive Rules" in CONSERVATIVE_DIRECTIVE
+    def test_regime_guidance_in_conservative(self) -> None:
+        """Conservative directive includes regime-adaptive guidance."""
+        assert "Regime" in CONSERVATIVE_DIRECTIVE
         assert "BULL" in CONSERVATIVE_DIRECTIVE
         assert "BEAR" in CONSERVATIVE_DIRECTIVE
         assert "CRISIS" in CONSERVATIVE_DIRECTIVE
-        assert "OVERRIDE" in CONSERVATIVE_DIRECTIVE
 
 
 # ── Session Directives ──────────────────────────────────────────────────────
@@ -146,7 +144,7 @@ class TestSessionDirectives:
         )
         regime_pos = prompt.index("Current Market Regime")
         session_pos = prompt.index("SESSION: MORNING")
-        strategy_pos = prompt.index("CONSERVATIVE CAPITAL PRESERVATION")
+        strategy_pos = prompt.index("CONSERVATIVE")
         assert regime_pos < session_pos < strategy_pos
 
     def test_build_system_prompt_backward_compat(self) -> None:

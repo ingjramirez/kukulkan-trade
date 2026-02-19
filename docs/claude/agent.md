@@ -386,7 +386,7 @@ class PortfolioAConfig:
 @dataclass(frozen=True)
 class PortfolioBConfig:
     name = "AI Full Autonomy"; allocation_usd = 66_000.0; model = "claude-opus-4-6"
-    max_positions = 10; max_single_position_pct = 0.30
+    max_positions = 20; max_single_position_pct = 0.30
     escalation_model = "claude-opus-4-6"; escalation_threshold = 50
 ```
 

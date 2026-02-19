@@ -97,7 +97,7 @@ class RiskVerdict:
 class RiskRules:
     max_single_position_pct: float = 0.30       # 30% max single position
     max_sector_concentration_pct: float = 0.40   # 40% max in one sector
-    max_positions: int = 10
+    max_positions: int = 20
     daily_loss_halt_pct: float = 0.03            # 3% daily loss -> halt
     sector_concentration_overrides: dict = ...    # per-sector limits
     defensive_tickers: frozenset = frozenset({"GLD", "TLT", "SH", "PSQ", "BIL", "SHY", "VTIP"})

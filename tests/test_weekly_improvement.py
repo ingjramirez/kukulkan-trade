@@ -167,17 +167,14 @@ def test_parse_universe_exclude_already_excluded():
     assert len(result.changes) == 0
 
 
-def test_parse_universe_exclude_max_3():
+def test_parse_universe_exclude_max_5():
     analyzer = ImprovementAnalyzer()
-    changes_json = [
-        {"category": "universe_exclude", "new_value": f"T{i}", "reason": "test"}
-        for i in range(5)
-    ]
+    changes_json = [{"category": "universe_exclude", "new_value": f"T{i}", "reason": "test"} for i in range(7)]
     result = analyzer._parse_response(
         f'{{"changes": {__import__("json").dumps(changes_json)}, "summary": "ok"}}',
         _make_data(),
     )
-    assert len([c for c in result.changes if c.category == "universe_exclude"]) == 3
+    assert len([c for c in result.changes if c.category == "universe_exclude"]) == 5
 
 
 def test_parse_learning():
@@ -192,18 +189,18 @@ def test_parse_learning():
     assert result.changes[0].new_value == "Tech does well in bull"
 
 
-def test_parse_learning_max_3():
+def test_parse_learning_max_5():
     analyzer = ImprovementAnalyzer()
     import json
+
     changes_json = [
-        {"category": "learning", "parameter": f"l{i}", "new_value": f"insight {i}", "reason": "test"}
-        for i in range(5)
+        {"category": "learning", "parameter": f"l{i}", "new_value": f"insight {i}", "reason": "test"} for i in range(7)
     ]
     result = analyzer._parse_response(
         json.dumps({"changes": changes_json, "summary": "ok"}),
         _make_data(),
     )
-    assert len([c for c in result.changes if c.category == "learning"]) == 3
+    assert len([c for c in result.changes if c.category == "learning"]) == 5
 
 
 def test_parse_markdown_fenced_json():
@@ -245,9 +242,15 @@ def test_build_prompt_basic():
 def test_build_prompt_with_track_record():
     analyzer = ImprovementAnalyzer()
     stats = TrackRecordStats(
-        total_trades=10, wins=6, losses=3, scratches=1,
-        win_rate_pct=60.0, avg_pnl_pct=1.5, avg_alpha_vs_spy=0.8,
-        best_sector="Technology", worst_sector="Energy",
+        total_trades=10,
+        wins=6,
+        losses=3,
+        scratches=1,
+        win_rate_pct=60.0,
+        avg_pnl_pct=1.5,
+        avg_alpha_vs_spy=0.8,
+        best_sector="Technology",
+        worst_sector="Energy",
     )
     data = _make_data(track_record=stats)
     prompt = analyzer._build_prompt(data)
@@ -298,10 +301,20 @@ async def test_collector_returns_data(db: Database):
 
 async def test_collector_with_outcomes(db: Database):
     outcome = TradeOutcome(
-        ticker="AAPL", side="BUY", entry_price=150.0, current_price=160.0,
-        exit_price=None, pnl_pct=6.67, hold_days=5, sector="Technology",
-        sector_etf_pct=2.0, spy_pct=1.0, alpha_vs_sector=4.67, alpha_vs_spy=5.67,
-        conviction="high", reasoning="strong momentum",
+        ticker="AAPL",
+        side="BUY",
+        entry_price=150.0,
+        current_price=160.0,
+        exit_price=None,
+        pnl_pct=6.67,
+        hold_days=5,
+        sector="Technology",
+        sector_etf_pct=2.0,
+        spy_pct=1.0,
+        alpha_vs_sector=4.67,
+        alpha_vs_spy=5.67,
+        conviction="high",
+        reasoning="strong momentum",
     )
 
     with (
@@ -313,8 +326,13 @@ async def test_collector_with_outcomes(db: Database):
         mock_tracker_cls.return_value = mock_tracker
 
         mock_stats = TrackRecordStats(
-            total_trades=1, wins=1, losses=0, scratches=0,
-            win_rate_pct=100.0, avg_pnl_pct=6.67, avg_alpha_vs_spy=5.67,
+            total_trades=1,
+            wins=1,
+            losses=0,
+            scratches=0,
+            win_rate_pct=100.0,
+            avg_pnl_pct=6.67,
+            avg_alpha_vs_spy=5.67,
         )
         mock_record = MagicMock()
         mock_record.compute.return_value = mock_stats

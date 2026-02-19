@@ -529,6 +529,103 @@ async def run_scheduled() -> None:
         name="Kukulkan After-Hours Sentinel",
     )
 
+    # Weekend crypto sentinel: hourly Sat-Sun 8AM-8PM ET (BTC trades 24/7)
+    async def crypto_sentinel_job():
+        from datetime import date as _date
+
+        today = _date.today()
+        if today.weekday() < 5:  # Mon-Fri handled by regular sentinel
+            return
+        if not settings.sentinel_enabled:
+            return
+        try:
+            from src.agent.sentinel import SentinelRunner
+            from src.notifications.telegram_factory import TelegramFactory
+
+            tenants = await db.get_active_tenants()
+            for tenant in tenants:
+                if not Orchestrator.tenant_fully_configured(tenant):
+                    continue
+                tid = tenant.id
+                runner = SentinelRunner(db=db, tenant_id=tid, market_phase="weekend")
+                result = await runner.run_all_checks(crypto_only=True)
+
+                # SSE event (always fires)
+                if result.alerts:
+                    try:
+                        from src.events.event_bus import EventType, event_bus
+
+                        alert_dicts = [
+                            {
+                                "level": a.level.value,
+                                "check_type": a.check_type,
+                                "ticker": a.ticker,
+                                "message": a.message,
+                                "market_phase": "weekend",
+                            }
+                            for a in result.alerts
+                        ]
+                        event_bus.publish(
+                            EventType.SENTINEL_ALERT,
+                            tenant_id=tid,
+                            data={
+                                "max_level": result.max_level.value,
+                                "alerts": alert_dicts,
+                                "market_phase": "weekend",
+                            },
+                        )
+                    except Exception:
+                        pass
+
+                # Queue actions + Telegram for warnings/criticals
+                if result.max_level.value in ("warning", "critical"):
+                    from src.agent.sentinel import record_alert_sent, should_send_alert
+
+                    for a in result.alerts:
+                        if a.level.value in ("warning", "critical"):
+                            action_type = "sell" if a.level == AlertLevel.CRITICAL else "review"
+                            await db.save_sentinel_action(
+                                tenant_id=tid,
+                                action_type=action_type,
+                                ticker=a.ticker,
+                                reason=a.message,
+                                source="weekend_crypto_sentinel",
+                                alert_level=a.level.value,
+                            )
+
+                    try:
+                        tenant_notifier = TelegramFactory.get_notifier(tenant)
+                        unsent = [a for a in result.alerts if should_send_alert(a.ticker, tenant_id=tid)]
+                        if unsent:
+                            alert_msg = "WEEKEND CRYPTO Sentinel Alert\n\n"
+                            for a in unsent:
+                                alert_msg += f"[{a.level.value.upper()}] {a.ticker}: {a.message}\n"
+                            alert_msg += "\nAction queued for Monday session."
+                            await tenant_notifier.send_message_or_queue(
+                                db=db,
+                                tenant_id=tid,
+                                message=alert_msg,
+                                action_type="review",
+                                ticker=unsent[0].ticker,
+                                alert_level=result.max_level.value,
+                                source="weekend_crypto_sentinel",
+                            )
+                            for a in unsent:
+                                record_alert_sent(a.ticker, tenant_id=tid)
+                    except Exception as e:
+                        log.warning("crypto_sentinel_telegram_failed", tenant_id=tid, error=str(e))
+
+            log.debug("crypto_sentinel_job_complete")
+        except Exception as e:
+            log.error("crypto_sentinel_job_failed", error=str(e))
+
+    scheduler.add_job(
+        crypto_sentinel_job,
+        CronTrigger(hour="8-20", minute="0", day_of_week="sat,sun", timezone="US/Eastern"),
+        id="sentinel_crypto_weekend",
+        name="Kukulkan Weekend Crypto Sentinel",
+    )
+
     # Morning queue delivery: 8:00 AM ET (before morning session)
     async def morning_delivery_job():
         from datetime import date as _date

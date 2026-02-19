@@ -51,44 +51,12 @@ POSTURE_CONFIGS: dict[PostureLevel, PostureLimits] = {
     ),
 }
 
-# Gate thresholds for aggressive posture
-AGGRESSIVE_MIN_TRADES = 50
-AGGRESSIVE_MIN_WIN_RATE = 55.0
-AGGRESSIVE_MIN_ALPHA = 0.0  # must be positive
-
-
 class PostureManager:
     """Manages posture declarations and resolves effective risk limits."""
 
     def get_limits(self, posture: PostureLevel) -> PostureLimits:
         """Get the raw limits for a posture level."""
         return POSTURE_CONFIGS[posture]
-
-    def validate_aggressive(
-        self,
-        total_trades: int,
-        win_rate_pct: float,
-        avg_alpha_vs_spy: float | None,
-    ) -> tuple[bool, str]:
-        """Check if aggressive posture is allowed based on track record.
-
-        Args:
-            total_trades: Total completed trades.
-            win_rate_pct: Win rate percentage.
-            avg_alpha_vs_spy: Average alpha vs SPY (or None).
-
-        Returns:
-            (allowed, reason) — reason explains why it was blocked.
-        """
-        alpha = avg_alpha_vs_spy if avg_alpha_vs_spy is not None else -1.0
-
-        if total_trades < AGGRESSIVE_MIN_TRADES:
-            return False, f"Need {AGGRESSIVE_MIN_TRADES}+ trades (have {total_trades})"
-        if win_rate_pct < AGGRESSIVE_MIN_WIN_RATE:
-            return False, f"Need {AGGRESSIVE_MIN_WIN_RATE}%+ win rate (have {win_rate_pct:.1f}%)"
-        if alpha < AGGRESSIVE_MIN_ALPHA:
-            return False, f"Need positive alpha vs SPY (have {alpha:+.2f}%)"
-        return True, "Aggressive mode approved"
 
     def resolve_effective_limits(
         self,
@@ -97,19 +65,18 @@ class PostureManager:
         win_rate_pct: float = 0.0,
         avg_alpha_vs_spy: float | None = None,
     ) -> tuple[PostureLimits, PostureLevel]:
-        """Resolve effective limits, falling back to balanced if aggressive gate fails.
+        """Resolve effective limits for the declared posture.
+
+        In paper trading mode, all postures are available immediately —
+        no gate on aggressive. The agent learns by experimenting.
 
         Args:
             posture: Declared posture level.
-            total_trades: Total trades (for aggressive gate).
-            win_rate_pct: Win rate (for aggressive gate).
-            avg_alpha_vs_spy: Alpha vs SPY (for aggressive gate).
+            total_trades: Total trades (kept for interface compatibility).
+            win_rate_pct: Win rate (kept for interface compatibility).
+            avg_alpha_vs_spy: Alpha vs SPY (kept for interface compatibility).
 
         Returns:
-            (limits, effective_posture) — effective may differ from declared if gated.
+            (limits, effective_posture) — always matches declared posture.
         """
-        if posture == PostureLevel.AGGRESSIVE:
-            allowed, _ = self.validate_aggressive(total_trades, win_rate_pct, avg_alpha_vs_spy)
-            if not allowed:
-                return POSTURE_CONFIGS[PostureLevel.BALANCED], PostureLevel.BALANCED
         return POSTURE_CONFIGS[posture], posture

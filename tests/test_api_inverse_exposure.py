@@ -83,9 +83,9 @@ async def test_inverse_exposure_rules_present(client: AsyncClient, db: Database)
     resp = await client.get("/api/agent/inverse-exposure")
     data = resp.json()
     rules = data["rules"]
-    assert rules["max_single_pct"] == 10.0
-    assert rules["max_total_pct"] == 15.0
-    assert rules["max_positions"] == 2
+    assert rules["max_single_pct"] == 20.0
+    assert rules["max_total_pct"] == 30.0
+    assert rules["max_positions"] == 4
 
 
 async def test_inverse_exposure_requires_auth() -> None:

@@ -31,10 +31,20 @@ async def db():
 
 def _make_outcome(**kwargs) -> TradeOutcome:
     defaults = dict(
-        ticker="AAPL", side="BUY", entry_price=150.0, current_price=160.0,
-        exit_price=None, pnl_pct=6.67, hold_days=5, sector="Technology",
-        sector_etf_pct=2.0, spy_pct=1.0, alpha_vs_sector=4.67, alpha_vs_spy=5.67,
-        conviction="high", reasoning="strong momentum",
+        ticker="AAPL",
+        side="BUY",
+        entry_price=150.0,
+        current_price=160.0,
+        exit_price=None,
+        pnl_pct=6.67,
+        hold_days=5,
+        sector="Technology",
+        sector_etf_pct=2.0,
+        spy_pct=1.0,
+        alpha_vs_sector=4.67,
+        alpha_vs_spy=5.67,
+        conviction="high",
+        reasoning="strong momentum",
     )
     defaults.update(kwargs)
     return TradeOutcome(**defaults)
@@ -47,8 +57,13 @@ def _make_data(**kwargs) -> WeeklyPerformanceData:
         "week_end": date(2026, 2, 17),
         "outcomes": [_make_outcome()],
         "track_record": TrackRecordStats(
-            total_trades=1, wins=1, losses=0, scratches=0,
-            win_rate_pct=100.0, avg_pnl_pct=6.67, avg_alpha_vs_spy=5.67,
+            total_trades=1,
+            wins=1,
+            losses=0,
+            scratches=0,
+            win_rate_pct=100.0,
+            avg_pnl_pct=6.67,
+            avg_alpha_vs_spy=5.67,
         ),
         "current_strategy_mode": "conservative",
         "current_trailing_stop_multiplier": 1.0,
@@ -288,12 +303,18 @@ def test_format_telegram_report_with_changes():
     proposal = ImprovementProposal(summary="Adjusting")
     applied = [
         {
-            "parameter": "strategy_mode", "old_value": "conservative",
-            "new_value": "standard", "status": "applied", "reason": "test",
+            "parameter": "strategy_mode",
+            "old_value": "conservative",
+            "new_value": "standard",
+            "status": "applied",
+            "reason": "test",
         },
         {
-            "parameter": "trailing_stop_multiplier", "old_value": "1.0",
-            "new_value": "0.8", "status": "blocked_flipflop", "reason": "blocked",
+            "parameter": "trailing_stop_multiplier",
+            "old_value": "1.0",
+            "new_value": "0.8",
+            "status": "blocked_flipflop",
+            "reason": "blocked",
         },
     ]
 

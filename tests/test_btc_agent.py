@@ -23,6 +23,10 @@ class TestSystemPromptBtc:
         prompt = build_system_prompt()
         assert "Inverse ETF Rules" in prompt
 
-    def test_built_prompt_still_has_hard_rules(self) -> None:
+    def test_built_prompt_has_safety_nets(self) -> None:
         prompt = build_system_prompt()
-        assert "Hard Rules" in prompt
+        assert "safety net" in prompt.lower()
+
+    def test_built_prompt_mentions_247_trading(self) -> None:
+        prompt = build_system_prompt()
+        assert "24/7" in prompt

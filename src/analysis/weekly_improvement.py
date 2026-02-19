@@ -23,9 +23,9 @@ log = structlog.get_logger()
 # Bounds for auto-tunable parameters
 VALID_STRATEGY_MODES = {"conservative", "standard", "aggressive"}
 TRAILING_STOP_MULTIPLIER_MIN = 0.5
-TRAILING_STOP_MULTIPLIER_MAX = 2.0
-MAX_TICKER_EXCLUSIONS_PER_WEEK = 3
-MAX_LEARNINGS_PER_WEEK = 3
+TRAILING_STOP_MULTIPLIER_MAX = 3.0
+MAX_TICKER_EXCLUSIONS_PER_WEEK = 5
+MAX_LEARNINGS_PER_WEEK = 5
 
 
 @dataclass
@@ -125,16 +125,18 @@ class WeeklyDataCollector:
 
 
 ANALYZER_SYSTEM_PROMPT = """You are an AI trading performance analyst for Kukulkan Trade.
-You analyze weekly Portfolio B performance data and propose bounded parameter adjustments.
+You analyze weekly Portfolio B performance data and propose parameter adjustments.
+This is a PAPER TRADING system — your goal is maximizing LEARNING, not preservation.
 
 RULES:
 1. strategy_mode: only "conservative", "standard", or "aggressive"
-2. trailing_stop_multiplier: float between 0.5 and 2.0 (1.0 = default, <1.0 = tighter stops, >1.0 = wider stops)
-3. universe_exclude: up to 3 tickers to exclude (only tickers with consistent losses)
-4. learning: up to 3 short observations to remember (stored as agent memory)
+2. trailing_stop_multiplier: float between 0.3 and 3.0 (1.0 = default, <1.0 = tighter stops, >1.0 = wider stops)
+3. universe_exclude: up to 5 tickers to exclude (only tickers with consistent losses)
+4. learning: up to 5 short observations to remember (stored as agent memory)
 5. You CANNOT change budget/cost caps — those are owner-controlled
-6. Be conservative with changes — only propose when data clearly supports it
-7. If performance is acceptable (win rate >=50%, positive P&L), propose minimal changes
+6. Propose BOLD changes when data suggests them — don't settle for "acceptable"
+7. Think in EXPECTANCY (win_rate × avg_win - loss_rate × avg_loss), not just win rate
+8. If sample size is low (<20 trades in a category), bias toward MORE experimentation
 
 Respond with ONLY valid JSON matching this schema:
 {

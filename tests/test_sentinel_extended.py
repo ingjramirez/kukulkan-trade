@@ -56,7 +56,9 @@ class TestExtendedThresholds:
 
         # Market hours: should trigger warning
         runner_mkt = SentinelRunner(
-            db=_make_db(), price_fetcher=prices, market_phase="market",
+            db=_make_db(),
+            price_fetcher=prices,
+            market_phase="market",
         )
         result_mkt = await runner_mkt.check_regime_shift()
         vix_alerts_mkt = [a for a in result_mkt if a.ticker == "^VIX"]
@@ -66,7 +68,9 @@ class TestExtendedThresholds:
 
         # After-hours: same VIX should NOT trigger (wider threshold)
         runner_ah = SentinelRunner(
-            db=_make_db(), price_fetcher=prices, market_phase="afterhours",
+            db=_make_db(),
+            price_fetcher=prices,
+            market_phase="afterhours",
         )
         result_ah = await runner_ah.check_regime_shift()
         vix_alerts_ah = [a for a in result_ah if a.ticker == "^VIX"]
@@ -85,7 +89,9 @@ class TestExtendedThresholds:
             return {"^VIX": 20.0, "SPY": moved_spy}
 
         runner_mkt = SentinelRunner(
-            db=_make_db(), price_fetcher=prices_mkt, market_phase="market",
+            db=_make_db(),
+            price_fetcher=prices_mkt,
+            market_phase="market",
         )
         result_mkt = await runner_mkt.check_regime_shift()
         spy_alerts_mkt = [a for a in result_mkt if a.ticker == "SPY"]
@@ -95,7 +101,9 @@ class TestExtendedThresholds:
         _get_state("default")["last_spy_close"] = base_spy
 
         runner_ah = SentinelRunner(
-            db=_make_db(), price_fetcher=prices_mkt, market_phase="afterhours",
+            db=_make_db(),
+            price_fetcher=prices_mkt,
+            market_phase="afterhours",
         )
         result_ah = await runner_ah.check_regime_shift()
         spy_alerts_ah = [a for a in result_ah if a.ticker == "SPY"]
@@ -109,14 +117,18 @@ class TestExtendedThresholds:
             return {"AAPL": 96.5}  # 1.6% from stop → critical in both
 
         runner_mkt = SentinelRunner(
-            db=_make_db([stop]), price_fetcher=prices, market_phase="market",
+            db=_make_db([stop]),
+            price_fetcher=prices,
+            market_phase="market",
         )
         alerts_mkt = await runner_mkt.check_stop_proximity()
 
         _reset_sentinel_state()
 
         runner_ah = SentinelRunner(
-            db=_make_db([stop]), price_fetcher=prices, market_phase="afterhours",
+            db=_make_db([stop]),
+            price_fetcher=prices,
+            market_phase="afterhours",
         )
         alerts_ah = await runner_ah.check_stop_proximity()
 
@@ -126,7 +138,8 @@ class TestExtendedThresholds:
     async def test_premarket_uses_wider_thresholds(self) -> None:
         """Pre-market should use extended thresholds like after-hours."""
         runner = SentinelRunner(
-            db=_make_db(), market_phase="premarket",
+            db=_make_db(),
+            market_phase="premarket",
         )
         assert runner._is_extended is True
 
@@ -147,7 +160,9 @@ class TestExtendedEscalation:
 
         db = _make_db([stop])
         runner = SentinelRunner(
-            db=db, price_fetcher=prices, market_phase="afterhours",
+            db=db,
+            price_fetcher=prices,
+            market_phase="afterhours",
         )
         result = await runner.run_all_checks()
         assert result.max_level == AlertLevel.CRITICAL
@@ -165,23 +180,52 @@ class TestExtendedEscalation:
         assert runner._market_phase == "afterhours"
 
 
+class TestCryptoOnlyWeekend:
+    """Weekend crypto sentinel should only check stops, not regime/fills."""
+
+    async def test_crypto_only_runs_stop_proximity_only(self) -> None:
+        stop = _make_trailing_stop(ticker="BTC-USD", stop_price=90000.0)
+
+        async def prices(tickers):
+            return {"BTC-USD": 91000.0}  # ~1.1% from stop → critical
+
+        runner = SentinelRunner(db=_make_db([stop]), price_fetcher=prices, market_phase="weekend")
+        result = await runner.run_all_checks(crypto_only=True)
+        assert result.checks_run == 1
+        assert result.alerts[0].ticker == "BTC-USD"
+        assert result.alerts[0].level == AlertLevel.CRITICAL
+
+    async def test_crypto_only_no_regime_check(self) -> None:
+        """Regime shift should NOT be checked in crypto-only mode."""
+
+        async def prices(tickers):
+            return {"^VIX": 50.0, "SPY": 300.0}  # Would trigger critical normally
+
+        runner = SentinelRunner(db=_make_db(), price_fetcher=prices, market_phase="weekend")
+        result = await runner.run_all_checks(crypto_only=True)
+        vix_alerts = [a for a in result.alerts if a.ticker == "^VIX"]
+        assert len(vix_alerts) == 0
+
+
 class TestMorningQueue:
     async def test_morning_queue_returns_pending(self) -> None:
         """Orchestrator._process_morning_queue should return context string."""
         from src.orchestrator import Orchestrator
 
         db = AsyncMock()
-        db.get_pending_sentinel_actions = AsyncMock(return_value=[
-            {
-                "id": 1,
-                "action_type": "sell",
-                "ticker": "AAPL",
-                "reason": "Stop proximity 1.5%",
-                "source": "afterhours_sentinel",
-                "alert_level": "critical",
-                "created_at": "2026-02-16T22:00:00",
-            },
-        ])
+        db.get_pending_sentinel_actions = AsyncMock(
+            return_value=[
+                {
+                    "id": 1,
+                    "action_type": "sell",
+                    "ticker": "AAPL",
+                    "reason": "Stop proximity 1.5%",
+                    "source": "afterhours_sentinel",
+                    "alert_level": "critical",
+                    "created_at": "2026-02-16T22:00:00",
+                },
+            ]
+        )
         orch = Orchestrator(db=db)
         result = await orch._process_morning_queue("default")
         assert result is not None

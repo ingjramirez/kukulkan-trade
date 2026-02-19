@@ -205,6 +205,16 @@ class TestSearchTickerInfoValid:
         assert result["discovery_status"] is None
 
     @patch("src.agent.tools.market._yf_lookup")
+    async def test_normalizes_alpaca_format_ticker(self, mock_lookup, db: Database) -> None:
+        """BTC/USD (Alpaca format) should be normalized to BTC-USD (yfinance format)."""
+        mock_lookup.return_value = {"found": True, "info": _make_yf_info(), "history": _make_history()}
+
+        result = await _search_ticker_info(db, "default", "BTC/USD")
+
+        assert result["ticker"] == "BTC-USD"
+        mock_lookup.assert_called_once_with("BTC-USD")
+
+    @patch("src.agent.tools.market._yf_lookup")
     async def test_handles_yfinance_exception(self, mock_lookup, db: Database) -> None:
         mock_lookup.side_effect = Exception("Network error")
 

@@ -31,7 +31,7 @@ async def test_save_and_get_improvement_snapshot(db: Database):
         strategy_mode="conservative",
         trailing_stop_multiplier=1.0,
         proposal_json='{"changes": []}',
-        applied_changes='[]',
+        applied_changes="[]",
         report_text="Good week",
     )
     assert snap_id > 0

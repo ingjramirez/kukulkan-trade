@@ -562,7 +562,8 @@ class TestBuildSystemPrompt:
         prompt = build_system_prompt()
         assert "Kukulkan" in prompt
         assert "Decision Framework" in prompt
-        assert "Hard Rules" in prompt
+        assert "safety net" in prompt.lower()
+        assert "PAPER TRADING" in prompt
         assert "Track Record" not in prompt
         assert "$66,000" in prompt  # default allocation
         assert "~55 tickers" in prompt  # default universe size

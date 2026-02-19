@@ -24,14 +24,14 @@ def rm() -> RiskManager:
 
 
 class TestLargeTradeApproval:
-    """Rule 4: Non-inverse BUYs > threshold% of portfolio flagged for approval."""
+    """Rule 4: Non-inverse BUYs > threshold% flagged when trade_approval_enabled=True."""
 
-    def test_trade_above_10pct_requires_approval(self, rm: RiskManager, monkeypatch) -> None:
-        """A trade worth 15% of portfolio should be flagged."""
+    def test_trade_above_10pct_requires_approval_when_enabled(self, rm: RiskManager, monkeypatch) -> None:
+        """A trade worth 15% of portfolio should be flagged when approval is enabled."""
         from config import settings as settings_mod
 
         monkeypatch.setattr(settings_mod.settings, "trade_approval_threshold_pct", 10.0)
-        # Trade: 100 shares @ $150 = $15,000 on a $100,000 portfolio = 15%
+        monkeypatch.setattr(settings_mod.settings, "trade_approval_enabled", True)
         verdict = rm.check_pre_trade(
             trades=[_make_trade("AAPL", shares=100, price=150.0)],
             portfolio_name="B",
@@ -44,7 +44,23 @@ class TestLargeTradeApproval:
         trade, reason = verdict.requires_trade_approval[0]
         assert trade.ticker == "AAPL"
         assert "15.0%" in reason
-        # Trade is still in allowed (orchestrator decides to remove if rejected)
+        assert len(verdict.allowed) == 1
+
+    def test_trade_above_10pct_no_approval_when_disabled(self, rm: RiskManager, monkeypatch) -> None:
+        """Large trade goes straight to allowed when approval is disabled (paper trading)."""
+        from config import settings as settings_mod
+
+        monkeypatch.setattr(settings_mod.settings, "trade_approval_threshold_pct", 10.0)
+        monkeypatch.setattr(settings_mod.settings, "trade_approval_enabled", False)
+        verdict = rm.check_pre_trade(
+            trades=[_make_trade("AAPL", shares=100, price=150.0)],
+            portfolio_name="B",
+            current_positions={},
+            latest_prices={"AAPL": 150.0},
+            portfolio_value=100_000,
+            cash=100_000,
+        )
+        assert len(verdict.requires_trade_approval) == 0
         assert len(verdict.allowed) == 1
 
     def test_trade_below_10pct_no_approval(self, rm: RiskManager, monkeypatch) -> None:
@@ -52,7 +68,7 @@ class TestLargeTradeApproval:
         from config import settings as settings_mod
 
         monkeypatch.setattr(settings_mod.settings, "trade_approval_threshold_pct", 10.0)
-        # Trade: 50 shares @ $100 = $5,000 on a $100,000 portfolio = 5%
+        monkeypatch.setattr(settings_mod.settings, "trade_approval_enabled", True)
         verdict = rm.check_pre_trade(
             trades=[_make_trade("AAPL", shares=50, price=100.0)],
             portfolio_name="B",
@@ -69,7 +85,7 @@ class TestLargeTradeApproval:
         from config import settings as settings_mod
 
         monkeypatch.setattr(settings_mod.settings, "trade_approval_threshold_pct", 10.0)
-        # Trade: 100 shares @ $100 = $10,000 on a $100,000 portfolio = 10%
+        monkeypatch.setattr(settings_mod.settings, "trade_approval_enabled", True)
         verdict = rm.check_pre_trade(
             trades=[_make_trade("AAPL", shares=100, price=100.0)],
             portfolio_name="B",
@@ -81,14 +97,12 @@ class TestLargeTradeApproval:
         assert len(verdict.requires_trade_approval) == 0
 
     def test_inverse_etf_skips_large_trade_check(self, rm: RiskManager, monkeypatch) -> None:
-        """Inverse ETFs have their own approval flow — should NOT appear in requires_trade_approval."""
+        """Inverse ETFs have their own flow — should NOT appear in requires_trade_approval."""
         from config import settings as settings_mod
 
         monkeypatch.setattr(settings_mod.settings, "trade_approval_threshold_pct", 5.0)
-        # SH: 100 shares @ $15 = $1,500 on $100k portfolio = 1.5% (under single inverse 10% cap)
-        # But trade_approval_threshold is 5%, so 1.5% wouldn't trigger anyway.
-        # Use a scenario where it WOULD trigger for a regular stock but doesn't for inverse.
-        # SH: 100 shares @ $15 = $1,500 on $20k portfolio = 7.5% (under 10% inverse cap, above 5% threshold)
+        monkeypatch.setattr(settings_mod.settings, "trade_approval_enabled", True)
+        # SH: 100 shares @ $15 = $1,500 on $20k portfolio = 7.5% (above 5% threshold)
         verdict = rm.check_pre_trade(
             trades=[_make_trade("SH", shares=100, price=15.0)],
             portfolio_name="B",
@@ -100,18 +114,19 @@ class TestLargeTradeApproval:
             current_posture="defensive",
         )
         assert len(verdict.requires_trade_approval) == 0
-        # SH should be in the inverse requires_approval list instead
-        assert len(verdict.requires_approval) == 1
+        # SH goes to allowed (no approval in paper trading mode)
+        assert len(verdict.allowed) == 1
 
     def test_blocked_trade_never_reaches_approval_check(self, rm: RiskManager, monkeypatch) -> None:
         """If a trade is blocked by concentration limits, it shouldn't be flagged for approval."""
         from config import settings as settings_mod
 
         monkeypatch.setattr(settings_mod.settings, "trade_approval_threshold_pct", 10.0)
-        # Trade: 400 shares @ $100 = $40,000 on a $100,000 portfolio = 40%
-        # This exceeds the 35% max_single_position_pct and gets blocked
+        monkeypatch.setattr(settings_mod.settings, "trade_approval_enabled", True)
+        # Trade: 600 shares @ $100 = $60,000 on a $100,000 portfolio = 60%
+        # This exceeds the 50% max_single_position_pct and gets blocked
         verdict = rm.check_pre_trade(
-            trades=[_make_trade("AAPL", shares=400, price=100.0)],
+            trades=[_make_trade("AAPL", shares=600, price=100.0)],
             portfolio_name="B",
             current_positions={},
             latest_prices={"AAPL": 100.0},
@@ -126,6 +141,7 @@ class TestLargeTradeApproval:
         from config import settings as settings_mod
 
         monkeypatch.setattr(settings_mod.settings, "trade_approval_threshold_pct", 10.0)
+        monkeypatch.setattr(settings_mod.settings, "trade_approval_enabled", True)
         verdict = rm.check_pre_trade(
             trades=[_make_trade("MSFT", shares=100, price=200.0)],
             portfolio_name="B",
@@ -145,6 +161,7 @@ class TestLargeTradeApproval:
         from config import settings as settings_mod
 
         monkeypatch.setattr(settings_mod.settings, "trade_approval_threshold_pct", 10.0)
+        monkeypatch.setattr(settings_mod.settings, "trade_approval_enabled", True)
         verdict = rm.check_pre_trade(
             trades=[_make_trade("AAPL", side="SELL", shares=100, price=150.0)],
             portfolio_name="B",

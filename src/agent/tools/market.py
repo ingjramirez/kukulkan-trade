@@ -293,6 +293,9 @@ async def _search_ticker_info(
     from src.agent.ticker_discovery import MIN_AVG_VOLUME, MIN_MARKET_CAP
 
     ticker = ticker.upper().strip()
+    from src.utils.ticker_mapping import to_canonical_format
+
+    ticker = to_canonical_format(ticker)
     if not ticker:
         return {"ticker": "", "valid": False, "error": "No ticker provided"}
 

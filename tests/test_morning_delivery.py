@@ -27,14 +27,22 @@ class TestMorningDelivery:
     async def test_morning_delivery_formats_critical_first(self) -> None:
         pending = [
             {
-                "id": 1, "action_type": "sell", "ticker": "AAPL",
-                "reason": "Stop proximity 1.5%", "source": "afterhours_sentinel",
-                "alert_level": "critical", "created_at": _recent_ts(3),
+                "id": 1,
+                "action_type": "sell",
+                "ticker": "AAPL",
+                "reason": "Stop proximity 1.5%",
+                "source": "afterhours_sentinel",
+                "alert_level": "critical",
+                "created_at": _recent_ts(3),
             },
             {
-                "id": 2, "action_type": "review", "ticker": "MSFT",
-                "reason": "VIX elevated", "source": "afterhours_sentinel",
-                "alert_level": "warning", "created_at": _recent_ts(2),
+                "id": 2,
+                "action_type": "review",
+                "ticker": "MSFT",
+                "reason": "VIX elevated",
+                "source": "afterhours_sentinel",
+                "alert_level": "warning",
+                "created_at": _recent_ts(2),
             },
         ]
         notifier = _make_notifier()
@@ -61,9 +69,13 @@ class TestMorningDelivery:
     async def test_morning_delivery_includes_commands(self) -> None:
         pending = [
             {
-                "id": 1, "action_type": "review", "ticker": "TSLA",
-                "reason": "Gap risk", "source": "gap_risk",
-                "alert_level": "warning", "created_at": _recent_ts(1),
+                "id": 1,
+                "action_type": "review",
+                "ticker": "TSLA",
+                "reason": "Gap risk",
+                "source": "gap_risk",
+                "alert_level": "warning",
+                "created_at": _recent_ts(1),
             },
         ]
         notifier = _make_notifier()
@@ -77,9 +89,13 @@ class TestMorningDelivery:
     async def test_morning_delivery_warnings_only(self) -> None:
         pending = [
             {
-                "id": 1, "action_type": "review", "ticker": "NVDA",
-                "reason": "Earnings tonight", "source": "gap_risk",
-                "alert_level": "warning", "created_at": _recent_ts(1),
+                "id": 1,
+                "action_type": "review",
+                "ticker": "NVDA",
+                "reason": "Earnings tonight",
+                "source": "gap_risk",
+                "alert_level": "warning",
+                "created_at": _recent_ts(1),
             },
         ]
         notifier = _make_notifier()

@@ -236,15 +236,16 @@ class SentinelRunner:
         self._market_phase = market_phase
         self._is_extended = market_phase in ("premarket", "afterhours")
 
-    async def run_all_checks(self) -> SentinelResult:
-        """Run all sentinel checks and aggregate results."""
+    async def run_all_checks(self, crypto_only: bool = False) -> SentinelResult:
+        """Run all sentinel checks and aggregate results.
+
+        If crypto_only=True, only run stop proximity (for weekend BTC monitoring).
+        """
         result = SentinelResult()
 
-        checks = [
-            self.check_stop_proximity,
-            self.check_regime_shift,
-            self.check_fills,
-        ]
+        checks: list = [self.check_stop_proximity]
+        if not crypto_only:
+            checks += [self.check_regime_shift, self.check_fills]
 
         for check in checks:
             try:

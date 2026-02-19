@@ -29,11 +29,11 @@ async def test_declare_posture_invalid(state: ActionState) -> None:
 
 
 async def test_declare_posture_aggressive(state: ActionState) -> None:
-    """Aggressive posture is accepted with a note about the gate."""
+    """Aggressive posture is accepted (no gate in paper trading)."""
     result = await _declare_posture(state, "aggressive", "Strong momentum")
     assert result["status"] == "ok"
     assert result["posture"] == "aggressive"
-    assert "gate" in result["note"].lower()
+    assert "paper trading" in result["note"].lower()
     assert state.declared_posture == "aggressive"
 
 

@@ -141,7 +141,7 @@ def filter_interesting_tickers(closes, current_positions, top_movers=15, univers
 # Returns: held tickers + top movers by 1d change + RSI extremes
 ```
 
-Position limits: max 30% weight, max 10 positions, conviction multipliers (high=1.0, medium=0.7, low=0.4).
+Position limits: max 30% weight, max 20 positions, conviction multipliers (high=1.0, medium=0.7, low=0.4).
 
 ## Execution
 

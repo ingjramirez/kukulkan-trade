@@ -45,41 +45,6 @@ def test_get_limits_aggressive(manager: PostureManager) -> None:
     assert limits.max_equity_pct == 0.95
 
 
-# ── validate_aggressive ──────────────────────────────────────────────────────
-
-
-def test_validate_aggressive_all_criteria_met(manager: PostureManager) -> None:
-    allowed, reason = manager.validate_aggressive(total_trades=60, win_rate_pct=60.0, avg_alpha_vs_spy=2.0)
-    assert allowed is True
-    assert reason == "Aggressive mode approved"
-
-
-def test_validate_aggressive_insufficient_trades(manager: PostureManager) -> None:
-    allowed, reason = manager.validate_aggressive(total_trades=30, win_rate_pct=60.0, avg_alpha_vs_spy=2.0)
-    assert allowed is False
-    assert "50+" in reason
-    assert "30" in reason
-
-
-def test_validate_aggressive_low_win_rate(manager: PostureManager) -> None:
-    allowed, reason = manager.validate_aggressive(total_trades=60, win_rate_pct=50.0, avg_alpha_vs_spy=2.0)
-    assert allowed is False
-    assert "win rate" in reason.lower()
-
-
-def test_validate_aggressive_negative_alpha(manager: PostureManager) -> None:
-    allowed, reason = manager.validate_aggressive(total_trades=60, win_rate_pct=60.0, avg_alpha_vs_spy=-1.0)
-    assert allowed is False
-    assert "alpha" in reason.lower()
-
-
-def test_validate_aggressive_none_alpha(manager: PostureManager) -> None:
-    """None alpha is treated as negative (-1.0), so aggressive is blocked."""
-    allowed, reason = manager.validate_aggressive(total_trades=60, win_rate_pct=60.0, avg_alpha_vs_spy=None)
-    assert allowed is False
-    assert "alpha" in reason.lower()
-
-
 # ── resolve_effective_limits ──────────────────────────────────────────────────
 
 
@@ -95,16 +60,16 @@ def test_resolve_defensive_returns_defensive_limits(manager: PostureManager) -> 
     assert limits == POSTURE_CONFIGS[PostureLevel.DEFENSIVE]
 
 
-def test_resolve_aggressive_gate_fails_falls_back_to_balanced(manager: PostureManager) -> None:
-    """Aggressive with insufficient trades falls back to balanced."""
+def test_resolve_aggressive_no_gate_in_paper_trading(manager: PostureManager) -> None:
+    """Aggressive posture granted regardless of track record (paper trading)."""
     limits, effective = manager.resolve_effective_limits(
         PostureLevel.AGGRESSIVE,
         total_trades=10,
         win_rate_pct=40.0,
         avg_alpha_vs_spy=None,
     )
-    assert effective == PostureLevel.BALANCED
-    assert limits == POSTURE_CONFIGS[PostureLevel.BALANCED]
+    assert effective == PostureLevel.AGGRESSIVE
+    assert limits == POSTURE_CONFIGS[PostureLevel.AGGRESSIVE]
 
 
 def test_resolve_aggressive_gate_passes(manager: PostureManager) -> None:

@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 class RiskRules:
     """Hard risk limits that override strategy decisions."""
 
-    # Position limits
-    max_single_position_pct: float = 0.35  # max 35% in any single ticker
+    # Position limits (relaxed for paper trading — learning > preservation)
+    max_single_position_pct: float = 0.50  # max 50% in any single ticker
     max_sector_concentration: float = 0.50  # max 50% in one sector (default fallback)
 
     # Per-sector concentration overrides (sector name -> max fraction)
@@ -16,23 +16,23 @@ class RiskRules:
     sector_concentration_overrides: dict[str, float] = field(
         default_factory=lambda: {
             "Fixed Income": 0.50,
-            "International": 0.25,
-            "Dividend/Value": 0.25,
-            "Hedge": 0.05,
-            "Thematic": 0.10,
-            "Commodities": 0.20,
-            "Real Estate": 0.15,
-            "Crypto": 0.05,
+            "International": 0.40,
+            "Dividend/Value": 0.40,
+            "Hedge": 0.30,
+            "Thematic": 0.30,
+            "Commodities": 0.30,
+            "Real Estate": 0.30,
+            "Crypto": 0.30,
         }
     )
 
-    # Drawdown circuit breakers
-    daily_loss_limit_pct: float = 0.05  # halt trading if portfolio drops 5% in a day
-    weekly_loss_limit_pct: float = 0.10  # halt trading if portfolio drops 10% in a week
+    # Drawdown circuit breakers (widened for paper trading)
+    daily_loss_limit_pct: float = 0.15  # halt trading if portfolio drops 15% in a day
+    weekly_loss_limit_pct: float = 0.30  # halt trading if portfolio drops 30% in a week
 
     # Anti-tech-bubble rules (Portfolio B)
     tech_etfs: tuple[str, ...] = ("XLK", "QQQ", "SMH", "ARKK")
-    max_tech_weight: float = 0.40
+    max_tech_weight: float = 0.60
 
     # Defensive assets
     defensive_tickers: tuple[str, ...] = (
@@ -52,6 +52,9 @@ class RiskRules:
     btc_ticker: str = "BTC-USD"  # Real BTC for crash detection
     btc_proxy: str = "IBIT"  # ETF proxy for correlation
     btc_crash_threshold_pct: float = -0.20  # BTC down 20% = risk-off signal
+
+    # Max simultaneous positions (paper trading — permissive)
+    max_positions: int = 20
 
     # Minimum cash buffer (not currently enforced in paper trading)
     min_cash_pct: float = 0.02

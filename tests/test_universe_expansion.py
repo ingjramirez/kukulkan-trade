@@ -81,9 +81,9 @@ def test_risk_sector_overrides():
     """Per-sector concentration limits should be correct."""
     overrides = RISK_RULES.sector_concentration_overrides
     assert overrides["Fixed Income"] == 0.50
-    assert overrides["Hedge"] == 0.05
-    assert overrides["Crypto"] == 0.05
-    assert overrides["International"] == 0.25
+    assert overrides["Hedge"] == 0.30
+    assert overrides["Crypto"] == 0.30
+    assert overrides["International"] == 0.40
     # Unknown sector falls back to global limit
     assert overrides.get("SomeFakeSector", RISK_RULES.max_sector_concentration) == 0.50
 

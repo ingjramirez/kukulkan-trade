@@ -141,8 +141,13 @@ class TestMorningSummary:
         recent = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
         pending = [
             {
-                "id": 1, "action_type": "sell", "ticker": "AAPL", "reason": "Stop",
-                "source": "ah", "alert_level": "critical", "created_at": recent,
+                "id": 1,
+                "action_type": "sell",
+                "ticker": "AAPL",
+                "reason": "Stop",
+                "source": "ah",
+                "alert_level": "critical",
+                "created_at": recent,
             },
         ]
         db = _make_db()
@@ -160,12 +165,22 @@ class TestMorningSummary:
         recent = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
         pending = [
             {
-                "id": 1, "action_type": "sell", "ticker": "OLD", "reason": "Stale",
-                "source": "ah", "alert_level": "critical", "created_at": stale,
+                "id": 1,
+                "action_type": "sell",
+                "ticker": "OLD",
+                "reason": "Stale",
+                "source": "ah",
+                "alert_level": "critical",
+                "created_at": stale,
             },
             {
-                "id": 2, "action_type": "review", "ticker": "NEW", "reason": "Fresh",
-                "source": "ah", "alert_level": "warning", "created_at": recent,
+                "id": 2,
+                "action_type": "review",
+                "ticker": "NEW",
+                "reason": "Fresh",
+                "source": "ah",
+                "alert_level": "warning",
+                "created_at": recent,
             },
         ]
         db = _make_db()
@@ -200,7 +215,9 @@ class TestSendMessageOrQueue:
         db = _make_db()
         with patch("src.notifications.quiet_hours.QuietHoursManager.is_quiet", return_value=False):
             result = await notifier.send_message_or_queue(
-                db=db, tenant_id="default", message="Test alert",
+                db=db,
+                tenant_id="default",
+                message="Test alert",
             )
         assert result is True
         notifier.send_message.assert_called_once()
@@ -214,8 +231,12 @@ class TestSendMessageOrQueue:
         db = _make_db()
         with patch("src.notifications.quiet_hours.QuietHoursManager.is_quiet", return_value=True):
             result = await notifier.send_message_or_queue(
-                db=db, tenant_id="default", message="Test alert",
-                ticker="AAPL", alert_level="warning", source="sentinel",
+                db=db,
+                tenant_id="default",
+                message="Test alert",
+                ticker="AAPL",
+                alert_level="warning",
+                source="sentinel",
             )
         assert result is False
         notifier.send_message.assert_not_called()

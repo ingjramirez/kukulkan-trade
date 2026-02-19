@@ -59,7 +59,7 @@ class TestCircuitBreakers:
         db.get_snapshots = AsyncMock(
             return_value=[
                 _make_snapshot(today - timedelta(days=1), 33000.0),
-                _make_snapshot(today, 31000.0),  # ~6% loss
+                _make_snapshot(today, 27000.0),  # ~18% loss (>15% daily limit)
             ]
         )
         rm = RiskManager()
@@ -72,11 +72,11 @@ class TestCircuitBreakers:
         today = date(2026, 2, 6)
         snapshots = [
             _make_snapshot(today - timedelta(days=5), 66000.0),
-            _make_snapshot(today - timedelta(days=4), 64000.0),
-            _make_snapshot(today - timedelta(days=3), 62000.0),
-            _make_snapshot(today - timedelta(days=2), 60000.0),
-            _make_snapshot(today - timedelta(days=1), 59500.0),
-            _make_snapshot(today, 59000.0),  # ~10.6% weekly loss
+            _make_snapshot(today - timedelta(days=4), 60000.0),
+            _make_snapshot(today - timedelta(days=3), 55000.0),
+            _make_snapshot(today - timedelta(days=2), 50000.0),
+            _make_snapshot(today - timedelta(days=1), 47000.0),
+            _make_snapshot(today, 44000.0),  # ~33% weekly loss (>30% weekly limit)
         ]
         db = AsyncMock()
         db.get_snapshots = AsyncMock(return_value=snapshots)
@@ -133,7 +133,7 @@ class TestPreTradeRisk:
             cash=18000.0,
         )
         assert len(verdict.blocked) == 1
-        assert "35%" in verdict.blocked[0][1]
+        assert "50%" in verdict.blocked[0][1]
 
     def test_sector_concentration_blocked(self):
         rm = RiskManager()
@@ -152,29 +152,25 @@ class TestPreTradeRisk:
 
     def test_tech_weight_blocked_portfolio_b_only(self):
         rm = RiskManager()
-        # Tech ETFs (XLK, SMH, QQQ, ARKK) are checked for 40% cap in Portfolio B
-        # Existing: XLK=50 shares @ $100 = $5K, SMH=50 @ $100 = $5K → $10K tech
-        # Portfolio = $66K. Buying QQQ 150 shares @ $100 = $15K tech add → $25K/$66K = 37.8%
-        # Still under 40% for position check, but let's push it over:
-        # XLK=100 @ $100 = $10K, SMH=100 @ $100 = $10K → $20K tech.
-        # Buy QQQ 80 @ $100 = $8K → total tech = $28K / $66K = 42% > 40%
-        # But position check: $8K / $66K = 12% → passes
-        # Sector check: Technology = ($10K + $10K + $8K) / $66K = 42% → passes (50% limit)
-        # Tech ETF check: $28K / $66K = 42% → blocked!
-        trades = [_make_trade("QQQ", "BUY", 80, 100.0, portfolio="B")]
+        # Tech ETF weight cap is 60% for Portfolio B.
+        # Existing: XLK=200 @ $100 = $20K, SMH=200 @ $100 = $20K → $40K tech.
+        # Buy QQQ 50 @ $100 = $5K → total tech = $45K / $66K = 68% > 60% → blocked!
+        # Position check: $5K / $66K = 7.5% → passes
+        trades = [_make_trade("QQQ", "BUY", 50, 100.0, portfolio="B")]
         verdict_b = rm.check_pre_trade(
             trades=trades,
             portfolio_name="B",
-            current_positions={"XLK": 100, "SMH": 100},
+            current_positions={"XLK": 200, "SMH": 200},
             latest_prices={"QQQ": 100.0, "XLK": 100.0, "SMH": 100.0},
             portfolio_value=66000.0,
-            cash=46000.0,
+            cash=26000.0,
         )
         assert len(verdict_b.blocked) == 1
         assert "Tech" in verdict_b.blocked[0][1]
 
-        # Same trade should pass for Portfolio A (no tech ETF cap)
-        trades_a = [_make_trade("QQQ", "BUY", 80, 100.0, portfolio="A")]
+        # Same trade at lower tech weight passes for Portfolio A (no tech ETF cap)
+        # XLK=100 + SMH=100 + QQQ buy 50 = $25K / $66K = 37.8% tech → under 50% sector
+        trades_a = [_make_trade("QQQ", "BUY", 50, 100.0, portfolio="A")]
         verdict_a = rm.check_pre_trade(
             trades=trades_a,
             portfolio_name="A",
@@ -218,6 +214,65 @@ class TestPreTradeRisk:
         assert verdict.allowed[0].ticker == "XLF"
         assert len(verdict.blocked) == 1
         assert verdict.blocked[0][0].ticker == "AAPL"
+
+
+# ── TestMaxPositions ────────────────────────────────────────────────────
+
+
+class TestMaxPositions:
+    """Max total positions enforcement."""
+
+    def test_21st_position_blocked(self):
+        """With 20 existing positions, a 21st BUY is blocked."""
+        rm = RiskManager()
+        tickers = [f"T{i:02d}" for i in range(20)]
+        positions = {t: 10 for t in tickers}
+        prices = {t: 50.0 for t in tickers}
+        prices["NEW"] = 50.0
+        verdict = rm.check_pre_trade(
+            trades=[_make_trade("NEW", "BUY", 10, 50.0)],
+            portfolio_name="A",
+            current_positions=positions,
+            latest_prices=prices,
+            portfolio_value=100_000.0,
+            cash=90_000.0,
+        )
+        assert len(verdict.blocked) == 1
+        assert "Max 20 positions" in verdict.blocked[0][1]
+
+    def test_20th_position_allowed(self):
+        """With 19 existing positions, a 20th BUY is allowed."""
+        rm = RiskManager()
+        tickers = [f"T{i:02d}" for i in range(19)]
+        positions = {t: 10 for t in tickers}
+        prices = {t: 50.0 for t in tickers}
+        prices["NEW"] = 50.0
+        verdict = rm.check_pre_trade(
+            trades=[_make_trade("NEW", "BUY", 10, 50.0)],
+            portfolio_name="A",
+            current_positions=positions,
+            latest_prices=prices,
+            portfolio_value=100_000.0,
+            cash=90_000.0,
+        )
+        assert len(verdict.allowed) == 1
+
+    def test_sell_passes_at_max_positions(self):
+        """SELL passes even when at max positions."""
+        rm = RiskManager()
+        tickers = [f"T{i:02d}" for i in range(20)]
+        positions = {t: 10 for t in tickers}
+        prices = {t: 50.0 for t in tickers}
+        verdict = rm.check_pre_trade(
+            trades=[_make_trade("T00", "SELL", 5, 50.0)],
+            portfolio_name="A",
+            current_positions=positions,
+            latest_prices=prices,
+            portfolio_value=100_000.0,
+            cash=90_000.0,
+        )
+        assert len(verdict.allowed) == 1
+        assert len(verdict.blocked) == 0
 
 
 # ── TestSectorMap ────────────────────────────────────────────────────────

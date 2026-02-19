@@ -100,7 +100,8 @@ class Settings(BaseSettings):
     dashboard: DashboardSettings = DashboardSettings()
     agent: AgentSettings = AgentSettings()
 
-    # Trade approval
+    # Trade approval (disabled for paper trading — flip to True for live)
+    trade_approval_enabled: bool = False  # Master switch for all Telegram trade approvals
     trade_approval_threshold_pct: float = 10.0  # Trades > this % of portfolio require Telegram approval
     trade_approval_timeout_s: int = 300  # Seconds to wait for Telegram response (5 min)
 

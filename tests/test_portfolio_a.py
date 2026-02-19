@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from config.risk_rules import RISK_RULES
 from src.strategies.portfolio_a import MomentumStrategy
 
 
@@ -106,8 +107,8 @@ class TestGenerateTrades:
         )
         if trades:
             buy = [t for t in trades if t.side.value == "BUY"][0]
-            # Should be capped at 35% of portfolio value
-            assert buy.total <= 33_333.0 * 0.35 + 1  # +1 for rounding
+            # Should be capped at max_single_position_pct of portfolio value
+            assert buy.total <= 33_333.0 * RISK_RULES.max_single_position_pct + 1  # +1 for rounding
 
     def test_buy_uses_full_budget_when_small(self, closes: pd.DataFrame) -> None:
         """When cash is less than the position limit, use all cash."""

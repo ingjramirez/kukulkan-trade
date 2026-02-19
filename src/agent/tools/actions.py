@@ -259,7 +259,7 @@ async def _declare_posture(
         "posture": posture_lower,
         "reason": reason[:200],
         "message": f"Posture set to {posture_lower}. Risk limits will be adjusted accordingly.",
-        "note": "Aggressive posture requires track record gate — system will verify.",
+        "note": "All postures available immediately — paper trading mode.",
     }
 
 
@@ -467,7 +467,7 @@ def register_action_tools(
         name="execute_trade",
         description=(
             "Submit a trade for execution. Specify ticker, side (BUY/SELL), shares, and reason. "
-            "Trade goes through RiskManager checks. Large trades (>10% of portfolio) require Telegram approval."
+            "Trade goes through RiskManager checks. No approval delays — paper trading mode."
         ),
         input_schema={
             "type": "object",
@@ -536,7 +536,7 @@ def register_action_tools(
         description=(
             "Declare your risk posture for this session. "
             "Options: balanced (default), defensive (reduce exposure), crisis (minimal risk), "
-            "aggressive (max exposure — gated behind track record)."
+            "aggressive (max exposure). All postures available — no gate in paper trading."
         ),
         input_schema={
             "type": "object",

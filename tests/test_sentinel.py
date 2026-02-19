@@ -498,6 +498,26 @@ class TestRunAllChecks:
         error_alerts = [a for a in result.alerts if "failed" in a.message.lower()]
         assert len(error_alerts) == 1
 
+    async def test_crypto_only_skips_regime_and_fills(self) -> None:
+        """crypto_only=True should only run stop proximity, not regime/fills."""
+        stop = _make_trailing_stop(ticker="BTC-USD", stop_price=92000.0)
+        db = _make_db(stops=[stop])
+
+        async def prices(tickers):
+            return {"BTC-USD": 93000.0}  # ~1.1% from stop → critical
+
+        runner = SentinelRunner(db=db, price_fetcher=prices)
+        result = await runner.run_all_checks(crypto_only=True)
+        assert result.checks_run == 1  # Only stop proximity
+        assert len(result.alerts) == 1
+        assert result.alerts[0].ticker == "BTC-USD"
+
+    async def test_crypto_only_false_runs_all(self) -> None:
+        """Default crypto_only=False should still run all 3 checks."""
+        runner = SentinelRunner(db=_make_db(), price_fetcher=_mock_prices)
+        result = await runner.run_all_checks(crypto_only=False)
+        assert result.checks_run == 3
+
     async def test_has_timestamp(self) -> None:
         runner = SentinelRunner(db=_make_db(), price_fetcher=_mock_prices)
         result = await runner.run_all_checks()

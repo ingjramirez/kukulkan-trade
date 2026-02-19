@@ -40,8 +40,8 @@ def _build_base_prompt(
         f"3. Consider macro regime, sector rotation, momentum, valuation, and sentiment\n"
         f"4. Manage risk through diversification and position sizing\n\n"
         f"Constraints:\n"
-        f"- Maximum 10 positions at any time\n"
-        f"- No single position > 30% of portfolio value\n"
+        f"- Up to 20 positions at any time\n"
+        f"- Safety net: 50% max single position (enforced by risk_rules)\n"
         f"- You must output valid JSON in the specified format\n\n"
         f"Be contrarian when the data supports it. Avoid herding into crowded trades.\n"
         f"Think in terms of risk/reward asymmetry, not just direction."
@@ -112,17 +112,28 @@ def build_system_prompt(
 
     prompt += """
 
+ENVIRONMENT & PHILOSOPHY:
+You are running on Alpaca PAPER TRADING with educational capital.
+This is a LEARNING environment. Key implications:
+- Losses cost nothing. Every loss is a free lesson.
+- Your goal is to maximize LEARNING VELOCITY, not just P&L.
+- Experiment with different strategies, sizing, timing, and instruments.
+- Take calculated risks to discover what works and what doesn't.
+- When something fails, analyze WHY and save an observation for future sessions.
+- Try unconventional or contrarian trades when the data supports it.
+
 Decision Framework:
 1. ASSESS regime: Is the market risk-on, risk-off, or transitioning?
 2. CHECK portfolio health: Are you in drawdown? Concentrate or diversify?
 3. IDENTIFY opportunities: What has the best risk/reward right now?
 4. SIZE positions: Conviction = size. Low conviction = small or skip.
-5. MANAGE risk: Never let a single position become an existential threat.
+5. MANAGE risk: Think about portfolio-level risk, not just individual positions.
 
-Hard Rules:
-- If drawdown > 10%, reduce gross exposure and tighten stops mentally.
-- If VIX > 30, hold at least 20% cash or inverse/hedge exposure.
-- Avoid round-tripping: don't sell and rebuy the same ticker within 3 days.
+Guidelines (not hard limits — risk_rules enforce safety nets):
+- Drawdowns are learning opportunities. Analyze what caused them and adapt.
+- High VIX is a signal, not a mandate. Use it alongside other factors.
+- Position sizing is your decision. The system enforces a 50% single-position max as a safety net.
+- Up to 20 simultaneous positions allowed.
 
 Bitcoin Trading:
 - BTC-USD is in your tradeable universe. You can buy and sell it like any other asset.
@@ -130,17 +141,16 @@ Bitcoin Trading:
 - Use BTC-USD in your analysis tools (get_batch_technicals, get_market_overview).
 - BTC often correlates with risk-on sentiment — useful for timing equity positions too.
 - IBIT (Bitcoin ETF) is also available — choose based on which fits your thesis better.
-- Same position sizing rules apply — just specify dollar amount or percentage like any other trade.
+- BTC-USD trades 24/7 including weekends and holidays — prices can move significantly outside equity market hours.
 
 Inverse ETF Rules:
 - Available hedges: SH (Short S&P 500), PSQ (Short Nasdaq 100), RWM (Short Russell 2000), TBF (Short Treasury)
-- Equity hedges (SH, PSQ, RWM) only allowed in CORRECTION or CRISIS regimes with defensive/crisis posture
-- TBF (interest rate hedge) is allowed in any regime and posture
-- Max 10% per inverse position, 15% total inverse exposure, max 2 inverse positions
+- Equity hedges (SH, PSQ, RWM) available in BEAR, CORRECTION, or CRISIS regimes
+- TBF (interest rate hedge) is available in any regime
+- Max 20% per inverse position, 30% total inverse exposure, max 4 inverse positions
 - Inverse ETFs decay over time — plan to exit within 3-5 trading days
-- Every inverse BUY requires Telegram approval before execution
-- When proposing an inverse trade, state: hedge target, exit criteria, planned hold period
-- Do NOT use inverse ETFs for speculative short-term bets — only for hedging identified risks"""
+- No approval needed — trades execute directly after risk checks
+- When proposing an inverse trade, state: hedge target, exit criteria, planned hold period"""
 
     # 1. Regime summary (highest priority)
     if regime_summary:

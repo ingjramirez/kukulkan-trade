@@ -36,14 +36,13 @@ class RiskVerdict:
     requires_trade_approval: list[tuple[TradeSchema, str]] = field(default_factory=list)
 
 
-# Inverse ETF risk constants
-MAX_SINGLE_INVERSE_PCT = 0.10  # 10% max single inverse position
-MAX_TOTAL_INVERSE_PCT = 0.15  # 15% max total inverse exposure
-MAX_INVERSE_POSITIONS = 2  # Max 2 inverse positions at once
+# Inverse ETF risk constants (relaxed for paper trading)
+MAX_SINGLE_INVERSE_PCT = 0.20  # 20% max single inverse position
+MAX_TOTAL_INVERSE_PCT = 0.30  # 30% max total inverse exposure
+MAX_INVERSE_POSITIONS = 4  # Max 4 inverse positions (SH, PSQ, RWM, TBF)
 
-# Regimes and postures where equity hedges are allowed
-HEDGE_ALLOWED_REGIMES = {"CORRECTION", "CRISIS"}
-HEDGE_ALLOWED_POSTURES = {"defensive", "crisis"}
+# Regimes where equity hedges are allowed (BEAR added for paper trading)
+HEDGE_ALLOWED_REGIMES = {"BEAR", "CORRECTION", "CRISIS"}
 
 
 class RiskManager:
@@ -173,27 +172,19 @@ class RiskManager:
             if is_inverse_buy:
                 ticker_is_equity_hedge = is_equity_hedge(trade.ticker)
 
-                # Rule 0a: Regime gate — equity hedges blocked unless CORRECTION/CRISIS
+                # Rule 0a: Regime gate — equity hedges blocked unless BEAR/CORRECTION/CRISIS
                 if ticker_is_equity_hedge:
                     if regime is None or regime.upper() not in HEDGE_ALLOWED_REGIMES:
                         reason = (
                             f"{trade.ticker} equity hedge blocked: "
-                            f"regime={regime or 'unknown'} (requires CORRECTION or CRISIS)"
+                            f"regime={regime or 'unknown'} (requires BEAR, CORRECTION, or CRISIS)"
                         )
                         log.warning("risk_blocked_inverse_regime", trade=trade.ticker, reason=reason)
                         verdict.blocked.append((trade, reason))
                         continue
 
-                # Rule 0b: Posture gate — equity hedges blocked unless defensive/crisis
-                if ticker_is_equity_hedge:
-                    if current_posture is None or current_posture.lower() not in HEDGE_ALLOWED_POSTURES:
-                        reason = (
-                            f"{trade.ticker} equity hedge blocked: "
-                            f"posture={current_posture or 'unknown'} (requires defensive or crisis)"
-                        )
-                        log.warning("risk_blocked_inverse_posture", trade=trade.ticker, reason=reason)
-                        verdict.blocked.append((trade, reason))
-                        continue
+                # Rule 0b: Posture gate — REMOVED for paper trading
+                # Agent can hedge in any posture; regime gate is sufficient
 
                 # Rule 0c: Max 10% single inverse position
                 if total_denominator > 0:
@@ -233,8 +224,8 @@ class RiskManager:
                         verdict.blocked.append((trade, reason))
                         continue
 
-                # Inverse BUY passed all inverse-specific checks → flag for approval
-                verdict.requires_approval.append(trade)
+                # Inverse BUY passed all inverse-specific checks
+                # (Telegram approval bypassed — paper trading mode)
 
             # Rule 1: Single position concentration
             if total_denominator > 0:
@@ -288,18 +279,27 @@ class RiskManager:
                     verdict.blocked.append((trade, reason))
                     continue
 
+            # Rule 3b: Max total positions
+            current_count = len(projected_values)
+            if trade.ticker not in projected_values and current_count >= self._rules.max_positions:
+                reason = f"Max {self._rules.max_positions} positions reached ({current_count} existing)"
+                log.warning("risk_blocked_max_positions", trade=trade.ticker, reason=reason)
+                verdict.blocked.append((trade, reason))
+                continue
+
             # Rule 4: Large trade approval (non-inverse BUYs > threshold % of portfolio)
             if not is_inverse_buy and total_denominator > 0:
                 from config.settings import settings
 
-                trade_pct = (buy_value / total_denominator) * 100
-                if trade_pct > settings.trade_approval_threshold_pct:
-                    reason = (
-                        f"{trade.ticker} trade value ${buy_value:,.0f} is {trade_pct:.1f}% of portfolio "
-                        f"(threshold: {settings.trade_approval_threshold_pct}%)"
-                    )
-                    log.info("trade_requires_approval", trade=trade.ticker, reason=reason)
-                    verdict.requires_trade_approval.append((trade, reason))
+                if settings.trade_approval_enabled:
+                    trade_pct = (buy_value / total_denominator) * 100
+                    if trade_pct > settings.trade_approval_threshold_pct:
+                        reason = (
+                            f"{trade.ticker} trade value ${buy_value:,.0f} is {trade_pct:.1f}% of portfolio "
+                            f"(threshold: {settings.trade_approval_threshold_pct}%)"
+                        )
+                        log.info("trade_requires_approval", trade=trade.ticker, reason=reason)
+                        verdict.requires_trade_approval.append((trade, reason))
 
             # Passed all checks — update projected state
             projected_values[trade.ticker] = new_position_value
