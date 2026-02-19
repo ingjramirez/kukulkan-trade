@@ -12,13 +12,15 @@ class SessionProfile(str, Enum):
     """Controls which models are invoked for a session."""
 
     FULL = "full"  # Haiku scan → Sonnet investigate → Opus validate
-    LIGHT = "light"  # Haiku scan → skip if ROUTINE, else full
+    LIGHT = "light"  # Haiku scan → mini investigation (3 turns) if ROUTINE, else full
     CRISIS = "crisis"  # Skip scan, go straight to Sonnet
     REVIEW = "review"  # Skip scan and validation, Sonnet only
     BUDGET_SAVING = "budget_saving"  # Haiku scan only, no trades
 
 
-# Default mapping from trigger type to session profile
+# Default mapping from trigger type to session profile.
+# Budget note: 3 FULL sessions ≈ $0.15-0.30/day (well within $3 daily cap).
+# Close stays LIGHT — ROUTINE gets a 3-turn mini investigation, not full 8 turns.
 SESSION_PROFILE_MAP: dict[str, SessionProfile] = {
     "morning": SessionProfile.FULL,
     "midday": SessionProfile.FULL,

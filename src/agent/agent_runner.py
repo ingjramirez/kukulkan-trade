@@ -80,6 +80,7 @@ class AgentRunner:
         user_message: str,
         model_override: str | None = None,
         messages_override: list[dict] | None = None,
+        max_turns_override: int | None = None,
     ) -> AgentRunResult:
         """Execute the full agent loop.
 
@@ -91,6 +92,9 @@ class AgentRunner:
             messages_override: If provided, use this messages array instead of
                 building from user_message. Used by PersistentAgent to inject
                 conversation history.
+            max_turns_override: If provided, cap turns for this call only
+                (e.g. mini-investigation on ROUTINE scans). Does not mutate
+                the runner's default max_turns.
 
         Returns:
             AgentRunResult with parsed response and metadata.
@@ -99,6 +103,7 @@ class AgentRunner:
 
         client = anthropic.Anthropic(api_key=self._api_key, max_retries=settings.agent.max_retries)
         effective_model = model_override or self._model
+        effective_max_turns = max_turns_override if max_turns_override is not None else self._max_turns
         tool_defs = self._registry.get_tool_definitions()
 
         if messages_override is not None:
@@ -108,7 +113,7 @@ class AgentRunner:
         tool_call_logs: list[ToolCallLog] = []
         turn = 0
 
-        while turn < self._max_turns:
+        while turn < effective_max_turns:
             turn += 1
 
             # Rate-limit pacing via sliding-window pacer
@@ -203,6 +208,8 @@ class AgentRunner:
                 cache_read_tokens=getattr(response.usage, "cache_read_input_tokens", 0) or 0,
             )
             if self._pacer:
+                # Pacer tracks input TPM only — output tokens are ~10-20% of input
+                # and Anthropic's rate limit is on input TPM, so this is sufficient.
                 self._pacer.record(response.usage.input_tokens)
 
             # Process response
@@ -278,7 +285,7 @@ class AgentRunner:
                 )
 
         # Max turns reached — force finalize
-        log.info("agent_max_turns_reached", turns=self._max_turns)
+        log.info("agent_max_turns_reached", turns=effective_max_turns)
         response_dict = await self._graceful_finalize(client, effective_model, system_prompt, messages)
         response_dict.update(self._build_metadata(turn, tool_call_logs))
         return AgentRunResult(
@@ -350,6 +357,8 @@ class AgentRunner:
                 cache_creation_tokens=getattr(response.usage, "cache_creation_input_tokens", 0) or 0,
                 cache_read_tokens=getattr(response.usage, "cache_read_input_tokens", 0) or 0,
             )
+            if self._pacer:
+                self._pacer.record(response.usage.input_tokens)
             text = self._extract_text(response)
             return self._parse_response(text)
         except Exception as e:

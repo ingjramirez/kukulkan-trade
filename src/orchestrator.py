@@ -2139,9 +2139,12 @@ class Orchestrator:
 
             # Portfolio A benchmark
             try:
+                from config.strategies import PORTFOLIO_A
+
+                a_alloc = PORTFOLIO_A.allocation_usd
                 a_snaps = await self._db.get_snapshots("A", tenant_id=tenant_id)
                 if a_snaps:
-                    a_return = ((a_snaps[-1].total_value - 33_000.0) / 33_000.0) * 100
+                    a_return = ((a_snaps[-1].total_value - a_alloc) / a_alloc) * 100
                     pinned_context += (
                         f"\n\n## Benchmark: Portfolio A (Momentum)\n"
                         f"Return: {a_return:+.1f}% — you must outperform this."

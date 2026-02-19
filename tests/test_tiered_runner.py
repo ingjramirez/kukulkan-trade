@@ -147,7 +147,6 @@ class TestLightProfile:
         """LIGHT+ROUTINE now runs a mini Sonnet investigation (limited turns)."""
         mock_scanner.scan.return_value = _routine_scan()
         mock_runner.run.return_value = _agent_result(trades=[])
-        mock_runner._max_turns = 8  # default
 
         with patch("config.settings.settings") as mock_settings:
             mock_settings.agent.agent_routine_max_turns = 3
@@ -162,10 +161,10 @@ class TestLightProfile:
         assert result.skipped_investigation is False
         assert result.turns >= 1
         mock_runner.run.assert_called_once()
-        # Verify max_turns was restored after the call
-        assert mock_runner._max_turns == 8
-        # Verify Haiku scan context was appended to user_message
+        # Verify max_turns_override was passed (not _max_turns mutation)
         call_args = mock_runner.run.call_args
+        assert call_args.kwargs.get("max_turns_override") == 3
+        # Verify Haiku scan context was appended to user_message
         user_msg = call_args.kwargs.get("user_message", "")
         assert "[Haiku scan: ROUTINE" in user_msg
 

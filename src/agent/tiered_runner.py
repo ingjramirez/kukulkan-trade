@@ -177,16 +177,12 @@ class TieredModelRunner:
             log.info("light_session_mini_investigation", summary=scan.summary)
             from config.settings import settings
 
-            saved_max = self._runner._max_turns
-            self._runner._max_turns = settings.agent.agent_routine_max_turns
-            try:
-                result = await self._runner.run(
-                    system_prompt=system_prompt,
-                    user_message=user_message + f"\n\n[Haiku scan: ROUTINE — {scan.summary}]",
-                    messages_override=messages_override,
-                )
-            finally:
-                self._runner._max_turns = saved_max
+            result = await self._runner.run(
+                system_prompt=system_prompt,
+                user_message=user_message + f"\n\n[Haiku scan: ROUTINE — {scan.summary}]",
+                messages_override=messages_override,
+                max_turns_override=settings.agent.agent_routine_max_turns,
+            )
             return TieredRunResult(
                 response=result.response,
                 scan_result=scan,
