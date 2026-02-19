@@ -25,7 +25,7 @@ Machine-readable context for Claude. Covers the agent subsystem, tool-use loop, 
 | `src/agent/posture.py` | PostureLevel enum, PostureLimits, PostureManager (aggressive gate) |
 | `src/agent/tools/__init__.py` | ToolRegistry + ToolDefinition dataclass |
 | `src/agent/tools/portfolio.py` | 6 tools + 3 legacy aliases |
-| `src/agent/tools/market.py` | 4 tools + 2 legacy aliases |
+| `src/agent/tools/market.py` | 5 tools + 2 legacy aliases |
 | `src/agent/tools/news.py` | 3 tools: search_news, search_historical_news, get_portfolio_a_status |
 | `src/agent/tools/actions.py` | 6 tools + 2 legacy aliases + ActionState + declare_posture |
 | `config/strategies.py` | PortfolioAConfig, PortfolioBConfig frozen dataclasses |

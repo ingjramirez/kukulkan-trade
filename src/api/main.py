@@ -22,6 +22,7 @@ from src.api.routes.momentum import router as momentum_router
 from src.api.routes.outcomes import router as outcomes_router
 from src.api.routes.portfolios import router as portfolios_router
 from src.api.routes.run import router as run_router
+from src.api.routes.signals import router as signals_router
 from src.api.routes.snapshots import router as snapshots_router
 from src.api.routes.tenants import router as tenants_router
 from src.api.routes.trades import router as trades_router
@@ -74,6 +75,7 @@ app.include_router(conversations_router)
 app.include_router(agent_insights_router)
 app.include_router(improvements_router)
 app.include_router(run_router)
+app.include_router(signals_router)
 app.include_router(events_router)
 
 

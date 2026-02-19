@@ -235,6 +235,83 @@ async def _get_earnings_calendar(
     }
 
 
+# ── 5. get_signal_rankings (signal engine data) ──────────────────────────────
+
+
+async def _get_signal_rankings(
+    db: Database,
+    tenant_id: str,
+    held_tickers: list[str],
+    top_n: int = 20,
+) -> dict:
+    """Get latest signal engine rankings — composite scores, rank velocity, alerts.
+
+    Returns pre-computed rankings from the signal engine (runs every 10 min).
+    Zero API cost — pure cached data from SQLite.
+    """
+    top_n = min(max(top_n, 5), 70)
+
+    signal_rows = await db.get_latest_signals(tenant_id)
+    if not signal_rows:
+        return {"error": "No signal data available yet. Signal engine runs every 10 min during market hours."}
+
+    from src.analysis.signal_engine import db_rows_to_signals
+
+    signals = db_rows_to_signals(signal_rows)
+    held_set = set(held_tickers)
+
+    # Build response sections
+    result: dict = {
+        "scored_at": signals[0].scored_at.isoformat() if signals else None,
+        "total_tickers": len(signals),
+    }
+
+    # Top N by composite score
+    top = signals[:top_n]
+    result["top_ranked"] = [
+        {
+            "rank": s.rank,
+            "ticker": s.ticker,
+            "score": round(s.composite_score, 1),
+            "prev_rank": s.prev_rank,
+            "rank_velocity": round(s.rank_velocity, 1),
+            "momentum_20d_pct": round(s.momentum_20d * 100, 1) if s.momentum_20d else 0,
+            "rsi": round(s.rsi, 0) if s.rsi else None,
+            "sma_trend": round(s.sma_trend_score, 0) if s.sma_trend_score else None,
+            "volume_ratio": round(s.volume_ratio, 1) if s.volume_ratio else None,
+            "alerts": s.alerts,
+            "held": s.ticker in held_set,
+        }
+        for s in top
+    ]
+
+    # Biggest movers
+    movers = sorted(
+        [s for s in signals if s.rank_velocity != 0],
+        key=lambda s: abs(s.rank_velocity),
+        reverse=True,
+    )[:10]
+    result["biggest_movers"] = [
+        {
+            "ticker": s.ticker,
+            "rank": s.rank,
+            "prev_rank": s.prev_rank,
+            "rank_velocity": round(s.rank_velocity, 1),
+            "held": s.ticker in held_set,
+        }
+        for s in movers
+    ]
+
+    # All alerts
+    alerted = [s for s in signals if s.alerts]
+    result["alerts"] = [
+        {"ticker": s.ticker, "rank": s.rank, "alerts": s.alerts, "held": s.ticker in held_set}
+        for s in alerted
+    ]
+
+    return result
+
+
 # ── Legacy aliases (Phase 32 backward compatibility) ─────────────────────────
 
 
@@ -466,6 +543,27 @@ def register_market_tools(
                 },
             },
             handler=partial(_get_earnings_calendar, db, held_tickers or []),
+        )
+
+    # ── Signal engine ─────────────────────────────────────────────────────────
+    if db is not None:
+        registry.register(
+            name="get_signal_rankings",
+            description=(
+                "Get latest signal engine rankings — composite scores, rank velocity, and alerts "
+                "for all tickers. Updated every 10 min. Zero API cost. "
+                "Returns top ranked, biggest movers, and triggered alerts."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "top_n": {
+                        "type": "integer",
+                        "description": "Number of top-ranked tickers to return (5-70, default: 20)",
+                    },
+                },
+            },
+            handler=partial(_get_signal_rankings, db, tenant_id, held_tickers or []),
         )
 
     # ── Discovery tools ──────────────────────────────────────────────────────

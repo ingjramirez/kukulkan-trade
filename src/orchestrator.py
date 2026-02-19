@@ -1680,6 +1680,7 @@ class Orchestrator:
 
             # ── Phase 1: Seed (single-shot, complexity-routed model) ────
             context["model_override"] = model_override
+            context.pop("universe_opportunities", None)  # not accepted by analyze()
             seed_response = self._strategy_b._agent.analyze(**context)
 
             seed_trades = seed_response.get("trades", [])
@@ -1836,6 +1837,7 @@ class Orchestrator:
                 universe=portfolio_b_universe,
             )
             context["model_override"] = model_override
+            context.pop("universe_opportunities", None)  # not accepted by analyze()
 
             response = self._strategy_b._agent.analyze(**context)
 
@@ -2051,6 +2053,20 @@ class Orchestrator:
             "cash": cash,
             "positions_count": len(positions_for_agent),
         }
+
+        # Inject signal rankings if available (from signal_engine_job)
+        try:
+            signal_rows = await self._db.get_latest_signals(tenant_id)
+            if signal_rows:
+                from src.analysis.signal_engine import db_rows_to_signals, format_signals_for_agent
+
+                signals = db_rows_to_signals(signal_rows)
+                held = {p["ticker"] for p in positions_for_agent}
+                signal_text = format_signals_for_agent(signals, held)
+                if signal_text:
+                    portfolio_data["signal_rankings"] = signal_text
+        except Exception as e:
+            log.debug("signal_fetch_for_trigger_failed", error=str(e))
 
         # Build pinned context from DB (posture, playbook, calibration)
         pinned_context = ""

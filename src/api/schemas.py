@@ -460,3 +460,29 @@ class ImprovementTrendResponse(BaseModel):
     pnl_slope: float
     data_points: list[ImprovementTrendDataPoint]
     weeks_analyzed: int
+
+
+# ── Signal Engine ─────────────────────────────────────────────────────────────
+
+
+class TickerSignalResponse(BaseModel):
+    ticker: str
+    composite_score: float
+    rank: int
+    prev_rank: int | None = None
+    rank_velocity: float = 0
+    momentum_20d: float | None = None
+    momentum_63d: float | None = None
+    rsi: float | None = None
+    macd_histogram: float | None = None
+    sma_trend_score: float | None = None
+    bollinger_pct_b: float | None = None
+    volume_ratio: float | None = None
+    alerts: list[str] = Field(default_factory=list)
+    scored_at: UTCDatetime | None = None
+
+
+class SignalRankingsResponse(BaseModel):
+    total: int
+    scored_at: UTCDatetime | None = None
+    signals: list[TickerSignalResponse]

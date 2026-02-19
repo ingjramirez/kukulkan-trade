@@ -110,10 +110,11 @@ class PerformanceTracker:
             first_date = snapshots[0].date
             last_date = snapshots[-1].date
             try:
-                spy_idx = spy_closes.index
-                # Find nearest dates in SPY data
-                spy_at_start = spy_closes.loc[spy_idx >= pd.Timestamp(first_date)]
-                spy_at_end = spy_closes.loc[spy_idx <= pd.Timestamp(last_date)]
+                # Normalize to pd.Timestamp to avoid datetime.date vs Timestamp comparison errors
+                first_ts = pd.Timestamp(first_date)
+                last_ts = pd.Timestamp(last_date)
+                spy_at_start = spy_closes.loc[spy_closes.index >= first_ts]
+                spy_at_end = spy_closes.loc[spy_closes.index <= last_ts]
                 if len(spy_at_start) > 0 and len(spy_at_end) > 0:
                     start_price = float(spy_at_start.iloc[0])
                     end_price = float(spy_at_end.iloc[-1])

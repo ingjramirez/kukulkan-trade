@@ -85,6 +85,74 @@ def filter_interesting_tickers(
     return result
 
 
+def build_universe_opportunities(
+    closes: pd.DataFrame,
+    current_positions: list[str],
+    universe: list[str] | None = None,
+    top_n: int = 10,
+) -> dict:
+    """Surface non-held tickers with strong technicals for the agent.
+
+    Breaks tunnel vision by showing what's happening outside the current
+    portfolio and the filter_interesting_tickers funnel.
+
+    Args:
+        closes: Full price DataFrame for the universe.
+        current_positions: Tickers currently held in Portfolio B.
+        universe: Custom ticker universe (defaults to PORTFOLIO_B_UNIVERSE).
+        top_n: Max tickers to return per category.
+
+    Returns:
+        Dict with top_momentum, oversold, and sector_gaps lists.
+    """
+    from config.universe import SECTOR_MAP
+
+    base_universe = universe if universe is not None else PORTFOLIO_B_UNIVERSE
+    held = set(current_positions)
+    non_held = [t for t in base_universe if t in closes.columns and t not in held]
+
+    result: dict = {"top_momentum": [], "oversold": [], "sector_gaps": []}
+
+    if len(closes) < 22 or not non_held:
+        return result
+
+    # Top momentum: 20-day return for non-held tickers
+    try:
+        price_now = closes[non_held].iloc[-1]
+        price_20d = closes[non_held].iloc[-21]
+        returns_20d = ((price_now - price_20d) / price_20d).dropna().sort_values(ascending=False)
+        for ticker in returns_20d.head(top_n).index:
+            result["top_momentum"].append(
+                {"ticker": ticker, "return_20d_pct": round(float(returns_20d[ticker]) * 100, 1)}
+            )
+    except (IndexError, KeyError):
+        pass
+
+    # Oversold: RSI < 35 among non-held
+    for t in non_held:
+        series = closes[t].dropna()
+        if len(series) < 20:
+            continue
+        try:
+            rsi = compute_rsi(series)
+            if not rsi.empty and pd.notna(rsi.iloc[-1]):
+                val = float(rsi.iloc[-1])
+                if val < 35:
+                    result["oversold"].append({"ticker": t, "rsi": round(val, 1)})
+        except (ValueError, KeyError, IndexError):
+            continue
+    result["oversold"] = sorted(result["oversold"], key=lambda x: x["rsi"])[:top_n]
+
+    # Sector gaps: sectors with no holdings
+    held_sectors = {SECTOR_MAP.get(t, "Unknown") for t in held}
+    all_sectors = {SECTOR_MAP.get(t, "Unknown") for t in base_universe} - {"Unknown", "Inverse"}
+    missing_sectors = all_sectors - held_sectors
+    if missing_sectors:
+        result["sector_gaps"] = sorted(missing_sectors)[:5]
+
+    return result
+
+
 class AIAutonomyStrategy:
     """Portfolio B strategy: Claude decides everything."""
 
@@ -159,6 +227,9 @@ class AIAutonomyStrategy:
                 except (ValueError, KeyError, IndexError) as e:
                     log.debug("technical_context_failed", ticker=t, error=str(e))
 
+        # Universe opportunities for non-held tickers (breaks tunnel vision)
+        universe_opps = build_universe_opportunities(closes, held_tickers, universe=universe)
+
         ctx = {
             "analysis_date": date.today(),
             "cash": cash,
@@ -174,6 +245,7 @@ class AIAutonomyStrategy:
             "news_context": news_context,
             "interesting_tickers": interesting,
             "closes_df": closes,
+            "universe_opportunities": universe_opps,
         }
         if system_prompt is not None:
             ctx["system_prompt"] = system_prompt

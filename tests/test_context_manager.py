@@ -292,3 +292,164 @@ def test_context_budget_within_limits():
     total_budget = cm.SYSTEM_PROMPT_BUDGET + cm.PINNED_CONTEXT_BUDGET + cm.SUMMARY_BUDGET + cm.RECENT_HISTORY_BUDGET
     assert total_budget < cm.COMPRESSION_THRESHOLD
     assert total_budget < 200_000  # Stay within Anthropic context window
+
+
+# ── Universe opportunities formatting tests ──────────────────────────────────
+
+
+def test_format_universe_opportunities_full():
+    """Universe opportunities are formatted into the trigger message."""
+    cm = make_manager()
+    portfolio = {
+        "total_value": 66000,
+        "cash": 25000,
+        "universe_opportunities": {
+            "top_momentum": [
+                {"ticker": "AAPL", "return_20d_pct": 8.2},
+                {"ticker": "META", "return_20d_pct": 6.1},
+            ],
+            "oversold": [{"ticker": "XLE", "rsi": 28.3}],
+            "sector_gaps": ["Energy", "Utilities"],
+        },
+    }
+    result = cm._format_universe_opportunities(portfolio)
+    assert "Universe Scan" in result
+    assert "AAPL +8.2%" in result
+    assert "META +6.1%" in result
+    assert "XLE (RSI 28)" in result
+    assert "Energy" in result
+    assert "get_batch_technicals" in result
+
+
+def test_format_universe_opportunities_empty():
+    """Empty opportunities produce no output."""
+    cm = make_manager()
+    portfolio = {
+        "universe_opportunities": {"top_momentum": [], "oversold": [], "sector_gaps": []},
+    }
+    result = cm._format_universe_opportunities(portfolio)
+    assert result == ""
+
+
+def test_format_universe_opportunities_missing():
+    """Missing universe_opportunities key produces no output."""
+    cm = make_manager()
+    result = cm._format_universe_opportunities({"total_value": 66000})
+    assert result == ""
+
+
+def test_morning_trigger_includes_universe_scan():
+    """Morning trigger includes universe scan when opportunities provided."""
+    cm = make_manager()
+    msg = cm.build_trigger_message(
+        trigger_type="morning",
+        market_data={"regime": "BULL", "vix": 15.3, "spy_change_pct": 0.5},
+        portfolio_summary={
+            "total_value": 66000,
+            "cash": 25000,
+            "positions_count": 4,
+            "universe_opportunities": {
+                "top_momentum": [{"ticker": "NVDA", "return_20d_pct": 5.5}],
+                "oversold": [],
+                "sector_gaps": [],
+            },
+        },
+    )
+    assert "NVDA +5.5%" in msg
+    assert "Universe Scan" in msg
+
+
+def test_midday_trigger_includes_universe_scan():
+    """Midday trigger includes universe scan when opportunities provided."""
+    cm = make_manager()
+    msg = cm.build_trigger_message(
+        trigger_type="midday",
+        market_data={"vix": 17.0},
+        portfolio_summary={
+            "total_value": 65000,
+            "cash": 24000,
+            "universe_opportunities": {
+                "top_momentum": [{"ticker": "AMD", "return_20d_pct": 3.2}],
+                "oversold": [{"ticker": "XLE", "rsi": 29.0}],
+                "sector_gaps": ["Energy"],
+            },
+        },
+    )
+    assert "AMD +3.2%" in msg
+    assert "XLE (RSI 29)" in msg
+
+
+# ── Signal rankings in trigger messages ───────────────────────────────────────
+
+
+def test_morning_trigger_prefers_signal_rankings():
+    """Signal rankings text is used over universe scan when both present."""
+    cm = make_manager()
+    msg = cm.build_trigger_message(
+        trigger_type="morning",
+        market_data={"regime": "BULL", "vix": 15.3, "spy_change_pct": 0.5},
+        portfolio_summary={
+            "total_value": 66000,
+            "cash": 25000,
+            "positions_count": 4,
+            "signal_rankings": "## Universe Signal Rankings (updated every 10 min)\nTop non-held: NVDA rank 1",
+            "universe_opportunities": {
+                "top_momentum": [{"ticker": "AAPL", "return_20d_pct": 5.0}],
+                "oversold": [],
+                "sector_gaps": [],
+            },
+        },
+    )
+    assert "Signal Rankings" in msg
+    assert "NVDA rank 1" in msg
+    # Universe scan should NOT appear since signal_rankings takes priority
+    assert "AAPL +5.0%" not in msg
+
+
+def test_morning_trigger_falls_back_to_universe_scan():
+    """Falls back to universe scan when no signal_rankings key."""
+    cm = make_manager()
+    msg = cm.build_trigger_message(
+        trigger_type="morning",
+        market_data={"regime": "BEAR", "vix": 25.0, "spy_change_pct": -1.2},
+        portfolio_summary={
+            "total_value": 60000,
+            "cash": 30000,
+            "positions_count": 2,
+            "universe_opportunities": {
+                "top_momentum": [{"ticker": "META", "return_20d_pct": 7.1}],
+                "oversold": [],
+                "sector_gaps": [],
+            },
+        },
+    )
+    assert "META +7.1%" in msg
+    assert "Universe Scan" in msg
+
+
+def test_midday_trigger_prefers_signal_rankings():
+    """Midday trigger uses signal rankings over universe scan."""
+    cm = make_manager()
+    msg = cm.build_trigger_message(
+        trigger_type="midday",
+        market_data={"vix": 18.0},
+        portfolio_summary={
+            "total_value": 65000,
+            "cash": 20000,
+            "signal_rankings": "## Universe Signal Rankings\nAlerts: XLE rsi_oversold_cross",
+        },
+    )
+    assert "Signal Rankings" in msg
+    assert "XLE rsi_oversold_cross" in msg
+
+
+def test_trigger_no_signal_no_universe_scan():
+    """No extra section when neither signal nor universe data present."""
+    cm = make_manager()
+    msg = cm.build_trigger_message(
+        trigger_type="morning",
+        market_data={"regime": "NEUTRAL", "vix": 20.0, "spy_change_pct": 0.0},
+        portfolio_summary={"total_value": 50000, "cash": 10000, "positions_count": 5},
+    )
+    assert "Signal Rankings" not in msg
+    assert "Universe Scan" not in msg

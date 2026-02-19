@@ -215,3 +215,20 @@ class TestSPYBenchmark:
         stats = await tracker.get_portfolio_stats(db, "A", 33_000.0)
         assert stats.spy_return_pct is None
         assert stats.alpha_pct is None
+
+    async def test_spy_with_datetime_date_snapshots(self, db: Database, tracker) -> None:
+        """SPY comparison works when snapshot dates are datetime.date and SPY index is pd.Timestamp."""
+        await db.upsert_portfolio("B", cash=66_000.0, total_value=66_000.0)
+        # Snapshot dates are datetime.date objects (from SQLite)
+        await db.save_snapshot("B", date(2026, 1, 6), 66_000.0, 66_000.0, 0.0, None, 0.0)
+        await db.save_snapshot("B", date(2026, 1, 10), 69_300.0, 69_300.0, 0.0, 5.0, 5.0)
+
+        # SPY index uses pd.Timestamp (from yfinance)
+        spy_closes = pd.Series(
+            [450.0, 459.0],
+            index=pd.DatetimeIndex([pd.Timestamp("2026-01-06"), pd.Timestamp("2026-01-10")]),
+        )
+        stats = await tracker.get_portfolio_stats(db, "B", 66_000.0, spy_closes=spy_closes)
+
+        assert stats.spy_return_pct == pytest.approx(2.0, abs=0.01)
+        assert stats.alpha_pct == pytest.approx(3.0, abs=0.01)

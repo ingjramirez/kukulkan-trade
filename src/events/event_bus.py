@@ -43,6 +43,9 @@ class EventType(str, Enum):
     SENTINEL_ALERT = "sentinel_alert"
     SENTINEL_ESCALATION = "sentinel_escalation"
 
+    # Signal engine
+    SIGNAL_RANKINGS_UPDATED = "signal_rankings_updated"
+
     # System
     SYSTEM_ERROR = "system_error"
     IMPROVEMENT_REPORT = "improvement_report"

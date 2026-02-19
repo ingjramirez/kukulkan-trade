@@ -251,7 +251,68 @@ async def test_json_parse_with_markdown_fences():
 @pytest.mark.asyncio
 async def test_invalid_json_fallback():
     """Invalid JSON produces error structure instead of raising."""
-    mock_response = _make_text_response("This is not JSON at all")
+    # First call returns non-JSON, retry also returns non-JSON
+    prose_response = _make_text_response("This is not JSON at all")
+
+    with patch("src.agent.agent_runner.anthropic") as mock_anthropic:
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = prose_response
+        mock_anthropic.Anthropic.return_value = mock_client
+        mock_anthropic.NOT_GIVEN = object()
+
+        runner = AgentRunner(api_key="test-key")
+        result = await runner.run("system", "user")
+
+    # Raw text used as reasoning when JSON parse fails and retry also fails
+    assert result.response["regime_assessment"] == ""
+    assert result.response["trades"] == []
+
+
+@pytest.mark.asyncio
+async def test_json_retry_recovers_valid_response():
+    """When model responds in prose, retry recovers the structured JSON."""
+    prose_response = _make_text_response("The market looks bullish with strong tech momentum.")
+    retry_json = json.dumps({
+        "regime_assessment": "Bull market",
+        "reasoning": "Strong tech momentum",
+        "trades": [{"ticker": "XLK", "side": "BUY", "weight": 0.10}],
+        "risk_notes": "Low risk",
+    })
+    retry_response = _make_text_response(retry_json)
+
+    call_count = 0
+
+    def side_effect(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return prose_response
+        return retry_response
+
+    with patch("src.agent.agent_runner.anthropic") as mock_anthropic:
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = side_effect
+        mock_anthropic.Anthropic.return_value = mock_client
+        mock_anthropic.NOT_GIVEN = object()
+
+        runner = AgentRunner(api_key="test-key")
+        result = await runner.run("system", "user")
+
+    assert result.response["regime_assessment"] == "Bull market"
+    assert len(result.response["trades"]) == 1
+    assert call_count == 2  # Original + retry
+
+
+@pytest.mark.asyncio
+async def test_json_retry_not_triggered_for_valid_json():
+    """When model responds with valid JSON, no retry occurs."""
+    valid_json = json.dumps({
+        "regime_assessment": "Bear market",
+        "reasoning": "Weak breadth",
+        "trades": [],
+        "risk_notes": "Stay defensive",
+    })
+    mock_response = _make_text_response(valid_json)
 
     with patch("src.agent.agent_runner.anthropic") as mock_anthropic:
         mock_client = MagicMock()
@@ -262,9 +323,36 @@ async def test_invalid_json_fallback():
         runner = AgentRunner(api_key="test-key")
         result = await runner.run("system", "user")
 
-    # Raw text used as reasoning when JSON parse fails
+    assert result.response["regime_assessment"] == "Bear market"
+    # Only 1 call — no retry
+    assert mock_client.messages.create.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_json_retry_exception_returns_empty():
+    """If retry itself fails (API error), return empty dict gracefully."""
+    prose_response = _make_text_response("Markdown analysis without JSON")
+
+    call_count = 0
+
+    def side_effect(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return prose_response
+        raise Exception("API connection error")
+
+    with patch("src.agent.agent_runner.anthropic") as mock_anthropic:
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = side_effect
+        mock_anthropic.Anthropic.return_value = mock_client
+        mock_anthropic.NOT_GIVEN = object()
+
+        runner = AgentRunner(api_key="test-key")
+        result = await runner.run("system", "user")
+
+    # Should fall back to the original parse result (prose as reasoning)
     assert result.response["regime_assessment"] == ""
-    assert result.response["reasoning"] == "This is not JSON at all"
     assert result.response["trades"] == []
 
 

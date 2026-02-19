@@ -558,6 +558,29 @@ class TenantRow(Base):
         return f"<Tenant id={self.id!r} name={self.name!r} active={self.is_active} strategy={self.strategy_mode!r}>"
 
 
+class TickerSignalRow(Base):
+    """Ticker signal rankings computed by the local SignalEngine (every 10 min)."""
+
+    __tablename__ = "ticker_signals"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    ticker = Column(String(10), nullable=False)
+    composite_score = Column(Float, nullable=False)
+    rank = Column(Integer, nullable=False)
+    prev_rank = Column(Integer)
+    rank_velocity = Column(Float, nullable=False, default=0)
+    momentum_20d = Column(Float)
+    momentum_63d = Column(Float)
+    rsi = Column(Float)
+    macd_histogram = Column(Float)
+    sma_trend_score = Column(Float)
+    bollinger_pct_b = Column(Float)
+    volume_ratio = Column(Float)
+    alerts = Column(String, default="[]")
+    scored_at = Column(DateTime, nullable=False)
+
+
 # ── Pydantic Schemas (for API / validation layer) ───────────────────────────
 
 

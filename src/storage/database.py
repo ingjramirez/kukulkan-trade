@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 import structlog
-from sqlalchemy import delete, event, select
+from sqlalchemy import delete, event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -29,6 +29,7 @@ from src.storage.models import (
     PostureHistoryRow,
     SentinelActionRow,
     TenantRow,
+    TickerSignalRow,
     ToolCallLogRow,
     TradeRow,
     TrailingStopRow,
@@ -1708,3 +1709,81 @@ class Database:
             stmt = stmt.order_by(IntradaySnapshotRow.timestamp.desc()).limit(1)
             result = await s.execute(stmt)
             return result.scalar_one_or_none()
+
+    # ── Ticker Signal Engine ──────────────────────────────────────────────
+
+    async def save_signal_batch(self, rows: list[TickerSignalRow]) -> None:
+        """Bulk save signal ranking snapshots."""
+        async with self.session() as s:
+            s.add_all(rows)
+            await s.commit()
+
+    async def get_latest_signals(self, tenant_id: str) -> list[TickerSignalRow]:
+        """Get the most recent signal snapshot (all tickers from the latest run)."""
+        async with self.session() as s:
+            latest_time = (
+                await s.execute(
+                    select(func.max(TickerSignalRow.scored_at)).where(
+                        TickerSignalRow.tenant_id == tenant_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if not latest_time:
+                return []
+            result = await s.execute(
+                select(TickerSignalRow)
+                .where(
+                    TickerSignalRow.tenant_id == tenant_id,
+                    TickerSignalRow.scored_at == latest_time,
+                )
+                .order_by(TickerSignalRow.rank)
+            )
+            return list(result.scalars().all())
+
+    async def cleanup_old_signals(self, tenant_id: str, keep_hours: int = 24) -> int:
+        """Delete signal data older than keep_hours. Returns rows deleted."""
+        from datetime import timedelta
+
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=keep_hours)
+        async with self.session() as s:
+            result = await s.execute(
+                delete(TickerSignalRow).where(
+                    TickerSignalRow.tenant_id == tenant_id,
+                    TickerSignalRow.scored_at < cutoff,
+                )
+            )
+            await s.commit()
+            return result.rowcount
+
+    async def get_cached_closes_and_volumes(
+        self,
+        tickers: list[str] | None = None,
+    ) -> tuple:
+        """Build closes and volumes DataFrames from cached MarketDataRow.
+
+        Returns data already in SQLite — NO external API calls.
+        Used by SignalEngine to avoid yfinance rate limits.
+        """
+        import pandas as pd
+
+        from config.universe import FULL_UNIVERSE
+
+        target = tickers or FULL_UNIVERSE
+        closes_dict: dict[str, dict] = {}
+        volumes_dict: dict[str, dict] = {}
+
+        async with self.session() as s:
+            for ticker in target:
+                result = await s.execute(
+                    select(MarketDataRow)
+                    .where(MarketDataRow.ticker == ticker)
+                    .order_by(MarketDataRow.date)
+                )
+                rows = list(result.scalars().all())
+                if rows:
+                    closes_dict[ticker] = {r.date: r.close for r in rows}
+                    volumes_dict[ticker] = {r.date: r.volume for r in rows}
+
+        closes = pd.DataFrame(closes_dict).sort_index()
+        volumes = pd.DataFrame(volumes_dict).sort_index()
+        return closes, volumes

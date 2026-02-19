@@ -709,6 +709,65 @@ async def run_scheduled() -> None:
         name="Kukulkan Gap Risk Alert",
     )
 
+    # Signal engine: rank all tickers every 10 min during market hours (zero API cost)
+    async def signal_engine_job():
+        from datetime import date as _date
+
+        today = _date.today()
+        if not is_market_open(today):
+            return
+        try:
+            from src.analysis.signal_engine import SignalEngine, signals_to_db_rows
+
+            engine = SignalEngine()
+            tenants = await db.get_active_tenants()
+            tenant_list = tenants if tenants else []
+            if not tenant_list:
+                # Fallback: run for default tenant
+                tenant_list = [type("T", (), {"id": "default", "is_active": True})()]
+
+            for tenant in tenant_list:
+                try:
+                    closes, volumes = await db.get_cached_closes_and_volumes()
+                    if closes.empty:
+                        continue
+                    signals = await engine.run(tenant.id, closes, volumes)
+                    if signals:
+                        rows = signals_to_db_rows(tenant.id, signals)
+                        await db.save_signal_batch(rows)
+                        # Publish SSE event
+                        try:
+                            from src.events.event_bus import Event, EventType, event_bus
+
+                            alerts_count = sum(1 for s in signals if s.alerts)
+                            event_bus.publish(
+                                Event(
+                                    type=EventType.SIGNAL_RANKINGS_UPDATED,
+                                    tenant_id=tenant.id,
+                                    data={
+                                        "scored_at": signals[0].scored_at.isoformat(),
+                                        "total_tickers": len(signals),
+                                        "alerts_triggered": alerts_count,
+                                        "top_ticker": signals[0].ticker,
+                                        "top_score": signals[0].composite_score,
+                                    },
+                                )
+                            )
+                        except Exception as e:
+                            log.debug("signal_sse_publish_failed", error=str(e))
+                except Exception as e:
+                    log.warning("signal_engine_tenant_failed", tenant_id=tenant.id, error=str(e))
+            log.debug("signal_engine_job_complete")
+        except Exception as e:
+            log.error("signal_engine_job_failed", error=str(e))
+
+    scheduler.add_job(
+        signal_engine_job,
+        CronTrigger(minute="*/10", hour="9-16", day_of_week="mon-fri", timezone="US/Eastern"),
+        id="signal_engine",
+        name="Kukulkan Signal Engine (10-min ticker ranking)",
+    )
+
     # Weekly memory compaction (Sunday 6 PM ET)
     memory_manager = AgentMemoryManager()
     agent = ClaudeAgent()
@@ -975,12 +1034,21 @@ async def run_scheduled() -> None:
         name="Kukulkan Weekly Playbook & Calibration",
     )
 
-    # Weekly intraday snapshot cleanup (Sunday 7 PM ET)
+    # Weekly intraday snapshot + signal cleanup (Sunday 7 PM ET)
     async def intraday_cleanup_job():
         try:
             deleted = await db.purge_old_intraday_snapshots(days=90)
             if deleted:
                 log.info("intraday_cleanup_complete", deleted=deleted)
+            # Cleanup old signal data (keep last 48h for debugging)
+            tenants = await db.get_active_tenants()
+            for tenant in tenants or []:
+                try:
+                    sig_deleted = await db.cleanup_old_signals(tenant.id, keep_hours=48)
+                    if sig_deleted:
+                        log.info("signal_cleanup_complete", tenant_id=tenant.id, deleted=sig_deleted)
+                except Exception as e:
+                    log.warning("signal_cleanup_failed", tenant_id=tenant.id, error=str(e))
         except Exception as e:
             log.error("intraday_cleanup_failed", error=str(e))
 

@@ -62,10 +62,10 @@ class TestToolRegistration:
         register_action_tools(registry, state, db=db, tenant_id="default", ticker_discovery=mock_discovery)
 
         # Portfolio: 6 + 3 legacy + 1 discovery = 10
-        # Market: 4 + 2 legacy + 1 discovery = 7
+        # Market: 4 + 2 legacy + 1 discovery + 1 signal_rankings = 8
         # Action: 6 + 2 legacy + 1 discovery = 9
-        # Total: 26 (news tools not included here since we don't register them)
-        assert len(registry.tool_names) == 26
+        # Total: 27 (news tools not included here since we don't register them)
+        assert len(registry.tool_names) == 27
 
     def test_discover_ticker_registered_without_discovery(self) -> None:
         """discover_ticker should register even without TickerDiscovery (returns error)."""

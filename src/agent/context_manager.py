@@ -334,6 +334,35 @@ class ContextManager:
             lines.append(f"[{date_str} {trigger.capitalize()}]: {summary}")
         return "\n".join(lines)
 
+    @staticmethod
+    def _format_universe_opportunities(portfolio: dict) -> str:
+        """Format universe opportunities for injection into trigger messages."""
+        opps = portfolio.get("universe_opportunities")
+        if not opps:
+            return ""
+
+        lines = ["\n## Universe Scan (tickers you DON'T hold)"]
+
+        momentum = opps.get("top_momentum", [])
+        if momentum:
+            items = ", ".join(f"{m['ticker']} {m['return_20d_pct']:+.1f}%" for m in momentum[:7])
+            lines.append(f"Top momentum (20d): {items}")
+
+        oversold = opps.get("oversold", [])
+        if oversold:
+            items = ", ".join(f"{o['ticker']} (RSI {o['rsi']:.0f})" for o in oversold[:5])
+            lines.append(f"Oversold (RSI<35): {items}")
+
+        gaps = opps.get("sector_gaps", [])
+        if gaps:
+            lines.append(f"Sectors not in portfolio: {', '.join(gaps)}")
+
+        if len(lines) == 1:
+            return ""
+
+        lines.append("Consider researching these with get_batch_technicals before your next trade.")
+        return "\n".join(lines)
+
     def _build_morning_trigger(self, market: dict, portfolio: dict) -> str:
         regime = market.get("regime", "unknown")
         vix = market.get("vix", "N/A")
@@ -350,6 +379,12 @@ class ContextManager:
         ]
         if market.get("overnight_summary"):
             parts.insert(2, f"Overnight: {market['overnight_summary']}")
+        # Prefer live signal rankings over static universe scan
+        signal_scan = portfolio.get("signal_rankings", "")
+        if not signal_scan:
+            signal_scan = self._format_universe_opportunities(portfolio)
+        if signal_scan:
+            parts.append(signal_scan)
         return "\n".join(parts)
 
     def _build_midday_trigger(self, market: dict, portfolio: dict) -> str:
@@ -364,6 +399,12 @@ class ContextManager:
         ]
         if market.get("alerts"):
             parts.insert(1, f"Alerts: {market['alerts']}")
+        # Prefer live signal rankings over static universe scan
+        signal_scan = portfolio.get("signal_rankings", "")
+        if not signal_scan:
+            signal_scan = self._format_universe_opportunities(portfolio)
+        if signal_scan:
+            parts.append(signal_scan)
         return "\n".join(parts)
 
     def _build_close_trigger(self, market: dict, portfolio: dict) -> str:

@@ -74,6 +74,37 @@ class TestCalculateMomentum:
         assert "BAD" not in result["ticker"].values
 
 
+    def test_weekend_nan_rows_dropped(self) -> None:
+        """BTC-USD weekend rows (all NaN for stocks) don't break momentum."""
+        # Create 80 business days of stock data
+        bdays = pd.bdate_range(end="2026-02-05", periods=80)
+        stock_prices = 200 + np.cumsum(np.random.normal(0.5, 1, 80))
+        stock_df = pd.DataFrame({"XLK": stock_prices}, index=bdays)
+
+        # Add weekend dates with NaN for stocks (simulating BTC-USD outer join)
+        weekends = pd.date_range(start=bdays[0], end=bdays[-1], freq="W-SAT").union(
+            pd.date_range(start=bdays[0], end=bdays[-1], freq="W-SUN")
+        )
+        weekend_df = pd.DataFrame({"XLK": [np.nan] * len(weekends)}, index=weekends)
+        closes = pd.concat([stock_df, weekend_df]).sort_index()
+
+        result = calculate_momentum(closes)
+        assert len(result) == 1
+        assert result.iloc[0]["ticker"] == "XLK"
+
+    def test_dropna_all_preserves_partial_nan(self) -> None:
+        """Rows with some NaN (normal for different start dates) are preserved."""
+        dates = pd.bdate_range(end="2026-02-05", periods=80)
+        data = {
+            "XLK": 200 + np.cumsum(np.random.normal(0.5, 1, 80)),
+            "XLF": [np.nan] * 10 + list(40 + np.cumsum(np.random.normal(0.2, 0.5, 70))),
+        }
+        df = pd.DataFrame(data, index=dates)
+        result = calculate_momentum(df)
+        # XLK should always be present; XLF may or may not depending on NaN position
+        assert "XLK" in result["ticker"].values
+
+
 class TestGetTopN:
     def test_top_1(self, sample_closes: pd.DataFrame) -> None:
         rankings = calculate_momentum(sample_closes)

@@ -21,7 +21,7 @@ from src.agent.claude_agent import (
     build_recent_trades_text,
     build_system_prompt,
 )
-from src.strategies.portfolio_b import AIAutonomyStrategy, filter_interesting_tickers
+from src.strategies.portfolio_b import AIAutonomyStrategy, build_universe_opportunities, filter_interesting_tickers
 
 # ── Prompt building tests ────────────────────────────────────────────────────
 
@@ -494,6 +494,69 @@ class TestFilterInterestingTickers:
             universe=["XLK", "XLF", "GLD"],
         )
         assert "XLF" in result
+
+
+# ── Universe opportunities tests ─────────────────────────────────────────────
+
+
+class TestBuildUniverseOpportunities:
+    def test_returns_non_held_tickers(self) -> None:
+        """Only non-held tickers appear in opportunities."""
+        universe = ["XLK", "XLF", "GLD", "QQQ", "AAPL"]
+        closes = _make_closes(universe, days=30)
+        result = build_universe_opportunities(closes, ["XLK", "XLF"], universe=universe)
+        momentum_tickers = [m["ticker"] for m in result["top_momentum"]]
+        assert "XLK" not in momentum_tickers
+        assert "XLF" not in momentum_tickers
+
+    def test_top_momentum_capped(self) -> None:
+        """Top momentum list is capped at top_n."""
+        universe = ["XLK", "XLF", "GLD", "QQQ", "AAPL", "NVDA", "META"]
+        closes = _make_closes(universe, days=30)
+        result = build_universe_opportunities(closes, ["XLK"], universe=universe, top_n=3)
+        assert len(result["top_momentum"]) <= 3
+
+    def test_empty_positions(self) -> None:
+        """Works with no current positions — all tickers are candidates."""
+        universe = ["XLK", "XLF", "GLD"]
+        closes = _make_closes(universe, days=30)
+        result = build_universe_opportunities(closes, [], universe=universe)
+        assert len(result["top_momentum"]) == 3
+
+    def test_insufficient_data(self) -> None:
+        """Returns empty results when insufficient data."""
+        universe = ["XLK", "XLF"]
+        closes = _make_closes(universe, days=10)
+        result = build_universe_opportunities(closes, [], universe=universe)
+        assert result["top_momentum"] == []
+        assert result["oversold"] == []
+
+    def test_sector_gaps_detected(self) -> None:
+        """Sector gaps reflect sectors not represented in holdings."""
+        universe = ["XLK", "XLE", "GLD"]  # Tech, Energy, Commodities
+        closes = _make_closes(universe, days=30)
+        result = build_universe_opportunities(closes, ["XLK"], universe=universe)
+        # Holdings are in Technology, so Energy and Commodities should be gaps
+        assert len(result["sector_gaps"]) >= 1
+
+    def test_return_structure(self) -> None:
+        """Result dict has the expected keys."""
+        universe = ["XLK", "XLF"]
+        closes = _make_closes(universe, days=30)
+        result = build_universe_opportunities(closes, [], universe=universe)
+        assert "top_momentum" in result
+        assert "oversold" in result
+        assert "sector_gaps" in result
+
+    def test_momentum_has_return_field(self) -> None:
+        """Each momentum entry has ticker and return_20d_pct."""
+        universe = ["XLK", "XLF", "GLD"]
+        closes = _make_closes(universe, days=30)
+        result = build_universe_opportunities(closes, [], universe=universe)
+        for entry in result["top_momentum"]:
+            assert "ticker" in entry
+            assert "return_20d_pct" in entry
+            assert isinstance(entry["return_20d_pct"], float)
 
 
 # ── Decision persistence test ────────────────────────────────────────────────

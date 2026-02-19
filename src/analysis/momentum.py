@@ -32,6 +32,9 @@ def calculate_momentum(
         DataFrame with columns: ticker, return_63d, rank.
         Sorted by rank ascending (rank 1 = best momentum).
     """
+    # Drop rows where ALL columns are NaN (e.g. weekend rows from BTC-USD 7-day trading)
+    closes = closes.dropna(how="all")
+
     required_rows = lookback + 1
     if len(closes) < required_rows:
         log.warning(

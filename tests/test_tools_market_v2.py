@@ -4,6 +4,8 @@ Tests cover: get_batch_technicals, get_sector_heatmap, get_market_overview,
 get_earnings_calendar, and legacy aliases.
 """
 
+from datetime import datetime
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -16,9 +18,13 @@ from src.agent.tools.market import (
     _get_market_overview,
     _get_price_and_technicals,
     _get_sector_heatmap,
+    _get_signal_rankings,
     register_market_tools,
 )
+from src.analysis.signal_engine import TickerSignal, signals_to_db_rows
 from src.storage.database import Database
+
+_FIXED_TIME = datetime(2025, 6, 15, 12, 0, 0)
 
 
 @pytest.fixture
@@ -234,3 +240,106 @@ async def test_alias_get_price_and_technicals(closes: pd.DataFrame):
     assert result["ticker"] == "XLK"
     assert "price" in result
     assert "change_1d_pct" in result
+
+
+async def test_registration_includes_signal_rankings(closes: pd.DataFrame, db: Database):
+    """register_market_tools includes get_signal_rankings when db is provided."""
+    registry = ToolRegistry()
+    register_market_tools(registry, closes, db=db, held_tickers=["XLK"])
+    assert "get_signal_rankings" in registry.tool_names
+
+
+async def test_registration_skips_signal_rankings_without_db(closes: pd.DataFrame):
+    """register_market_tools skips get_signal_rankings when db is None."""
+    registry = ToolRegistry()
+    register_market_tools(registry, closes, vix=18.5)
+    assert "get_signal_rankings" not in registry.tool_names
+
+
+# ── get_signal_rankings tool ─────────────────────────────────────────────────
+
+
+async def test_signal_rankings_tool_no_data(db: Database):
+    """Returns error message when no signal data exists."""
+    result = await _get_signal_rankings(db, "default", [])
+    assert "error" in result
+    assert "No signal data" in result["error"]
+
+
+async def test_signal_rankings_tool_with_data(db: Database):
+    """Returns structured ranking data from saved signals."""
+    signals = [
+        TickerSignal(
+            ticker="XLK", composite_score=85.3, rank=1, prev_rank=3,
+            rank_velocity=2.0, momentum_20d=0.08, momentum_63d=0.15,
+            rsi=55, macd_histogram=0.5, sma_trend_score=3,
+            bollinger_pct_b=0.7, volume_ratio=1.2,
+            alerts=["golden_cross"], scored_at=_FIXED_TIME,
+        ),
+        TickerSignal(
+            ticker="XLF", composite_score=60.0, rank=2, prev_rank=2,
+            rank_velocity=0, momentum_20d=0.03, momentum_63d=0.05,
+            rsi=45, macd_histogram=0.1, sma_trend_score=2,
+            bollinger_pct_b=0.5, volume_ratio=1.0, alerts=[],
+            scored_at=_FIXED_TIME,
+        ),
+    ]
+    rows = signals_to_db_rows("default", signals)
+    await db.save_signal_batch(rows)
+
+    result = await _get_signal_rankings(db, "default", ["XLF"])
+    assert result["total_tickers"] == 2
+    assert len(result["top_ranked"]) == 2
+    assert result["top_ranked"][0]["ticker"] == "XLK"
+    assert result["top_ranked"][0]["held"] is False
+    assert result["top_ranked"][1]["ticker"] == "XLF"
+    assert result["top_ranked"][1]["held"] is True
+
+
+async def test_signal_rankings_tool_movers_section(db: Database):
+    """Returns biggest movers sorted by absolute rank velocity."""
+    signals = [
+        TickerSignal(
+            ticker="NVDA", composite_score=90, rank=1, prev_rank=15,
+            rank_velocity=14.0, momentum_20d=0.1, momentum_63d=0.2,
+            rsi=62, macd_histogram=1.0, sma_trend_score=3,
+            bollinger_pct_b=0.8, volume_ratio=3.2, alerts=[],
+            scored_at=_FIXED_TIME,
+        ),
+        TickerSignal(
+            ticker="XLE", composite_score=30, rank=50, prev_rank=10,
+            rank_velocity=-40.0, momentum_20d=-0.05, momentum_63d=-0.1,
+            rsi=28, macd_histogram=-0.5, sma_trend_score=0,
+            bollinger_pct_b=0.1, volume_ratio=0.8, alerts=["rsi_oversold_cross"],
+            scored_at=_FIXED_TIME,
+        ),
+    ]
+    rows = signals_to_db_rows("default", signals)
+    await db.save_signal_batch(rows)
+
+    result = await _get_signal_rankings(db, "default", [])
+    assert len(result["biggest_movers"]) == 2
+    # XLE has higher abs velocity (-40 > 14)
+    assert result["biggest_movers"][0]["ticker"] == "XLE"
+    assert result["alerts"][0]["ticker"] == "XLE"
+    assert "rsi_oversold_cross" in result["alerts"][0]["alerts"]
+
+
+async def test_signal_rankings_tool_top_n(db: Database):
+    """top_n parameter limits the number of top_ranked results."""
+    signals = [
+        TickerSignal(
+            ticker=f"T{i}", composite_score=100 - i, rank=i + 1, prev_rank=None,
+            rank_velocity=0, momentum_20d=0, momentum_63d=0,
+            rsi=50, macd_histogram=0, sma_trend_score=1,
+            bollinger_pct_b=0.5, volume_ratio=1.0, alerts=[],
+            scored_at=_FIXED_TIME,
+        )
+        for i in range(10)
+    ]
+    rows = signals_to_db_rows("default", signals)
+    await db.save_signal_batch(rows)
+
+    result = await _get_signal_rankings(db, "default", [], top_n=5)
+    assert len(result["top_ranked"]) == 5
+    assert result["total_tickers"] == 10

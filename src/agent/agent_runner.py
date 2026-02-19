@@ -217,6 +217,15 @@ class AgentRunner:
                 # Model is done — parse text response
                 text = self._extract_text(response)
                 response_dict = self._parse_response(text)
+
+                # If parse failed (no regime_assessment and no trades), retry once
+                if not response_dict.get("regime_assessment") and not response_dict.get("trades"):
+                    retry_dict = await self._retry_json_format(
+                        client, effective_model, system_prompt, messages, text
+                    )
+                    if retry_dict.get("regime_assessment") or retry_dict.get("trades"):
+                        response_dict = retry_dict
+
                 response_dict.update(self._build_metadata(turn, tool_call_logs))
 
                 # Append assistant message for logging
@@ -369,6 +378,53 @@ class AgentRunner:
                 "trades": [],
                 "risk_notes": "Agent loop finalization failed.",
             }
+
+    async def _retry_json_format(
+        self,
+        client: anthropic.Anthropic,
+        model: str,
+        system_prompt: str | list[dict],
+        messages: list[dict],
+        raw_text: str,
+    ) -> dict:
+        """One retry when model responds in prose instead of JSON.
+
+        Appends the raw response and a reformat request, then calls the API
+        once more without tools to get a structured JSON response.
+        """
+        log.warning("agent_json_retry", raw_preview=raw_text[:200])
+        messages_copy = list(messages)
+        messages_copy.append({"role": "assistant", "content": raw_text})
+        messages_copy.append(
+            {
+                "role": "user",
+                "content": (
+                    "Your response was not valid JSON. Please reformat your analysis as the required JSON object "
+                    "with keys: regime_assessment, reasoning, trades, risk_notes, theses_update."
+                ),
+            }
+        )
+        try:
+            resp = client.messages.create(
+                model=model,
+                max_tokens=4096,
+                system=system_prompt,
+                messages=messages_copy,
+            )
+            self._token_tracker.record(
+                model=resp.model,
+                input_tokens=resp.usage.input_tokens,
+                output_tokens=resp.usage.output_tokens,
+                turn=0,  # retry turn
+                cache_creation_tokens=getattr(resp.usage, "cache_creation_input_tokens", 0) or 0,
+                cache_read_tokens=getattr(resp.usage, "cache_read_input_tokens", 0) or 0,
+            )
+            if self._pacer:
+                self._pacer.record(resp.usage.input_tokens)
+            return self._parse_response(self._extract_text(resp))
+        except Exception as e:
+            log.error("agent_json_retry_failed", error=str(e))
+            return {}
 
     @staticmethod
     def _extract_text(response) -> str:
