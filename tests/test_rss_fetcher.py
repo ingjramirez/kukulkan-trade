@@ -135,17 +135,26 @@ def test_fetch_strips_html_from_summary(mock_parse):
 
 def test_create_default_rss_fetchers():
     fetchers = create_default_rss_fetchers()
-    assert len(fetchers) == 3
+    assert len(fetchers) == 5
 
     names = {f.source_name for f in fetchers}
     assert "reuters" in names
     assert "nikkei_asia" in names
     assert "scmp" in names
+    assert "reddit_wsb" in names
+    assert "reddit_stocks" in names
 
     regions = {f.region for f in fetchers}
     assert "global" in regions
     assert "asia" in regions
     assert "china" in regions
+    assert "us" in regions
+
+    # Reddit fetchers should have reduced max_entries
+    from src.data.rss_news import MAX_ENTRIES_REDDIT
+
+    wsb = next(f for f in fetchers if f.source_name == "reddit_wsb")
+    assert wsb._max_entries == MAX_ENTRIES_REDDIT
 
 
 @patch("src.data.rss_news.feedparser.parse")

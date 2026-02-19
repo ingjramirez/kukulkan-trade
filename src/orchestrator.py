@@ -183,20 +183,6 @@ class Orchestrator:
 
     def _register_extra_fetchers(self) -> None:
         """Register additional news fetchers (Reddit, RSS) if configured."""
-        # Reddit (requires credentials)
-        try:
-            if settings.reddit.client_id and settings.reddit.client_secret:
-                from src.data.reddit_news import RedditNewsFetcher
-
-                self._news_aggregator.register(
-                    RedditNewsFetcher(
-                        client_id=settings.reddit.client_id,
-                        client_secret=settings.reddit.client_secret,
-                    )
-                )
-        except Exception as e:
-            log.debug("reddit_fetcher_registration_failed", error=str(e))
-
         # RSS feeds (no credentials needed)
         try:
             from src.data.rss_news import create_default_rss_fetchers

@@ -1,4 +1,4 @@
-"""RSS news fetcher for global news sources (Reuters, Nikkei Asia, SCMP).
+"""RSS news fetcher for global news sources (Reuters, Nikkei Asia, SCMP, Reddit).
 
 Uses feedparser (BSD license, sync). Configurable per source.
 Graceful fallback on bad feeds — logs warning, returns empty list.
@@ -19,6 +19,7 @@ from src.data.news_article import NewsArticle
 log = structlog.get_logger()
 
 MAX_ENTRIES_PER_FEED = 15
+MAX_ENTRIES_REDDIT = 5  # Reddit feeds: keep small to reduce noise
 
 
 class RSSNewsFetcher(BaseNewsFetcher):
@@ -30,11 +31,13 @@ class RSSNewsFetcher(BaseNewsFetcher):
         feed_urls: list[str],
         region: str = "global",
         source_language: str = "en",
+        max_entries: int = MAX_ENTRIES_PER_FEED,
     ) -> None:
         self.source_name = source_name
         self.region = region
         self._feed_urls = feed_urls
         self._source_language = source_language
+        self._max_entries = max_entries
         self._universe = set(FULL_UNIVERSE)
 
     def fetch(self, tickers: list[str] | None = None) -> list[NewsArticle]:
@@ -55,7 +58,7 @@ class RSSNewsFetcher(BaseNewsFetcher):
                     log.warning("rss_feed_parse_error", source=self.source_name, url=url)
                     continue
 
-                for entry in feed.entries[:MAX_ENTRIES_PER_FEED]:
+                for entry in feed.entries[:self._max_entries]:
                     title = entry.get("title", "")
                     if not title:
                         continue
@@ -123,10 +126,14 @@ def _parse_date(entry: dict) -> datetime | None:
 
 
 def create_default_rss_fetchers() -> list[RSSNewsFetcher]:
-    """Create preconfigured RSS fetchers for global news sources.
+    """Create preconfigured RSS fetchers for global news sources + Reddit.
+
+    Reddit uses public RSS feeds (no API key required):
+    - wallstreetbets: top/day (high signal, lower noise than new)
+    - stocks + investing: hot (engagement-filtered, more fundamental)
 
     Returns:
-        List of RSSNewsFetcher instances for Reuters, Nikkei Asia, SCMP.
+        List of RSSNewsFetcher instances for Reuters, Nikkei Asia, SCMP, Reddit.
     """
     return [
         RSSNewsFetcher(
@@ -152,5 +159,24 @@ def create_default_rss_fetchers() -> list[RSSNewsFetcher]:
             ],
             region="china",
             source_language="en",
+        ),
+        RSSNewsFetcher(
+            source_name="reddit_wsb",
+            feed_urls=[
+                "https://www.reddit.com/r/wallstreetbets/top/.rss?t=day",
+            ],
+            region="us",
+            source_language="en",
+            max_entries=MAX_ENTRIES_REDDIT,
+        ),
+        RSSNewsFetcher(
+            source_name="reddit_stocks",
+            feed_urls=[
+                "https://www.reddit.com/r/stocks/hot/.rss",
+                "https://www.reddit.com/r/investing/hot/.rss",
+            ],
+            region="us",
+            source_language="en",
+            max_entries=MAX_ENTRIES_REDDIT,
         ),
     ]
