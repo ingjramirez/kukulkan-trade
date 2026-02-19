@@ -81,6 +81,33 @@ def test_budget_remaining():
     assert 0.0 < tracker.budget_remaining_usd < 0.50
 
 
+def test_budget_warning_at_70pct():
+    """budget_warning is True when cost >= 70% of budget."""
+    tracker = TokenTracker(session_budget_usd=1.00)
+    # Sonnet: (100000 * 3.0 + 10000 * 15.0) / 1M = 0.45 — 45% < 70%
+    tracker.record("claude-sonnet-4-6", input_tokens=100000, output_tokens=10000, turn=1)
+    assert tracker.budget_warning is False
+    # Add more: (200000 * 3.0 + 10000 * 15.0) / 1M = 0.75 — cumulative 1.20 → > 70%
+    tracker.record("claude-sonnet-4-6", input_tokens=200000, output_tokens=10000, turn=2)
+    assert tracker.budget_warning is True
+
+
+def test_budget_soft_limit_at_90pct():
+    """budget_soft_limit is True when cost >= 90% of budget."""
+    tracker = TokenTracker(session_budget_usd=0.10)
+    # Sonnet: (10000 * 3.0 + 5000 * 15.0) / 1M = 0.105 — already > 90%
+    tracker.record("claude-sonnet-4-6", input_tokens=10000, output_tokens=5000, turn=1)
+    assert tracker.budget_soft_limit is True
+
+
+def test_budget_ok_under_70pct():
+    """Both warning and soft_limit are False under 70%."""
+    tracker = TokenTracker(session_budget_usd=1.00)
+    tracker.record("claude-haiku-4-5-20251001", input_tokens=100, output_tokens=50, turn=1)
+    assert tracker.budget_warning is False
+    assert tracker.budget_soft_limit is False
+
+
 def test_unknown_model_fallback():
     tracker = TokenTracker(session_budget_usd=1.00)
     tracker.record("unknown-model-xyz", input_tokens=1000, output_tokens=500, turn=1)

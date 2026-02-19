@@ -63,6 +63,37 @@ After investigation, respond with a JSON object:
 If no trades, return empty trades array with reasoning for holding."""
 
 
+def _truncate_tool_results(msg: dict, max_chars: int = 300) -> dict:
+    """Truncate tool_result content blocks in replayed history messages.
+
+    Only modifies messages whose content is a list containing tool_result blocks.
+    Returns a shallow copy with truncated content — does not mutate the original.
+    """
+    content = msg.get("content")
+    if not isinstance(content, list):
+        return msg
+
+    needs_truncation = False
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "tool_result":
+            text = block.get("content", "")
+            if isinstance(text, str) and len(text) > max_chars:
+                needs_truncation = True
+                break
+
+    if not needs_truncation:
+        return msg
+
+    new_content = []
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "tool_result":
+            text = block.get("content", "")
+            if isinstance(text, str) and len(text) > max_chars:
+                block = {**block, "content": text[:max_chars] + " [truncated]"}
+        new_content.append(block)
+    return {**msg, "content": new_content}
+
+
 class ContextManager:
     """Builds the messages array for each Claude API call from conversation history."""
 
@@ -171,10 +202,10 @@ class ContextManager:
                 }
             )
 
-        # 2. Replay recent sessions as the actual conversation
+        # 2. Replay recent sessions (with truncated tool results to save tokens)
         for session in recent_sessions:
             for msg in session["messages"]:
-                messages.append(msg)
+                messages.append(_truncate_tool_results(msg, max_chars=300))
 
         # 3. New trigger message
         messages.append({"role": "user", "content": trigger_message})

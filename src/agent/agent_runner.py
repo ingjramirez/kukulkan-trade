@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 import anthropic
 import structlog
 
+from src.agent.request_pacer import RequestPacer
 from src.agent.token_tracker import TokenTracker
 from src.agent.tools import ToolRegistry
 
@@ -59,12 +60,12 @@ class AgentRunner:
         model: str = "claude-sonnet-4-6",
         max_turns: int = 8,
         max_cost_usd: float = 0.50,
-        turn_delay: float = 5.0,
+        pacer: RequestPacer | None = None,
     ) -> None:
         self._api_key = api_key
         self._model = model
         self._max_turns = max_turns
-        self._turn_delay = turn_delay
+        self._pacer = pacer
         self._registry = ToolRegistry()
         self._token_tracker = TokenTracker(session_budget_usd=max_cost_usd)
 
@@ -110,11 +111,12 @@ class AgentRunner:
         while turn < self._max_turns:
             turn += 1
 
-            # Rate-limit pacing: sleep between turns to avoid 429s
-            if turn > 1 and self._turn_delay > 0:
-                import asyncio as _asyncio
-
-                await _asyncio.sleep(self._turn_delay)
+            # Rate-limit pacing via sliding-window pacer
+            wait_secs = 0.0
+            estimated = 0
+            if turn > 1 and self._pacer:
+                estimated = RequestPacer.estimate_tokens(messages, system_prompt)
+                wait_secs = await self._pacer.wait_if_needed(estimated)
 
             # Check budget before calling
             if self._token_tracker.budget_exceeded:
@@ -128,8 +130,41 @@ class AgentRunner:
                     raw_messages=messages,
                 )
 
+            # Budget soft limit (90%) — gracefully finalize
+            if self._token_tracker.budget_soft_limit:
+                log.warning(
+                    "agent_budget_soft_limit",
+                    turn=turn,
+                    cost=round(self._token_tracker.total_cost_usd, 4),
+                )
+                response_dict = await self._graceful_finalize(client, effective_model, system_prompt, messages)
+                return AgentRunResult(
+                    response=response_dict,
+                    tool_calls=tool_call_logs,
+                    turns=turn,
+                    token_tracker=self._token_tracker,
+                    raw_messages=messages,
+                )
+
+            # Budget warning (70%) — log only
+            if self._token_tracker.budget_warning:
+                log.info(
+                    "agent_budget_warning",
+                    turn=turn,
+                    pct_used=round(
+                        self._token_tracker.total_cost_usd / self._token_tracker.session_budget_usd * 100, 1
+                    ),
+                )
+
             # Call Claude (with fallback on server errors)
-            log.info("agent_loop_turn", turn=turn, model=effective_model)
+            log.info(
+                "agent_loop_turn",
+                turn=turn,
+                model=effective_model,
+                estimated_tokens=estimated,
+                budget_remaining=round(self._token_tracker.budget_remaining_usd, 4),
+                pacer_wait_secs=round(wait_secs, 1),
+            )
             try:
                 response = client.messages.create(
                     model=effective_model,
@@ -167,6 +202,8 @@ class AgentRunner:
                 cache_creation_tokens=getattr(response.usage, "cache_creation_input_tokens", 0) or 0,
                 cache_read_tokens=getattr(response.usage, "cache_read_input_tokens", 0) or 0,
             )
+            if self._pacer:
+                self._pacer.record(response.usage.input_tokens)
 
             # Process response
             if response.stop_reason == "end_turn":

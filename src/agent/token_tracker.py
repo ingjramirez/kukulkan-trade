@@ -104,6 +104,16 @@ class TokenTracker:
         return self.total_cost_usd >= self.session_budget_usd
 
     @property
+    def budget_warning(self) -> bool:
+        """True when cost >= 70% of session budget."""
+        return self.total_cost_usd >= self.session_budget_usd * 0.70
+
+    @property
+    def budget_soft_limit(self) -> bool:
+        """True when cost >= 90% of session budget."""
+        return self.total_cost_usd >= self.session_budget_usd * 0.90
+
+    @property
     def total_input_tokens(self) -> int:
         """Sum of input tokens across all calls."""
         return sum(e.input_tokens for e in self.entries)

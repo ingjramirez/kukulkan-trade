@@ -269,8 +269,8 @@ async def test_invalid_json_fallback():
 
 
 @pytest.mark.asyncio
-async def test_turn_delay_sleeps_between_turns():
-    """AgentRunner sleeps between turns when turn_delay > 0."""
+async def test_pacer_called_between_turns():
+    """AgentRunner calls pacer between turns when provided."""
     tool_response = _make_tool_use_response("get_price", {"ticker": "SPY"})
     final_response = _make_text_response(
         json.dumps({"regime_assessment": "Ok", "reasoning": "Done", "trades": [], "risk_notes": ""})
@@ -285,17 +285,17 @@ async def test_turn_delay_sleeps_between_turns():
             return tool_response
         return final_response
 
-    mock_sleep = AsyncMock()
-    with (
-        patch("src.agent.agent_runner.anthropic") as mock_anthropic,
-        patch("asyncio.sleep", mock_sleep),
-    ):
+    mock_pacer = MagicMock()
+    mock_pacer.wait_if_needed = AsyncMock(return_value=0.0)
+    mock_pacer.record = MagicMock()
+
+    with patch("src.agent.agent_runner.anthropic") as mock_anthropic:
         mock_client = MagicMock()
         mock_client.messages.create.side_effect = side_effect
         mock_anthropic.Anthropic.return_value = mock_client
         mock_anthropic.NOT_GIVEN = object()
 
-        runner = AgentRunner(api_key="test-key", turn_delay=2.0)
+        runner = AgentRunner(api_key="test-key", pacer=mock_pacer)
 
         async def mock_tool(**kwargs) -> dict:
             return {"price": 200.0}
@@ -304,36 +304,76 @@ async def test_turn_delay_sleeps_between_turns():
         result = await runner.run("system", "user")
 
     assert result.turns == 2
-    # Sleep should have been called once (before turn 2, not before turn 1)
-    mock_sleep.assert_called_once_with(2.0)
+    # Pacer wait_if_needed called once (before turn 2, not before turn 1)
+    mock_pacer.wait_if_needed.assert_called_once()
+    # Pacer record called for each API response
+    assert mock_pacer.record.call_count == 2
 
 
 @pytest.mark.asyncio
-async def test_turn_delay_zero_no_sleep():
-    """AgentRunner does not sleep when turn_delay=0."""
+async def test_no_pacer_no_error():
+    """AgentRunner works without a pacer (pacer=None)."""
     response_json = json.dumps(
         {"regime_assessment": "Ok", "reasoning": "Done", "trades": [], "risk_notes": ""}
     )
     mock_response = _make_text_response(response_json)
 
-    mock_sleep = AsyncMock()
-    with (
-        patch("src.agent.agent_runner.anthropic") as mock_anthropic,
-        patch("asyncio.sleep", mock_sleep),
-    ):
+    with patch("src.agent.agent_runner.anthropic") as mock_anthropic:
         mock_client = MagicMock()
         mock_client.messages.create.return_value = mock_response
         mock_anthropic.Anthropic.return_value = mock_client
         mock_anthropic.NOT_GIVEN = object()
 
-        runner = AgentRunner(api_key="test-key", turn_delay=0)
-        await runner.run("system", "user")
+        runner = AgentRunner(api_key="test-key")
+        result = await runner.run("system", "user")
 
-    mock_sleep.assert_not_called()
+    assert result.turns == 1
+    assert runner._pacer is None
 
 
 @pytest.mark.asyncio
-async def test_turn_delay_default():
-    """AgentRunner default turn_delay is 5.0."""
-    runner = AgentRunner(api_key="test-key")
-    assert runner._turn_delay == 5.0
+async def test_soft_limit_triggers_finalize():
+    """When budget soft limit (90%) is hit, model is forced to finalize."""
+    tool_response = _make_tool_use_response("get_price", {"ticker": "SPY"})
+    final_response = _make_text_response(
+        json.dumps(
+            {
+                "regime_assessment": "Soft limit",
+                "reasoning": "Budget nearly spent",
+                "trades": [],
+                "risk_notes": "",
+            }
+        )
+    )
+
+    call_count = 0
+
+    def side_effect(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return tool_response
+        return final_response
+
+    with patch("src.agent.agent_runner.anthropic") as mock_anthropic:
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = side_effect
+        mock_anthropic.Anthropic.return_value = mock_client
+        mock_anthropic.NOT_GIVEN = object()
+
+        runner = AgentRunner(api_key="test-key", max_cost_usd=0.10)
+
+        async def mock_tool(**kwargs) -> dict:
+            return {"price": 200.0}
+
+        runner.registry.register("get_price", "Get price", {"type": "object", "properties": {}}, mock_tool)
+
+        # Run turn 1 (tool use)
+        # After turn 1, record will add cost. Let's pre-load cost to 91%
+        runner._token_tracker.record("claude-sonnet-4-6", input_tokens=10000, output_tokens=5000, turn=0)
+        # Cost: (10000*3 + 5000*15)/1M = 0.105 > 0.09 (90% of 0.10)
+
+        result = await runner.run("system", "user")
+
+    # Should have finalized due to soft limit, not continued tool loop
+    assert "trades" in result.response

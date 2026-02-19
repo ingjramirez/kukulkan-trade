@@ -152,9 +152,15 @@ class PersistentAgent:
         if base_system_prompt:
             system_prompt = f"{system_prompt}\n\n{base_system_prompt}"
 
-        # 2. Load conversation history
-        summaries = await self._store.load_summaries(self._tenant_id)
-        recent_sessions = await self._store.load_recent(self._tenant_id)
+        # 2. Load conversation history (reduced for rate-limit-aware pacing)
+        from config.settings import settings
+
+        skip_triggers = [t.strip() for t in settings.agent.agent_skip_history_triggers.split(",")]
+        recent_n = 0 if trigger_type in skip_triggers else settings.agent.agent_history_recent_n
+        summaries_n = 5 if trigger_type in skip_triggers else settings.agent.agent_history_summaries_n
+
+        summaries = await self._store.load_summaries(self._tenant_id, n=summaries_n)
+        recent_sessions = await self._store.load_recent(self._tenant_id, n=recent_n)
 
         # 3. Build trigger message
         trigger_message = self._context.build_trigger_message(

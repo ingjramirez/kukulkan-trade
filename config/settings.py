@@ -55,9 +55,12 @@ class AgentSettings(BaseSettings):
     validate_model: str = "claude-opus-4-6"  # env: AGENT_VALIDATE_MODEL
     enable_tiered: bool = False  # env: AGENT_ENABLE_TIERED
     enable_cache: bool = True  # env: AGENT_ENABLE_CACHE
-    max_retries: int = 5  # env: AGENT_MAX_RETRIES — SDK retries on 429/5xx
+    max_retries: int = 2  # env: AGENT_MAX_RETRIES — pacer prevents most 429s, fail fast
     fallback_model: str = "claude-sonnet-4-6"  # env: AGENT_FALLBACK_MODEL
-    agent_turn_delay_seconds: float = 5.0  # env: AGENT_AGENT_TURN_DELAY_SECONDS — pacing between turns
+    agent_history_recent_n: int = 2  # env: AGENT_AGENT_HISTORY_RECENT_N — recent sessions to replay
+    agent_history_summaries_n: int = 10  # env: AGENT_AGENT_HISTORY_SUMMARIES_N — compressed summaries
+    agent_skip_history_triggers: str = "manual,event"  # CSV — these triggers get no recent history
+    agent_tpm_limit: int = 25500  # env: AGENT_AGENT_TPM_LIMIT — 85% of Tier 1's 30K TPM
 
     model_config = {"env_prefix": "AGENT_", "env_file": ".env", "extra": "ignore"}
 
