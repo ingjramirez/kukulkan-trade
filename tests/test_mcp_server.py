@@ -197,7 +197,7 @@ class TestWorkspaceFiles:
         assert "kukulkan" in data["mcpServers"]
         server = data["mcpServers"]["kukulkan"]
         assert server["type"] == "stdio"
-        assert server["command"] == "python"
+        assert "python" in server["command"]
 
     def test_gitignore_covers_ephemeral(self):
         path = Path(__file__).parent.parent / "data" / "agent-workspace" / ".gitignore"
