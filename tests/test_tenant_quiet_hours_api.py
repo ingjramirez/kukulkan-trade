@@ -57,7 +57,6 @@ class TestQuietHoursAPIIntegration:
         tenant.portfolio_a_pct = 33.33
         tenant.portfolio_b_pct = 66.67
         tenant.pending_rebalance = False
-        tenant.use_agent_loop = False
         tenant.quiet_hours_start = "22:00"
         tenant.quiet_hours_end = "06:30"
         tenant.quiet_hours_timezone = "US/Eastern"
@@ -106,7 +105,6 @@ class TestQuietHoursAPIIntegration:
         tenant.portfolio_a_pct = 33.33
         tenant.portfolio_b_pct = 66.67
         tenant.pending_rebalance = False
-        tenant.use_agent_loop = False
         # No quiet hours attrs → should use defaults
         del tenant.quiet_hours_start
         del tenant.quiet_hours_end

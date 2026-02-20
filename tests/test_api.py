@@ -337,7 +337,7 @@ async def test_agent_decisions(client):
     data = r.json()
     assert len(data) == 1
     decision = data[0]
-    assert decision["model_used"] == "claude-sonnet-4-6"
+    assert "model_used" not in decision
     assert isinstance(decision["proposed_trades"], list)
     assert decision["proposed_trades"][0]["ticker"] == "MSFT"
 

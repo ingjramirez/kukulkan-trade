@@ -61,31 +61,15 @@ async def test_intraday_update_event_carries_values():
     event_bus.unsubscribe(sub_id)
 
 
-async def test_budget_updated_event():
-    sub_id, queue = event_bus.subscribe(tenant_id="default")
-    event_bus.publish(
-        Event(
-            type=EventType.BUDGET_UPDATED,
-            tenant_id="default",
-            data={"cost_usd": 0.42, "session_label": "morning"},
-        )
-    )
-    evt = queue.get_nowait()
-    assert evt.type == EventType.BUDGET_UPDATED
-    assert evt.data["cost_usd"] == 0.42
-    event_bus.unsubscribe(sub_id)
-
-
 async def test_multiple_data_events_in_sequence():
     """Multiple data refresh events arrive in order."""
     sub_id, queue = event_bus.subscribe(tenant_id="default")
     event_bus.publish(Event(type=EventType.POSITIONS_UPDATED, tenant_id="default", data={"trades_executed": 2}))
     event_bus.publish(Event(type=EventType.PORTFOLIO_SNAPSHOT, tenant_id="default", data={"portfolio": "A"}))
-    event_bus.publish(Event(type=EventType.BUDGET_UPDATED, tenant_id="default", data={"cost_usd": 0.1}))
 
-    assert queue.qsize() == 3
-    types = [queue.get_nowait().type for _ in range(3)]
-    assert types == [EventType.POSITIONS_UPDATED, EventType.PORTFOLIO_SNAPSHOT, EventType.BUDGET_UPDATED]
+    assert queue.qsize() == 2
+    types = [queue.get_nowait().type for _ in range(2)]
+    assert types == [EventType.POSITIONS_UPDATED, EventType.PORTFOLIO_SNAPSHOT]
     event_bus.unsubscribe(sub_id)
 
 
@@ -93,7 +77,6 @@ async def test_data_events_tenant_scoped():
     """Data events for t1 don't reach t2 subscriber."""
     sub_id, queue = event_bus.subscribe(tenant_id="t2")
     event_bus.publish(Event(type=EventType.POSITIONS_UPDATED, tenant_id="t1", data={}))
-    event_bus.publish(Event(type=EventType.BUDGET_UPDATED, tenant_id="t1", data={}))
     assert queue.empty()
     event_bus.unsubscribe(sub_id)
 

@@ -1091,38 +1091,6 @@ async def run_scheduled() -> None:
         name="Kukulkan Intraday Cleanup",
     )
 
-    # Weekly conversation message cleanup (Sunday 7:30 PM ET)
-    async def conversation_cleanup_job():
-        try:
-            from src.agent.conversation_store import ConversationStore
-
-            store = ConversationStore(db)
-            tenants = await db.get_active_tenants()
-            total_cleaned = 0
-            if tenants:
-                for tenant in tenants:
-                    cleaned = await store.cleanup_old_messages(tenant.id, days=30)
-                    total_cleaned += cleaned
-            else:
-                cleaned = await store.cleanup_old_messages("default", days=30)
-                total_cleaned += cleaned
-            if total_cleaned:
-                log.info("conversation_cleanup_complete", cleaned=total_cleaned)
-        except Exception as e:
-            log.error("conversation_cleanup_failed", error=str(e))
-
-    scheduler.add_job(
-        conversation_cleanup_job,
-        CronTrigger(
-            day_of_week="sun",
-            hour=19,
-            minute=30,
-            timezone="US/Eastern",
-        ),
-        id="conversation_cleanup",
-        name="Kukulkan Conversation Cleanup",
-    )
-
     scheduler.start()
     log.info(
         "scheduler_started",
@@ -1131,7 +1099,7 @@ async def run_scheduled() -> None:
         "Intraday every 15min 9-16 ET; "
         "Fri 17:00 ET report; Sun 17:00 ET playbook+calibration; "
         "Sun 18:00 ET compaction; "
-        "Sun 19:00 ET cleanup; Sun 19:30 ET conversation cleanup",
+        "Sun 19:00 ET cleanup",
     )
 
     # Keep running until interrupted

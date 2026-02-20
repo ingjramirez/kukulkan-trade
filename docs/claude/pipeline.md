@@ -127,7 +127,7 @@ class MomentumStrategy:
 
 ```python
 class AIAutonomyStrategy:
-    def __init__(self, agent: ClaudeAgent | None = None) -> None
+    def __init__(self) -> None  # No args — agent removed in Phase 49
     def prepare_context(self, closes, volumes, positions, cash, total_value, recent_trades,
         regime=None, yield_curve=None, vix=None, news_context="", system_prompt=None, universe=None) -> dict
     def agent_response_to_trades(self, response, total_value, current_positions, latest_prices,

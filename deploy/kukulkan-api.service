@@ -21,7 +21,7 @@ EnvironmentFile=/opt/kukulkan-trade/.env
 # Security hardening
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=/opt/kukulkan-trade/data /opt/kukulkan-trade/logs
+ReadWritePaths=/opt/kukulkan-trade/data /opt/kukulkan-trade/logs /home/kukulkan
 
 # Logging
 StandardOutput=journal

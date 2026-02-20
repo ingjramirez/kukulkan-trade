@@ -409,8 +409,6 @@ class AIAutonomyStrategy:
                     response_summary=response.get("regime_assessment", ""),
                     proposed_trades=trades_json,
                     reasoning=response.get("reasoning", ""),
-                    model_used=response.get("_model", ""),
-                    tokens_used=response.get("_tokens_used", 0),
                     regime=regime,
                     session_label=session_label,
                 )
@@ -421,5 +419,4 @@ class AIAutonomyStrategy:
             "agent_decision_saved",
             date=str(analysis_date),
             trades=len(trades),
-            tokens=response.get("_tokens_used", 0),
         )

@@ -36,7 +36,6 @@ class EventType(str, Enum):
     POSITIONS_UPDATED = "positions_updated"
     PORTFOLIO_SNAPSHOT = "portfolio_snapshot"
     INTRADAY_UPDATE = "intraday_update"
-    BUDGET_UPDATED = "budget_updated"
     WATCHLIST_UPDATED = "watchlist_updated"
 
     # Sentinel events

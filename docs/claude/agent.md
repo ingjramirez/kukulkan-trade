@@ -1,34 +1,96 @@
 # AI Agent & Tools
 
-Machine-readable context for Claude. Covers the agent subsystem, tool-use loop, memory, discovery, and strategy directives.
+Machine-readable context for Claude. Covers the agent subsystem, Claude Code CLI integration, tools, memory, discovery, and strategy directives.
 
 ## Key Files
 
 | File | Purpose |
-|------|---------|
+|-|-|
 | `src/agent/claude_agent.py` | ClaudeAgent class, system/user prompt builders, single-shot analyze() |
-| `src/agent/agent_runner.py` | AgentRunner tool-use loop (Sonnet 4.5, 8 turns, $0.50 budget) |
-| `src/agent/token_tracker.py` | Per-model pricing, budget enforcement |
+| `src/agent/claude_invoker.py` | ClaudeInvoker (subprocess `claude -p`), `claude_cli_call`/`claude_cli_json` helpers, session state/context writers |
+| `src/agent/mcp_server.py` | MCP stdio server for Claude Code — reads session-state.json, registers tools |
 | `src/agent/memory.py` | AgentMemoryManager: short-term, weekly compaction, agent notes |
 | `src/agent/strategy_directives.py` | CONSERVATIVE/STANDARD/AGGRESSIVE + SESSION_DIRECTIVES |
-| `src/agent/complexity_detector.py` | ComplexityDetector: 6-signal scoring for model escalation |
 | `src/agent/ticker_discovery.py` | TickerDiscovery: validation, propose, expire |
-| `src/agent/persistent_agent.py` | PersistentAgent wrapping AgentRunner with conversation persistence |
 | `src/agent/conversation_store.py` | SQLite-backed conversation save/load/compress/cleanup |
-| `src/agent/context_manager.py` | Context building: system prompt, messages, trigger messages, pinned context |
-| `src/agent/session_compressor.py` | Haiku compression + Sonnet validation for old sessions |
-| `src/agent/session_profiles.py` | SessionProfile enum (FULL/LIGHT/CRISIS/REVIEW/BUDGET_SAVING) |
-| `src/agent/haiku_scanner.py` | HaikuScanner for fast market triage (ScanResult: ROUTINE/INVESTIGATE/URGENT) |
-| `src/agent/opus_validator.py` | OpusValidator for trade review (ValidationResult: approved/concerns) |
-| `src/agent/tiered_runner.py` | TieredModelRunner orchestrating Haiku→Sonnet→Opus per session profile |
-| `src/agent/budget_tracker.py` | BudgetTracker (daily $3 / monthly $75 caps), BudgetStatus dataclass |
-| `src/agent/posture.py` | PostureLevel enum, PostureLimits, PostureManager (aggressive gate) |
+| `src/agent/posture.py` | PostureLevel enum, PostureLimits, PostureManager |
+| `src/agent/sentinel.py` | SentinelRunner: intraday stop/regime/fill checks, escalation guards |
 | `src/agent/tools/__init__.py` | ToolRegistry + ToolDefinition dataclass |
 | `src/agent/tools/portfolio.py` | 6 tools + 3 legacy aliases |
 | `src/agent/tools/market.py` | 5 tools + 2 legacy aliases |
 | `src/agent/tools/news.py` | 3 tools: search_news, search_historical_news, get_portfolio_a_status |
 | `src/agent/tools/actions.py` | 6 tools + 2 legacy aliases + ActionState + declare_posture |
 | `config/strategies.py` | PortfolioAConfig, PortfolioBConfig frozen dataclasses |
+| `data/agent-workspace/` | CLAUDE.md (agent instructions), mcp.json (MCP config), settings.json |
+
+## Architecture: Claude Code CLI
+
+Phase 49 replaced the Anthropic SDK runtime (AgentRunner, PersistentAgent, TieredModelRunner, TokenTracker, BudgetTracker, ComplexityDetector, HaikuScanner, OpusValidator, ContextManager, SessionCompressor, SessionProfiles) with Claude Code CLI (`claude -p`) via Claude Max subscription.
+
+**Runtime flow:**
+```
+Orchestrator → write_session_state() + write_context_file()
+            → ClaudeInvoker.invoke() → subprocess `claude -p`
+            → Claude Code spawns MCP server (reads session-state.json)
+            → Claude reads context.md, calls MCP tools, returns JSON
+            → Invoker reads JSON + session-results.json → returns InvokeResult
+```
+
+**No API key needed at runtime.** Anthropic SDK is dev-only (backtest).
+
+### ClaudeInvoker (`src/agent/claude_invoker.py`)
+
+```python
+@dataclass
+class InvokeResult:
+    response: dict      # Parsed trading response (trades, reasoning, etc.)
+    session_id: str     # For --resume across sessions
+    accumulated: dict   # ActionState from MCP server (trailing stops, posture, etc.)
+    error: str | None
+    # Properties: .trades, .reasoning, .posture, .trailing_stop_requests, .tool_summary
+
+class ClaudeInvoker:
+    def __init__(self, workspace=WORKSPACE, timeout=600, max_turns=25, model="claude-sonnet-4-6")
+    async def invoke(self, session_type: str, today: date | None = None) -> InvokeResult
+```
+
+Session strategy: morning starts new session, midday/close resume via `--resume <session_id>`. Session ID persisted in `.session-id` file.
+
+CLI command built by `_build_cmd()`:
+```bash
+claude -p "<prompt>" --output-format json --mcp-config mcp.json \
+    --allowedTools "mcp__kukulkan__*" --max-turns 25 --model claude-sonnet-4-6
+```
+
+### Lightweight CLI Helpers
+
+```python
+async def claude_cli_call(prompt: str, model: str = "claude-haiku-4-5-20251001", timeout: int = 120) -> str
+    # Text-in/text-out. Used by memory compaction.
+
+async def claude_cli_json(prompt: str, model: str = "claude-sonnet-4-6", timeout: int = 120) -> dict
+    # Text-in/JSON-out. Used by weekly improvement analyzer.
+```
+
+Both wrap `subprocess.run` via `asyncio.to_thread()`. No MCP, no session persistence.
+
+### MCP Server (`src/agent/mcp_server.py`)
+
+Stdio-based MCP server registered via `mcp.json`. On startup:
+1. Reads `session-state.json` → reconstructs DataFrames, prices, regime
+2. Registers all agent tools (portfolio, market, news, actions)
+3. Writes accumulated ActionState to `session-results.json` on exit
+
+### Session State Files (`data/agent-workspace/`)
+
+| File | Written By | Read By |
+|-|-|-|
+| `session-state.json` | `write_session_state()` | MCP server startup |
+| `context.md` | `write_context_file()` | Claude Code (prompt context) |
+| `session-results.json` | MCP server on exit | `ClaudeInvoker._read_session_results()` |
+| `.session-id` | `ClaudeInvoker` | `ClaudeInvoker` (resume) |
+| `CLAUDE.md` | Manual | Claude Code (system instructions) |
+| `mcp.json` | Manual | Claude Code (MCP config) |
 
 ## ClaudeAgent (`src/agent/claude_agent.py`)
 
@@ -48,6 +110,8 @@ class ClaudeAgent:
     def generate_daily_commentary(self, analysis_date, portfolio_a_summary, portfolio_b_summary, regime=None) -> str
 ```
 
+**Note:** `ClaudeAgent` is now only used by the backtest (`src/backtest/ai_strategy.py`). Production path uses `ClaudeInvoker`.
+
 ### Module-Level Functions
 
 ```python
@@ -66,14 +130,7 @@ def build_user_message(
     recent_trades, regime=None, yield_curve=None, vix=None, news_context="",
     interesting_tickers=None, closes_df=None,
 ) -> str
-# Shared by BOTH single-shot and agentic paths
-
-def build_positions_text(positions) -> str
-def build_price_table(tickers, prices) -> str
-def build_indicators_table(tickers, indicators) -> str
-def build_macro_context(yield_curve, vix) -> str
-def build_compact_price_summary(tickers, prices) -> str   # 75% smaller
-def build_compact_indicators(tickers, indicators) -> str   # 75% smaller
+# Used by backtest path only (production uses write_context_file)
 ```
 
 ### Response JSON Format
@@ -90,77 +147,10 @@ def build_compact_indicators(tickers, indicators) -> str   # 75% smaller
 }
 ```
 
-## AgentRunner (`src/agent/agent_runner.py`)
-
-```python
-@dataclass
-class ToolCallLog:
-    turn: int; tool_name: str; tool_input: dict; tool_output_preview: str; success: bool; error: str | None = None
-
-@dataclass
-class AgentRunResult:
-    response: dict; tool_calls: list[ToolCallLog]; turns: int = 0
-    token_tracker: TokenTracker; raw_messages: list[dict]
-
-class AgentRunner:
-    def __init__(self, api_key: str, model: str = "claude-sonnet-4-6", max_turns: int = 8, max_cost_usd: float = 0.50) -> None
-    @property
-    def registry(self) -> ToolRegistry
-    async def run(self, system_prompt: str, user_message: str, model_override: str | None = None) -> AgentRunResult
-```
-
-### Two-Phase Flow (orchestrator `_run_portfolio_b`)
-
-1. **Phase 1 (SEED):** Single-shot `_agent.analyze()` with complexity-routed model
-2. **Phase 2 (INVESTIGATE):** If `use_agent_loop=True`, AgentRunner tool-use loop (always Sonnet 4.5)
-3. **Merge:** Investigation overrides seed trades; falls back to seed on timeout/error
-
-### Stop Conditions
-
-- `stop_reason == "end_turn"` -> model done, parse response
-- `stop_reason == "tool_use"` -> execute tools, append results, loop
-- Budget exceeded -> graceful finalize (force text output, no tools)
-- Max turns reached -> finalize
-
-## TokenTracker (`src/agent/token_tracker.py`)
-
-```python
-MODEL_PRICING: dict[str, tuple[float, float]] = {
-    "claude-sonnet-4-6": (3.0, 15.0),   # (input_per_mtok, output_per_mtok)
-    "claude-opus-4-6": (5.0, 25.0),
-    "claude-haiku-4-5-20251001": (1.0, 5.0),
-}
-
-# Prompt caching economics
-CACHE_WRITE_MULTIPLIER = 1.25   # Cache writes cost 1.25x base input price
-CACHE_READ_MULTIPLIER = 0.10    # Cache hits cost 0.10x base input price (90% savings)
-
-@dataclass
-class TokenTracker:
-    session_budget_usd: float = 0.50
-    def record(self, model: str, input_tokens: int, output_tokens: int, turn: int,
-               cache_creation_tokens: int = 0, cache_read_tokens: int = 0) -> None
-    def summary(self) -> dict  # includes cache_savings_usd
-    @property
-    def budget_exceeded(self) -> bool
-    @property
-    def cache_savings_usd(self) -> float  # full_price - cached_price for all cache_read_tokens
-```
-
-### Prompt Caching
-
-System prompt blocks use `cache_control: {"type": "ephemeral"}` markers. Cost formula per call:
-
-```
-cost = (input * base + cache_write * base * 1.25 + cache_read * base * 0.10 + output * output_price) / 1M
-```
-
-Cached system prompt via `build_cached_system_prompt()` in `claude_agent.py`.
-
 ## Strategy Directives (`src/agent/strategy_directives.py`)
 
 | Strategy | Key Rules |
-|----------|-----------|
+|-|-|
 | `conservative` | Min 40% cash/defensive, max 50% equities, max 10% single pos, TP +8-10%, SL -5% |
 | `standard` | 20-30% cash buffer, 8-12 positions, max 15% single pos, TP +12-15%, SL -7% |
 | `aggressive` | 80-95% invested, 5-6 concentrated, max 25% single pos, TP +20%, SL -10% |
@@ -182,9 +172,9 @@ class ToolRegistry:
     async def execute(self, name: str, arguments: dict) -> Any  # raises KeyError if not found
 ```
 
-**Important:** `execute()` does NOT catch errors. Errors propagate to `AgentRunner._execute_tool()` which logs them as `success=False`.
+**Important:** `execute()` does NOT catch errors. In MCP server context, errors propagate to the MCP handler.
 
-### 23 Tools (4 modules)
+### 24 Tools (4 modules)
 
 **Portfolio tools** (`portfolio.py`):
 
@@ -208,6 +198,7 @@ class ToolRegistry:
 | `get_market_overview` | `{}` | regime, VIX, yield curve, breadth |
 | `get_earnings_calendar` | `{days?}` | upcoming earnings for held tickers |
 | `search_ticker_info` | `{ticker}` | yfinance lookup: price, cap, volume, RSI, sector, minimums check |
+| `get_signal_rankings` | `{}` | top-ranked, biggest movers, alerts |
 
 **News tools** (`news.py`):
 
@@ -238,13 +229,13 @@ Legacy aliases preserved: `get_current_positions`, `get_position_pnl`, `get_port
 class ActionState:
     proposed_trades: list[dict]; watchlist_updates: list[dict]; memory_notes: list[dict]
     executed_trades: list[dict]; trailing_stop_requests: list[dict]
-    discovery_proposals: list[dict]  # Phase 40: tool-based ticker discoveries
+    discovery_proposals: list[dict]
     declared_posture: str | None
     def get_accumulated_state(self) -> dict
     def reset(self) -> None
 ```
 
-Per-run isolation: one ActionState per agent session, accumulated across multiple tool calls.
+Per-run isolation: one ActionState per MCP session, accumulated across multiple tool calls. Written to `session-results.json` on exit.
 
 ### Registration Functions
 
@@ -255,7 +246,7 @@ def register_news_tools(registry, news_context, news_fetcher=None, current_price
 def register_action_tools(registry, state, db=None, tenant_id="default", ticker_discovery=None) -> None
 ```
 
-### Discovery Tool Flow (Phase 40)
+### Discovery Tool Flow
 
 ```
 Agent mid-session → search_ticker_info("ANET") → yfinance lookup
@@ -264,51 +255,6 @@ Agent mid-session → search_ticker_info("ANET") → yfinance lookup
 → After agent loop: orchestrator sends Telegram approval → approved/rejected
 → Approved tickers enter universe on next session
 ```
-
-Passive `suggested_tickers` JSON path preserved as fallback. System prompt tells agent to prefer tools.
-
-## Persistent Agent (`src/agent/persistent_agent.py`)
-
-```python
-class PersistentAgent:
-    def __init__(self, api_key, db, tenant_id, model=None, max_turns=8, max_cost_usd=0.50)
-    async def run_session(self, system_prompt, user_message, trigger_type="scheduled",
-                          model_override=None) -> PersistentRunResult
-```
-
-Uses ConversationStore for SQLite persistence, ContextManager for prompt assembly, SessionCompressor for old session compaction (Haiku compress + Sonnet validate). Orchestrator routing: `use_persistent_agent` > `use_agent_loop` > single-shot.
-
-## Tiered Model Runner (`src/agent/tiered_runner.py`)
-
-```python
-class TieredModelRunner:
-    def __init__(self, api_key, db, tenant_id, ...)
-    async def run(self, system_prompt, user_message, ...) -> TieredRunResult
-```
-
-Flow per SessionProfile:
-- **FULL**: Haiku scan → Sonnet investigate → Opus validate trades
-- **LIGHT + ROUTINE**: Haiku scan only ($0.002), skip investigation
-- **LIGHT + INVESTIGATE/URGENT**: Haiku scan → Sonnet investigate
-- **CRISIS**: Always full investigation
-- **BUDGET_SAVING**: Haiku scan only
-
-### Session Profiles (`src/agent/session_profiles.py`)
-
-```python
-class SessionProfile(Enum):
-    FULL = "full"           # Morning session, complex market
-    LIGHT = "light"         # Midday/Closing, routine
-    CRISIS = "crisis"       # VIX > 30 or major regime change
-    REVIEW = "review"       # Weekend review
-    BUDGET_SAVING = "budget_saving"  # Budget > 80% spent
-
-def get_session_profile(session, vix, regime_changed, budget_pct_used) -> SessionProfile
-```
-
-### Budget Tracker (`src/agent/budget_tracker.py`)
-
-Daily $3 / monthly $75 caps (configurable via `AGENT_DAILY_BUDGET`, `AGENT_MONTHLY_BUDGET`). When monthly > 80%, forces `BUDGET_SAVING` profile (Haiku only).
 
 ## Posture System (`src/agent/posture.py`)
 
@@ -321,7 +267,7 @@ class PostureManager:
     def resolve_posture(self, declared, track_record) -> tuple[PostureLevel, PostureLimits]
 ```
 
-Aggressive gate: requires 50+ trades, >55% win rate, positive alpha. `posture_limits` passed to `RiskManager.check_pre_trade()` — can only tighten, never loosen.
+All posture levels unlocked (paper trading freedom). `posture_limits` passed to `RiskManager.check_pre_trade()` — can only tighten, never loosen.
 
 ## AgentMemoryManager (`src/agent/memory.py`)
 
@@ -332,33 +278,10 @@ class AgentMemoryManager:
     def build_memory_prompt(self, memories: dict) -> str  # keys: short_term, weekly_summary, agent_note
     async def save_short_term(self, db, analysis_date, response, tenant_id="default") -> None
     async def save_agent_notes(self, db, notes: list[dict], tenant_id="default") -> None
-    async def run_weekly_compaction(self, db, agent, tenant_id="default", outcome_summary=None, track_record_text=None) -> None
+    async def run_weekly_compaction(self, db, tenant_id="default", outcome_summary=None, track_record_text=None) -> None
 ```
 
-Weekly compaction uses Haiku to evaluate past week's trades. Stores as `weekly_summary` with key like `week_2026-07`.
-
-## ComplexityDetector (`src/agent/complexity_detector.py`)
-
-```python
-class ComplexityDetector:
-    def __init__(self, threshold: int | None = None) -> None  # default: PORTFOLIO_B.escalation_threshold
-    def evaluate(self, closes, positions, total_value, peak_value, regime_today, regime_yesterday, vix, indicators) -> ComplexityResult
-
-@dataclass(frozen=True)
-class ComplexityResult:
-    score: int  # 0-100
-    should_escalate: bool  # score >= threshold
-    signals: list[str]
-```
-
-### 6 Signals (max 100 points)
-
-1. Drawdown > 5% from peak: +20
-2. Regime change (today != yesterday): +20
-3. VIX > 30: +20; VIX 25-30: +15
-4. >= 3 tickers moved > 5% today: +15
-5. > 7 positions held: +10
-6. Conflicting indicators (MACD > 0 AND RSI > 70): +15
+Weekly compaction uses `claude_cli_call(model="claude-haiku-4-5-20251001")` to evaluate past week's trades. Stores as `weekly_summary` with key like `week_2026-07`.
 
 ## TickerDiscovery (`src/agent/ticker_discovery.py`)
 
@@ -367,7 +290,7 @@ MAX_DYNAMIC_TICKERS = 10; MIN_MARKET_CAP = 1_000_000_000; MIN_AVG_VOLUME = 100_0
 
 class TickerDiscovery:
     def __init__(self, db: Database) -> None
-    def validate_ticker(self, ticker: str) -> TickerValidationResult  # sync, checks cap/volume/universe
+    def validate_ticker(self, ticker: str) -> TickerValidationResult
     async def propose_ticker(self, ticker, rationale, source="agent", today=None, tenant_id="default") -> DiscoveredTickerRow | None
     async def get_active_tickers(self, tenant_id="default") -> list[str]
     async def expire_old(self, today=None, tenant_id="default") -> int
@@ -392,11 +315,14 @@ class PortfolioBConfig:
 
 ## Gotchas
 
-- `build_user_message()` is shared by both single-shot and agentic paths -- changes affect both
+- `AIAutonomyStrategy.__init__()` takes NO args — `agent=` parameter was removed in Phase 49
+- `claude_cli_call` is lazily imported in `memory.py` → patch at `src.agent.claude_invoker.claude_cli_call`
+- `claude_cli_json` is lazily imported in `weekly_improvement.py` → patch at `src.agent.claude_invoker.claude_cli_json`
+- `build_user_message()` is only used by backtest path now — production uses `write_context_file()`
 - `ToolRegistry.execute()` raises `KeyError` on unknown tool, does NOT catch handler errors
-- `AgentSettings` env prefix is `AGENT_` -- field `agent_tool_model` becomes env var `AGENT_AGENT_TOOL_MODEL`
-- `save_tool_call_logs`: `tool_input` is a dict but column is Text -- must `json.dumps()` before storing
-- `_run_portfolio_b()` returns 3-tuple `(trades, reasoning, tool_summary)` -- all callers must match
-- Agentic tests must patch `orch._strategy_b._agent.analyze()` -- two-phase flow calls it in Phase 1 (seed)
-- `TrackRecord.format_for_prompt` uses `:.0f` for win_rate -- 66.7% rounds to "67%", not "66%"
-- Weekly compaction evaluation prompt now includes outcome feedback (verdict, track record)
+- `AgentSettings` env prefix is `AGENT_` — field `agent_tool_model` becomes env var `AGENT_AGENT_TOOL_MODEL`
+- `save_tool_call_logs`: `tool_input` is a dict but column is Text — must `json.dumps()` before storing
+- `_run_portfolio_b()` returns 3-tuple `(trades, reasoning, tool_summary)` — all callers must match
+- Tests mocking Portfolio B should mock `orchestrator._run_portfolio_b` as `AsyncMock(return_value=([], "reasoning", "tool_summary"))` — NOT `_strategy_b._agent`
+- `TrackRecord.format_for_prompt` uses `:.0f` for win_rate — 66.7% rounds to "67%"
+- Weekly compaction evaluation prompt includes outcome feedback (verdict, track record)

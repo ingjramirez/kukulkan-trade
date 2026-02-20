@@ -119,8 +119,6 @@ class AgentDecisionResponse(BaseModel):
     response_summary: str | None = None
     proposed_trades: list | None = None
     reasoning: str | None = None
-    model_used: str | None = None
-    tokens_used: int | None = None
     regime: str | None = None
     session_label: str | None = None
     created_at: UTCDatetime
@@ -176,7 +174,6 @@ class TenantUpdateRequest(BaseModel):
     is_active: bool | None = None
     username: str | None = None
     password: str | None = None
-    use_agent_loop: bool | None = None
     quiet_hours_start: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
     quiet_hours_end: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
     quiet_hours_timezone: str | None = None
@@ -199,7 +196,6 @@ class TenantSelfUpdateRequest(BaseModel):
     ticker_whitelist: list[str] | None = None
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None
-    use_agent_loop: bool | None = None
     quiet_hours_start: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
     quiet_hours_end: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
     quiet_hours_timezone: str | None = None
@@ -279,16 +275,6 @@ class ToolCallLogResponse(BaseModel):
     created_at: UTCDatetime
 
 
-class ConversationSessionResponse(BaseModel):
-    session_id: str
-    trigger_type: str
-    summary: str | None = None
-    token_count: int = 0
-    cost_usd: float = 0.0
-    session_status: str = "completed"
-    created_at: UTCDatetime
-
-
 # ── Agent Insights Schemas ─────────────────────────────────────────
 
 
@@ -323,18 +309,6 @@ class ConvictionCalibrationResponse(BaseModel):
     suggested_multiplier: float
 
 
-class BudgetStatusResponse(BaseModel):
-    daily_spent: float
-    daily_limit: float
-    daily_remaining: float
-    monthly_spent: float
-    monthly_limit: float
-    monthly_remaining: float
-    daily_exhausted: bool
-    monthly_exhausted: bool
-    haiku_only: bool
-
-
 class InversePositionResponse(BaseModel):
     ticker: str
     value: float
@@ -365,18 +339,6 @@ class ConnectionTestResponse(BaseModel):
     error: str | None = None
 
 
-class ConversationDetailResponse(BaseModel):
-    session_id: str
-    tenant_id: str
-    trigger_type: str
-    summary: str | None = None
-    token_count: int = 0
-    cost_usd: float = 0.0
-    session_status: str = "completed"
-    messages: list[dict] = []
-    created_at: UTCDatetime
-
-
 class TenantReadResponse(BaseModel):
     id: str
     name: str
@@ -393,7 +355,6 @@ class TenantReadResponse(BaseModel):
     portfolio_a_pct: float
     portfolio_b_pct: float
     pending_rebalance: bool = False
-    use_agent_loop: bool = False
     quiet_hours_start: str = "21:00"
     quiet_hours_end: str = "07:00"
     quiet_hours_timezone: str = "America/Mexico_City"

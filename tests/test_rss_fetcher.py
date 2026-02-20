@@ -151,7 +151,7 @@ def test_create_default_rss_fetchers():
     assert len(fetchers) == 5
 
     names = {f.source_name for f in fetchers}
-    assert "reuters" in names
+    assert "cnbc" in names
     assert "nikkei_asia" in names
     assert "scmp" in names
     assert "reddit_wsb" in names

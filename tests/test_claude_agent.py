@@ -717,6 +717,5 @@ class TestSaveDecision:
             rows = result.scalars().all()
         assert len(rows) == 1
         assert rows[0].reasoning == "Markets look strong"
-        assert rows[0].tokens_used == 1500
 
         await db.close()

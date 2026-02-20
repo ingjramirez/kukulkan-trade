@@ -35,8 +35,6 @@ async def list_decisions(
                 response_summary=r.response_summary,
                 proposed_trades=proposed,
                 reasoning=r.reasoning,
-                model_used=r.model_used,
-                tokens_used=r.tokens_used,
                 regime=r.regime,
                 session_label=r.session_label,
                 created_at=r.created_at,

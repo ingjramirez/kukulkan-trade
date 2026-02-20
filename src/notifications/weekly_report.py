@@ -201,21 +201,6 @@ class WeeklyReporter:
 
         lines.append(f"  Decisions: {len(week_decisions)}")
 
-        # Model usage breakdown
-        models_used: dict[str, int] = {}
-        total_tokens = 0
-        for d in week_decisions:
-            model = d.model_used or "unknown"
-            models_used[model] = models_used.get(model, 0) + 1
-            total_tokens += d.tokens_used or 0
-
-        for model, count in models_used.items():
-            short_name = model.replace("claude-", "").split("-202")[0]
-            lines.append(f"  {short_name}: {count}x")
-
-        if total_tokens > 0:
-            lines.append(f"  Tokens: {total_tokens:,}")
-
         return "\n".join(lines)
 
     async def _drawdown_status(self) -> str:

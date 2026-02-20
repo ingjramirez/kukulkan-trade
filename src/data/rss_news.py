@@ -136,13 +136,13 @@ def create_default_rss_fetchers() -> list[RSSNewsFetcher]:
     - stocks + investing: hot (engagement-filtered, more fundamental)
 
     Returns:
-        List of RSSNewsFetcher instances for Reuters, Nikkei Asia, SCMP, Reddit.
+        List of RSSNewsFetcher instances for CNBC, Nikkei Asia, SCMP, Reddit.
     """
     return [
         RSSNewsFetcher(
-            source_name="reuters",
+            source_name="cnbc",
             feed_urls=[
-                "https://www.reutersagency.com/feed/?best-topics=business-finance&post_type=best",
+                "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114",
             ],
             region="global",
             source_language="en",
@@ -150,7 +150,7 @@ def create_default_rss_fetchers() -> list[RSSNewsFetcher]:
         RSSNewsFetcher(
             source_name="nikkei_asia",
             feed_urls=[
-                "https://asia.nikkei.com/rss",
+                "https://asia.nikkei.com/rss/feed/nar",
             ],
             region="asia",
             source_language="en",

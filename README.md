@@ -41,7 +41,7 @@ Allocations are percentage-based and dynamic — initial equity is captured from
 
 ## Tech Stack
 
-Python 3.11 | FastAPI | SQLAlchemy + aiosqlite | ChromaDB | yfinance | `ta` | Anthropic Claude | Alpaca | Telegram | Next.js
+Python 3.11 | FastAPI | SQLAlchemy + aiosqlite | ChromaDB | yfinance | `ta` | Claude Code CLI (Max subscription) | Alpaca | Telegram | Next.js
 
 ## Features
 
@@ -79,7 +79,6 @@ pip install -e ".[dev]"
 # Copy and fill environment variables
 cp .env.example .env
 # Edit .env — required keys:
-#   ANTHROPIC_API_KEY      — Claude API
 #   ALPACA_API_KEY         — Alpaca paper trading
 #   ALPACA_SECRET_KEY      — Alpaca secret
 #   EXECUTOR               — alpaca | paper
@@ -88,6 +87,7 @@ cp .env.example .env
 #   JWT_SECRET             — API authentication
 #   TENANT_ENCRYPTION_KEY  — Fernet key for credential encryption
 #   FRED_API_KEY           — macro data (optional)
+# Note: ANTHROPIC_API_KEY is NOT needed — the bot uses Claude Code CLI (Max subscription)
 
 # Start ChromaDB (Docker)
 docker compose up -d
@@ -213,11 +213,13 @@ kukulkan-trade/
 │   └── risk_rules.py          # Position size & risk limits
 ├── src/
 │   ├── agent/
-│   │   ├── claude_agent.py        # Claude AI analysis & trade decisions
-│   │   ├── complexity_detector.py # Smart model routing (Haiku/Opus)
+│   │   ├── claude_agent.py        # Claude AI analysis & trade decisions (backtest only)
+│   │   ├── claude_invoker.py      # Claude Code CLI invoker (production AI path)
+│   │   ├── mcp_server.py          # MCP stdio server for Claude Code tool access
 │   │   ├── memory.py             # 3-tier agent memory system
 │   │   ├── strategy_directives.py # Strategy + session + regime prompts
 │   │   ├── ticker_discovery.py    # AI-suggested ticker additions
+│   │   ├── posture.py             # PostureLevel enum + PostureManager
 │   │   └── sentinel.py            # Intraday sentinel: stop/regime/fill monitoring (extended hours)
 │   ├── analysis/
 │   │   ├── gap_risk.py            # Overnight gap risk analyzer
@@ -233,7 +235,7 @@ kukulkan-trade/
 │   │   ├── rate_limit.py         # Sliding-window rate limiter
 │   │   ├── alpaca_client.py      # Alpaca account + portfolio history (cached)
 │   │   ├── schemas.py            # Pydantic request/response models
-│   │   └── routes/               # 15 route modules
+│   │   └── routes/               # 16 route modules
 │   ├── backtest/
 │   │   ├── runner.py              # Historical strategy backtesting
 │   │   └── ai_strategy.py        # AI backtest with budget tracking
@@ -257,7 +259,7 @@ kukulkan-trade/
 │   │   ├── quiet_hours.py         # Quiet hours manager: queue/deliver notifications
 │   │   └── weekly_report.py       # Friday performance report
 │   ├── storage/
-│   │   ├── models.py              # 25 SQLAlchemy tables + Pydantic schemas
+│   │   ├── models.py              # 27 SQLAlchemy tables + Pydantic schemas
 │   │   ├── database.py            # Async CRUD operations
 │   │   └── vector_store.py        # ChromaDB client
 │   ├── strategies/
@@ -275,7 +277,7 @@ kukulkan-trade/
 ├── migrations/                    # SQL migration files
 ├── scripts/
 │   └── migrate.py                 # Migration runner
-├── tests/                         # 1681 tests
+├── tests/                         # 1728 tests
 ├── deploy/
 │   ├── kukulkan-bot.service       # Bot systemd unit
 │   ├── kukulkan-api.service       # API systemd unit

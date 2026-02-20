@@ -1968,7 +1968,7 @@ class Orchestrator:
                 {"activity_types": "CSD,JNLC", "after": after},
             )
         except Exception as e:
-            log.warning("deposit_detection_fetch_failed", error=str(e))
+            log.debug("deposit_detection_fetch_failed", error=str(e))
             return allocations
 
         if not raw:
