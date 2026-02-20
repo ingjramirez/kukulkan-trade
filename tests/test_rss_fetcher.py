@@ -11,6 +11,15 @@ from src.data.rss_news import (
 )
 
 
+def _mock_httpx_response(status_code: int = 200, text: str = "<rss></rss>") -> MagicMock:
+    """Create a mock httpx.Response."""
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.text = text
+    resp.raise_for_status = MagicMock()
+    return resp
+
+
 def test_inherits_base_fetcher():
     fetcher = RSSNewsFetcher(source_name="test", feed_urls=["https://example.com/rss"])
     assert isinstance(fetcher, BaseNewsFetcher)
@@ -59,8 +68,9 @@ def _make_feed(entries: list[dict], feed_title: str = "Test Feed") -> MagicMock:
     return feed
 
 
+@patch("src.data.rss_news.httpx.get", return_value=_mock_httpx_response())
 @patch("src.data.rss_news.feedparser.parse")
-def test_fetch_returns_articles(mock_parse):
+def test_fetch_returns_articles(mock_parse, mock_get):
     mock_parse.return_value = _make_feed(
         [
             {
@@ -86,8 +96,9 @@ def test_fetch_returns_articles(mock_parse):
     assert articles[0].headline == "NVDA supply chain restart in Asia"
 
 
+@patch("src.data.rss_news.httpx.get", return_value=_mock_httpx_response())
 @patch("src.data.rss_news.feedparser.parse")
-def test_fetch_extracts_tickers(mock_parse):
+def test_fetch_extracts_tickers(mock_parse, mock_get):
     mock_parse.return_value = _make_feed(
         [
             {
@@ -104,8 +115,9 @@ def test_fetch_extracts_tickers(mock_parse):
     assert "MSFT" in articles[0].tickers
 
 
+@patch("src.data.rss_news.httpx.get", return_value=_mock_httpx_response())
 @patch("src.data.rss_news.feedparser.parse")
-def test_fetch_handles_bad_feed(mock_parse):
+def test_fetch_handles_bad_feed(mock_parse, mock_get):
     mock_feed = MagicMock()
     mock_feed.bozo = True
     mock_feed.entries = []
@@ -116,8 +128,9 @@ def test_fetch_handles_bad_feed(mock_parse):
     assert articles == []
 
 
+@patch("src.data.rss_news.httpx.get", return_value=_mock_httpx_response())
 @patch("src.data.rss_news.feedparser.parse")
-def test_fetch_strips_html_from_summary(mock_parse):
+def test_fetch_strips_html_from_summary(mock_parse, mock_get):
     mock_parse.return_value = _make_feed(
         [
             {
@@ -157,8 +170,9 @@ def test_create_default_rss_fetchers():
     assert wsb._max_entries == MAX_ENTRIES_REDDIT
 
 
+@patch("src.data.rss_news.httpx.get", return_value=_mock_httpx_response())
 @patch("src.data.rss_news.feedparser.parse")
-def test_metadata_includes_feed_url(mock_parse):
+def test_metadata_includes_feed_url(mock_parse, mock_get):
     mock_parse.return_value = _make_feed(
         [{"title": "Test article", "summary": "", "link": ""}]
     )
@@ -173,3 +187,36 @@ def test_metadata_includes_feed_url(mock_parse):
     assert articles[0].metadata["feed_url"] == "https://example.com/rss"
     assert articles[0].source_language == "ja"
     assert articles[0].region == "asia"
+
+
+@patch("src.data.rss_news.httpx.get")
+@patch("src.data.rss_news.feedparser.parse")
+def test_multi_url_fetches_from_all_feeds(mock_parse, mock_get):
+    """RSS fetcher collects articles from multiple feed URLs."""
+    mock_get.return_value = _mock_httpx_response()
+    mock_parse.side_effect = [
+        _make_feed([{"title": "Article from feed 1", "summary": "", "link": ""}]),
+        _make_feed([{"title": "Article from feed 2", "summary": "", "link": ""}]),
+    ]
+
+    fetcher = RSSNewsFetcher(
+        source_name="multi",
+        feed_urls=["https://example.com/rss1", "https://example.com/rss2"],
+    )
+    articles = fetcher.fetch()
+    assert len(articles) == 2
+    assert articles[0].headline == "Article from feed 1"
+    assert articles[1].headline == "Article from feed 2"
+    assert mock_get.call_count == 2
+
+
+@patch("src.data.rss_news.httpx.get")
+def test_httpx_timeout_skips_feed(mock_get):
+    """If httpx.get raises, the feed is skipped gracefully."""
+    import httpx
+
+    mock_get.side_effect = httpx.ReadTimeout("timed out")
+
+    fetcher = RSSNewsFetcher(source_name="timeout", feed_urls=["https://slow.example.com/rss"])
+    articles = fetcher.fetch()
+    assert articles == []

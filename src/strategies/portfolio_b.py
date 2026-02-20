@@ -227,9 +227,6 @@ class AIAutonomyStrategy:
                 except (ValueError, KeyError, IndexError) as e:
                     log.debug("technical_context_failed", ticker=t, error=str(e))
 
-        # Universe opportunities for non-held tickers (breaks tunnel vision)
-        universe_opps = build_universe_opportunities(closes, held_tickers, universe=universe)
-
         ctx = {
             "analysis_date": date.today(),
             "cash": cash,
@@ -245,7 +242,6 @@ class AIAutonomyStrategy:
             "news_context": news_context,
             "interesting_tickers": interesting,
             "closes_df": closes,
-            "universe_opportunities": universe_opps,
         }
         if system_prompt is not None:
             ctx["system_prompt"] = system_prompt

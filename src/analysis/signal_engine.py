@@ -233,7 +233,11 @@ class SignalEngine:
 
     @staticmethod
     def _compute_rsi_score(closes: pd.DataFrame, tickers: list[str]) -> pd.Series:
-        """RSI distance from 50 — extremes score higher (both oversold and overbought)."""
+        """RSI distance from 50 — extremes score higher (both oversold and overbought).
+
+        Intentionally non-directional: used for attention routing, not buy/sell signals.
+        RSI 30 and RSI 70 score equally because both deserve investigation.
+        """
         scores: dict[str, float] = {}
         for t in tickers:
             rsi_val = _raw_rsi(closes, t)

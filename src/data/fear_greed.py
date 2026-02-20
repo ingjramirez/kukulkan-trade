@@ -6,6 +6,7 @@ Fetched twice daily (9:30 AM + 4:30 PM ET) and persisted to SentimentIndicatorRo
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import httpx
@@ -71,7 +72,7 @@ async def fetch_and_save(db: object, tenant_id: str) -> dict | None:
     Returns:
         The fetched data dict, or None on failure.
     """
-    data = fetch_fear_greed()
+    data = await asyncio.to_thread(fetch_fear_greed)
     if data is None:
         return None
 

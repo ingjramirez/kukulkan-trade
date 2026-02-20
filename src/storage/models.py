@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -562,6 +563,7 @@ class SentimentIndicatorRow(Base):
     """External sentiment indicators (Fear & Greed, put/call ratio, etc.)."""
 
     __tablename__ = "sentiment_indicators"
+    __table_args__ = (Index("idx_sentiment_tenant_name", "tenant_id", "name", "fetched_at"),)
 
     id = Column(Integer, primary_key=True)
     tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
@@ -576,6 +578,10 @@ class TickerSignalRow(Base):
     """Ticker signal rankings computed by the local SignalEngine (every 10 min)."""
 
     __tablename__ = "ticker_signals"
+    __table_args__ = (
+        Index("idx_signals_tenant_scored", "tenant_id", "scored_at"),
+        Index("idx_signals_tenant_ticker", "tenant_id", "ticker", "scored_at"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)

@@ -97,6 +97,15 @@ async def test_fetch_and_save_returns_none_on_failure(mock_fetch):
     db.save_sentiment_indicator.assert_not_called()
 
 
+def test_classify_boundaries():
+    """Exact boundary values for _classify transitions."""
+    assert _classify(0) == "Extreme Fear"
+    assert _classify(21) == "Fear"
+    assert _classify(41) == "Neutral"
+    assert _classify(61) == "Greed"
+    assert _classify(81) == "Extreme Greed"
+
+
 def test_format_for_context():
     result = format_for_context(25.0, "Extreme Fear")
     assert "25/100" in result

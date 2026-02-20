@@ -392,8 +392,8 @@ async def test_pacer_called_between_turns():
         result = await runner.run("system", "user")
 
     assert result.turns == 2
-    # Pacer wait_if_needed called once (before turn 2, not before turn 1)
-    mock_pacer.wait_if_needed.assert_called_once()
+    # Pacer wait_if_needed called before every turn (turn 1 and turn 2)
+    assert mock_pacer.wait_if_needed.call_count == 2
     # Pacer record called for each API response
     assert mock_pacer.record.call_count == 2
 

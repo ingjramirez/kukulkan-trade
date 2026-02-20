@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
 import feedparser
+import httpx
 import structlog
 
 from config.universe import FULL_UNIVERSE
@@ -53,7 +54,9 @@ class RSSNewsFetcher(BaseNewsFetcher):
 
         for url in self._feed_urls:
             try:
-                feed = feedparser.parse(url)
+                resp = httpx.get(url, timeout=10, follow_redirects=True)
+                resp.raise_for_status()
+                feed = feedparser.parse(resp.text)
                 if feed.bozo and not feed.entries:
                     log.warning("rss_feed_parse_error", source=self.source_name, url=url)
                     continue

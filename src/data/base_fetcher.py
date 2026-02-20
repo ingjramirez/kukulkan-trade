@@ -11,6 +11,11 @@ from abc import ABC, abstractmethod
 
 from src.data.news_article import NewsArticle
 
+# Common uppercase words that could false-match ticker symbols in news text
+_TICKER_STOPWORDS: set[str] = {
+    "CEO", "IPO", "GDP", "USA", "FBI", "SEC", "ETF", "API", "CPI", "PMI", "NYSE", "FOMC",
+}
+
 
 class BaseNewsFetcher(ABC):
     """Base class for news source fetchers."""
@@ -51,7 +56,7 @@ class BaseNewsFetcher(ABC):
 
         # Uppercase words that match universe tickers (min 2 chars to avoid noise)
         for word in re.findall(r"\b([A-Z]{2,5})\b", text):
-            if word in universe:
+            if word in universe and word not in _TICKER_STOPWORDS:
                 found.add(word)
 
         return sorted(found)

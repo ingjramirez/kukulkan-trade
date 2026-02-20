@@ -710,6 +710,11 @@ async def run_scheduled() -> None:
     )
 
     # Signal engine: rank all tickers every 10 min during market hours (zero API cost)
+    # Hoisted outside job so _prev_ranks state persists across invocations
+    from src.analysis.signal_engine import SignalEngine, signals_to_db_rows
+
+    _signal_engine = SignalEngine()
+
     async def signal_engine_job():
         from datetime import date as _date
 
@@ -717,9 +722,7 @@ async def run_scheduled() -> None:
         if not is_market_open(today):
             return
         try:
-            from src.analysis.signal_engine import SignalEngine, signals_to_db_rows
-
-            engine = SignalEngine()
+            engine = _signal_engine
             tenants = await db.get_active_tenants()
             tenant_list = tenants if tenants else []
             if not tenant_list:

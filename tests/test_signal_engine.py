@@ -462,3 +462,29 @@ class TestDbRowsToSignals:
 
     def test_empty_list(self) -> None:
         assert db_rows_to_signals([]) == []
+
+
+class TestVolumeRatioZeroAvg:
+    """Edge case: volume ratio when 20-day average is zero."""
+
+    def test_zero_avg_volume_returns_one(self) -> None:
+        """When avg_20 == 0, volume ratio should default to 1.0."""
+        dates = pd.date_range("2024-01-01", periods=25, freq="B")
+        closes = pd.DataFrame({"SPY": np.linspace(100, 110, 25)}, index=dates)
+        volumes = pd.DataFrame({"SPY": [0] * 25}, index=dates)
+        result = _raw_volume_ratio(closes, volumes, "SPY")
+        assert result == 1.0
+
+    def test_missing_ticker_returns_one(self) -> None:
+        dates = pd.date_range("2024-01-01", periods=25, freq="B")
+        closes = pd.DataFrame({"SPY": np.linspace(100, 110, 25)}, index=dates)
+        volumes = pd.DataFrame({"QQQ": np.random.randint(1000, 5000, 25)}, index=dates)
+        result = _raw_volume_ratio(closes, volumes, "SPY")
+        assert result == 1.0
+
+    def test_insufficient_data_returns_one(self) -> None:
+        dates = pd.date_range("2024-01-01", periods=15, freq="B")
+        closes = pd.DataFrame({"SPY": np.linspace(100, 110, 15)}, index=dates)
+        volumes = pd.DataFrame({"SPY": np.random.randint(1000, 5000, 15)}, index=dates)
+        result = _raw_volume_ratio(closes, volumes, "SPY")
+        assert result == 1.0

@@ -7,6 +7,7 @@ finalizing its trade decisions.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass, field
 
@@ -119,7 +120,7 @@ class AgentRunner:
             # Rate-limit pacing via sliding-window pacer
             wait_secs = 0.0
             estimated = 0
-            if turn > 1 and self._pacer:
+            if self._pacer:
                 estimated = RequestPacer.estimate_tokens(messages, system_prompt)
                 wait_secs = await self._pacer.wait_if_needed(estimated)
 
@@ -221,7 +222,7 @@ class AgentRunner:
                 # If parse failed (no regime_assessment and no trades), retry once
                 if not response_dict.get("regime_assessment") and not response_dict.get("trades"):
                     retry_dict = await self._retry_json_format(
-                        client, effective_model, system_prompt, messages, text
+                        client, effective_model, system_prompt, messages, text, turn=turn
                     )
                     if retry_dict.get("regime_assessment") or retry_dict.get("trades"):
                         response_dict = retry_dict
@@ -351,33 +352,53 @@ class AgentRunner:
         messages_copy = list(messages)
         messages_copy.append({"role": "user", "content": finalize_msg})
 
-        try:
-            response = client.messages.create(
-                model=model,
-                max_tokens=4096,
-                system=system_prompt,
-                messages=messages_copy,
-            )
-            self._token_tracker.record(
-                model=response.model,
-                input_tokens=response.usage.input_tokens,
-                output_tokens=response.usage.output_tokens,
-                turn=self._max_turns + 1,
-                cache_creation_tokens=getattr(response.usage, "cache_creation_input_tokens", 0) or 0,
-                cache_read_tokens=getattr(response.usage, "cache_read_input_tokens", 0) or 0,
-            )
-            if self._pacer:
-                self._pacer.record(response.usage.input_tokens)
-            text = self._extract_text(response)
-            return self._parse_response(text)
-        except Exception as e:
-            log.error("graceful_finalize_failed", error=str(e))
-            return {
-                "regime_assessment": "Finalization error",
-                "reasoning": f"Failed to finalize: {e}",
-                "trades": [],
-                "risk_notes": "Agent loop finalization failed.",
-            }
+        # Pace before the biggest request of the session (full conversation)
+        if self._pacer:
+            estimated = RequestPacer.estimate_tokens(messages_copy, system_prompt)
+            await self._pacer.wait_if_needed(estimated)
+
+        for attempt in range(2):
+            try:
+                response = client.messages.create(
+                    model=model,
+                    max_tokens=4096,
+                    system=system_prompt,
+                    messages=messages_copy,
+                )
+                self._token_tracker.record(
+                    model=response.model,
+                    input_tokens=response.usage.input_tokens,
+                    output_tokens=response.usage.output_tokens,
+                    turn=self._max_turns + 1,
+                    cache_creation_tokens=getattr(response.usage, "cache_creation_input_tokens", 0) or 0,
+                    cache_read_tokens=getattr(response.usage, "cache_read_input_tokens", 0) or 0,
+                )
+                if self._pacer:
+                    self._pacer.record(response.usage.input_tokens)
+                text = self._extract_text(response)
+                return self._parse_response(text)
+            except anthropic.RateLimitError:
+                if attempt == 0:
+                    log.warning("graceful_finalize_rate_limited", retry_in=30)
+                    await asyncio.sleep(30)
+                    continue
+                log.error("graceful_finalize_rate_limited_final")
+                return {
+                    "regime_assessment": "Rate-limited",
+                    "reasoning": "AI rate-limited; will retry next session",
+                    "trades": [],
+                    "risk_notes": "Finalize hit rate limit after retry.",
+                }
+            except Exception as e:
+                log.error("graceful_finalize_failed", error=str(e))
+                return {
+                    "regime_assessment": "Finalization error",
+                    "reasoning": "AI unavailable; will retry next session",
+                    "trades": [],
+                    "risk_notes": "Agent loop finalization failed.",
+                }
+        # Unreachable, but satisfies type checker
+        return {"regime_assessment": "", "reasoning": "", "trades": [], "risk_notes": ""}
 
     async def _retry_json_format(
         self,
@@ -386,6 +407,7 @@ class AgentRunner:
         system_prompt: str | list[dict],
         messages: list[dict],
         raw_text: str,
+        turn: int = 0,
     ) -> dict:
         """One retry when model responds in prose instead of JSON.
 
@@ -415,7 +437,7 @@ class AgentRunner:
                 model=resp.model,
                 input_tokens=resp.usage.input_tokens,
                 output_tokens=resp.usage.output_tokens,
-                turn=0,  # retry turn
+                turn=turn,
                 cache_creation_tokens=getattr(resp.usage, "cache_creation_input_tokens", 0) or 0,
                 cache_read_tokens=getattr(resp.usage, "cache_read_input_tokens", 0) or 0,
             )
