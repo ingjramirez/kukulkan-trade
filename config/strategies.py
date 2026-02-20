@@ -26,12 +26,6 @@ class PortfolioBConfig:
     max_positions: int = 20
     max_single_position_pct: float = 0.30  # no single position > 30%
     rebalance_frequency: str = "daily"
-    # TODO: If keeping Opus as default, remove the escalation flow entirely
-    # (escalation_model, escalation_threshold, approval_timeout_seconds,
-    # ComplexityDetector, _request_model_approval in orchestrator.py,
-    # and the Telegram approval keyboard).
-    escalation_model: str = "claude-opus-4-6"
-    escalation_threshold: int = 50
     approval_timeout_seconds: int = 300
 
 

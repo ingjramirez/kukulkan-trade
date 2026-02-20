@@ -1,4 +1,5 @@
 {
+  "_comment": "TEMPLATE ONLY — ClaudeInvoker._write_mcp_config() generates the actual mcp.json per tenant at runtime with resolved paths. This file is kept for documentation.",
   "mcpServers": {
     "kukulkan": {
       "type": "stdio",
@@ -6,7 +7,7 @@
       "args": ["/opt/kukulkan-trade/src/agent/mcp_server.py"],
       "env": {
         "DATABASE_URL": "sqlite+aiosqlite:////opt/kukulkan-trade/data/kukulkan.db",
-        "KUKULKAN_SESSION_STATE": "/opt/kukulkan-trade/data/agent-workspace/session-state.json",
+        "KUKULKAN_SESSION_STATE": "/opt/kukulkan-trade/data/agent-workspace/<tenant_id>/session-state.json",
         "TOOL_RESULT_MAX_CHARS": "3000"
       }
     }

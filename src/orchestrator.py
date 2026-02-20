@@ -1614,7 +1614,7 @@ class Orchestrator:
         except Exception as e:
             log.debug("fear_greed_for_claude_code_failed", error=str(e))
 
-        invoker = ClaudeInvoker()
+        invoker = ClaudeInvoker(tenant_id=tenant_id)
         workspace = invoker._workspace
 
         write_session_state(

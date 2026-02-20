@@ -8,3 +8,6 @@ session-state.json
 
 # Context file (ephemeral)
 context.md
+
+# Per-tenant workspace subdirectories (created at runtime)
+*/

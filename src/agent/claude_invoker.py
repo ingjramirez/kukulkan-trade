@@ -17,7 +17,9 @@ import asyncio
 import json
 import os
 import re
+import signal
 import subprocess
+import time
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -26,8 +28,14 @@ import structlog
 
 log = structlog.get_logger()
 
+# Project root (resolved once)
+_project_root = Path(__file__).resolve().parent.parent.parent
+
 # Default workspace (resolved relative to project root)
-WORKSPACE = Path(__file__).resolve().parent.parent.parent / "data" / "agent-workspace"
+WORKSPACE = _project_root / "data" / "agent-workspace"
+
+# Valid session types for invoke()
+VALID_SESSION_TYPES = frozenset({"morning", "midday", "closing", "manual", "event", "sentinel-crisis"})
 
 
 # ── Result types ─────────────────────────────────────────────────────────────
@@ -68,6 +76,47 @@ class InvokeResult:
             "declared_posture": self.posture,
             "source": "claude_code",
         }
+
+
+# ── Process management ─────────────────────────────────────────────────────
+
+
+def _run_with_kill(
+    cmd: list[str],
+    env: dict[str, str],
+    timeout: int,
+    cwd: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run subprocess with process-group kill on timeout.
+
+    Uses os.setsid to create a process group so we can kill the entire tree
+    (Claude Code + MCP server grandchild) on timeout instead of leaving zombies.
+    """
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        preexec_fn=os.setsid,
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+        return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+    except subprocess.TimeoutExpired:
+        # Kill entire process group (child + grandchildren)
+        pgid = os.getpgid(proc.pid)
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                os.killpg(pgid, signal.SIGKILL)
+                proc.wait(timeout=5)
+        except ProcessLookupError:
+            pass  # Already exited
+        raise
 
 
 # ── Session state writer ────────────────────────────────────────────────────
@@ -218,12 +267,16 @@ class ClaudeInvoker:
         timeout: int = 600,
         max_turns: int = 25,
         model: str = "claude-sonnet-4-6",
+        tenant_id: str = "default",
     ):
-        self._workspace = workspace
+        self._root_workspace = workspace
+        self._workspace = workspace / tenant_id
+        self._workspace.mkdir(parents=True, exist_ok=True)
         self._timeout = timeout
         self._max_turns = max_turns
         self._model = model
-        self._session_id_file = workspace / ".session-id"
+        self._tenant_id = tenant_id
+        self._session_id_file = self._workspace / ".session-id"
 
     def _get_daily_session_id(self, today: date) -> str | None:
         """Read today's session ID from file (survives process restarts)."""
@@ -242,6 +295,29 @@ class ClaudeInvoker:
         data = {"date": today.isoformat(), "session_id": session_id}
         self._session_id_file.write_text(json.dumps(data))
 
+    def _write_mcp_config(self) -> Path:
+        """Generate mcp.json dynamically with resolved paths for this tenant workspace."""
+        venv_python = _project_root / ".venv" / "bin" / "python"
+        python_cmd = str(venv_python) if venv_python.exists() else "python"
+
+        config = {
+            "mcpServers": {
+                "kukulkan": {
+                    "type": "stdio",
+                    "command": python_cmd,
+                    "args": [str(_project_root / "src" / "agent" / "mcp_server.py")],
+                    "env": {
+                        "DATABASE_URL": f"sqlite+aiosqlite:///{_project_root / 'data' / 'kukulkan.db'}",
+                        "KUKULKAN_SESSION_STATE": str(self._workspace / "session-state.json"),
+                        "TOOL_RESULT_MAX_CHARS": "3000",
+                    },
+                }
+            }
+        }
+        out = self._workspace / "mcp.json"
+        out.write_text(json.dumps(config, indent=2))
+        return out
+
     async def invoke(
         self,
         session_type: str,
@@ -250,17 +326,23 @@ class ClaudeInvoker:
         """Run a trading session via Claude Code CLI.
 
         Args:
-            session_type: "morning", "midday", "closing", "manual", "event"
+            session_type: "morning", "midday", "closing", "manual", "event", "sentinel-crisis"
             today: Current date (default: today)
 
         Returns:
             InvokeResult with parsed response, session_id, and accumulated actions.
         """
+        if session_type not in VALID_SESSION_TYPES:
+            raise ValueError(f"Invalid session_type {session_type!r}. Must be one of {sorted(VALID_SESSION_TYPES)}")
+
         today = today or date.today()
 
         # Session strategy: morning starts new, midday/close resume
         is_new = session_type == "morning" or self._get_daily_session_id(today) is None
         session_id = None if is_new else self._get_daily_session_id(today)
+
+        # Generate mcp.json with resolved paths for this tenant
+        self._write_mcp_config()
 
         cmd = self._build_cmd(session_type, session_id)
 
@@ -273,6 +355,7 @@ class ClaudeInvoker:
             session_type=session_type,
             is_new=is_new,
             resume_id=session_id,
+            tenant_id=self._tenant_id,
         )
 
         # Clean previous session results
@@ -282,13 +365,11 @@ class ClaudeInvoker:
 
         try:
             result = await asyncio.to_thread(
-                subprocess.run,
+                _run_with_kill,
                 cmd,
-                cwd=str(self._workspace),
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=self._timeout,
+                env,
+                self._timeout,
+                cwd=str(self._root_workspace),
             )
 
             if result.returncode != 0:
@@ -307,7 +388,7 @@ class ClaudeInvoker:
             if new_session_id:
                 self._save_daily_session_id(today, new_session_id)
 
-            # Read accumulated ActionState from MCP server
+            # Read accumulated ActionState from MCP server (with retry for grandchild flush)
             accumulated = self._read_session_results(results_path)
 
             log.info(
@@ -389,13 +470,17 @@ class ClaudeInvoker:
             except json.JSONDecodeError:
                 pass
 
-        # Try to find bare JSON object
-        brace_match = re.search(r"\{[\s\S]*\}", text)
-        if brace_match:
-            try:
-                return json.loads(brace_match.group())
-            except json.JSONDecodeError:
-                pass
+        # Use raw_decode to find the first valid JSON object at each '{' position.
+        # Unlike greedy/non-greedy regex, this handles nested objects correctly.
+        decoder = json.JSONDecoder()
+        for i, char in enumerate(text):
+            if char == "{":
+                try:
+                    obj, _ = decoder.raw_decode(text, i)
+                    if isinstance(obj, dict):
+                        return obj
+                except (json.JSONDecodeError, ValueError):
+                    continue
 
         # Fallback: return text as reasoning
         return {"reasoning": text[:1000], "trades": []}
@@ -408,17 +493,25 @@ class ClaudeInvoker:
         except (json.JSONDecodeError, TypeError):
             return None
 
-    def _read_session_results(self, results_path: Path) -> dict:
-        """Read accumulated ActionState written by MCP server on exit."""
-        if not results_path.exists():
-            return {}
-        try:
-            data = json.loads(results_path.read_text())
-            results_path.unlink()  # Clean up
-            return data
-        except (json.JSONDecodeError, OSError) as e:
-            log.warning("session_results_read_failed", error=str(e))
-            return {}
+    def _read_session_results(self, results_path: Path, retries: int = 6, delay: float = 0.5) -> dict:
+        """Read accumulated ActionState written by MCP server on exit.
+
+        Retries to handle race between MCP server grandchild flush and invoker read.
+        Total max wait: retries * delay (default 3s).
+        """
+        for attempt in range(retries):
+            if results_path.exists():
+                try:
+                    data = json.loads(results_path.read_text())
+                    results_path.unlink()
+                    return data
+                except (json.JSONDecodeError, OSError):
+                    pass
+            if attempt < retries - 1:
+                time.sleep(delay)
+
+        log.warning("session_results_not_found", path=str(results_path), retries=retries)
+        return {}
 
 
 # ── Lightweight Claude CLI utility ───────────────────────────────────────────
@@ -467,12 +560,10 @@ async def claude_cli_call(
 
     try:
         result = await asyncio.to_thread(
-            subprocess.run,
+            _run_with_kill,
             cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env=env,
+            env,
+            timeout,
         )
         if result.returncode != 0:
             log.error("claude_cli_call_failed", returncode=result.returncode, stderr=result.stderr[:200])
@@ -493,6 +584,10 @@ async def claude_cli_json(
     timeout: int = 120,
 ) -> dict:
     """Claude CLI call that expects a JSON response.
+
+    Note: We intentionally do NOT use --json-schema enforcement. CLAUDE.md instructions
+    + fallback parsing is more resilient than coupling to a schema flag, especially
+    when Claude Code wraps output in {"result": "...", "session_id": "..."}.
 
     Args:
         prompt: User message (should instruct JSON output).
@@ -524,12 +619,10 @@ async def claude_cli_json(
 
     try:
         result = await asyncio.to_thread(
-            subprocess.run,
+            _run_with_kill,
             cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env=env,
+            env,
+            timeout,
         )
         if result.returncode != 0:
             log.error("claude_cli_json_failed", returncode=result.returncode)
@@ -546,9 +639,15 @@ async def claude_cli_json(
         fence = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text)
         if fence:
             return json.loads(fence.group(1))
-        brace = re.search(r"\{[\s\S]*\}", text)
-        if brace:
-            return json.loads(brace.group())
+        decoder = json.JSONDecoder()
+        for i, char in enumerate(text):
+            if char == "{":
+                try:
+                    obj, _ = decoder.raw_decode(text, i)
+                    if isinstance(obj, dict):
+                        return obj
+                except (json.JSONDecodeError, ValueError):
+                    continue
         return {}
     except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception) as e:
         log.error("claude_cli_json_error", error=str(e))

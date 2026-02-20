@@ -41,6 +41,7 @@ log = structlog.get_logger()
 
 _registry: ToolRegistry | None = None
 _action_state = None  # ActionState instance, set during init
+_db = None  # Database instance, closed on shutdown
 
 
 def _load_session_state(state_path: str) -> dict:
@@ -64,9 +65,11 @@ async def _init_registry(state: dict) -> ToolRegistry:
     from src.storage.database import Database
 
     # Connect to database
+    global _db
     db_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///data/kukulkan.db")
     db = Database(db_url)
     await db.init_db()
+    _db = db
 
     tenant_id = state.get("tenant_id", "default")
 
@@ -187,8 +190,9 @@ def _write_session_results(results_path: Path) -> None:
         tmp = results_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(accumulated, default=str))
         tmp.rename(results_path)
-    except Exception:
-        pass  # stdio closed at shutdown — structlog can't write
+    except Exception as e:
+        # structlog may not work at shutdown — write to stderr directly
+        print(f"[kukulkan-mcp] session-results write failed: {e}", file=sys.stderr)
 
 
 async def main() -> None:
@@ -210,6 +214,8 @@ async def main() -> None:
             await app.run(read_stream, write_stream, app.create_initialization_options())
     finally:
         _write_session_results(results_path)
+        if _db is not None:
+            await _db.dispose()
 
 
 if __name__ == "__main__":

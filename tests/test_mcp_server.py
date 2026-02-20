@@ -54,6 +54,30 @@ class TestMCPServerModule:
         _write_session_results(results_path)
         assert not results_path.exists()
 
+    def test_write_session_results_logs_on_failure(self, tmp_path: Path, capsys):
+        """On write failure, error should be printed to stderr (not silently swallowed)."""
+        import src.agent.mcp_server as mcp_mod
+        from src.agent.mcp_server import _write_session_results
+
+        mock_state = MagicMock()
+        mock_state.get_accumulated_state.side_effect = RuntimeError("disk full")
+        mcp_mod._action_state = mock_state
+
+        results_path = tmp_path / "session-results.json"
+        _write_session_results(results_path)
+
+        captured = capsys.readouterr()
+        assert "session-results write failed" in captured.err
+        assert "disk full" in captured.err
+
+        mcp_mod._action_state = None
+
+    def test_db_global_stored(self):
+        """Verify _db module-level variable exists for shutdown cleanup."""
+        import src.agent.mcp_server as mcp_mod
+
+        assert hasattr(mcp_mod, "_db")
+
 
 class TestMCPServerToolDispatch:
     """Test the call_tool handler with a mocked registry."""
@@ -188,14 +212,29 @@ class TestWorkspaceFiles:
         data = json.loads(path.read_text())
         assert "Bash(*)" in data["permissions"]["deny"]
 
-    def test_mcp_json_valid(self):
+    def test_mcp_json_is_template(self):
+        """Static mcp.json is a template — actual config is generated at runtime."""
         path = Path(__file__).parent.parent / "data" / "agent-workspace" / "mcp.json"
         assert path.exists()
         data = json.loads(path.read_text())
         assert "kukulkan" in data["mcpServers"]
+        assert "_comment" in data  # Marked as template
+
+    def test_mcp_json_generator(self, tmp_path: Path):
+        """ClaudeInvoker._write_mcp_config generates valid mcp.json with resolved paths."""
+        from src.agent.claude_invoker import ClaudeInvoker
+
+        invoker = ClaudeInvoker(workspace=tmp_path, tenant_id="test-tenant")
+        path = invoker._write_mcp_config()
+
+        data = json.loads(path.read_text())
         server = data["mcpServers"]["kukulkan"]
         assert server["type"] == "stdio"
-        assert "python" in server["command"]
+        assert "mcp_server.py" in server["args"][0]
+        # Path should be absolute, not /opt/kukulkan-trade
+        assert not server["args"][0].startswith("/opt/")
+        # Session state should point to tenant dir
+        assert "test-tenant" in server["env"]["KUKULKAN_SESSION_STATE"]
 
     def test_gitignore_covers_ephemeral(self):
         path = Path(__file__).parent.parent / "data" / "agent-workspace" / ".gitignore"

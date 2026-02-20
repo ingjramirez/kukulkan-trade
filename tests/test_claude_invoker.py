@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from datetime import date
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
-from src.agent.claude_invoker import ClaudeInvoker, InvokeResult, write_context_file, write_session_state
+from src.agent.claude_invoker import (
+    VALID_SESSION_TYPES,
+    ClaudeInvoker,
+    InvokeResult,
+    _run_with_kill,
+    write_context_file,
+    write_session_state,
+)
 
 # ── write_session_state tests ────────────────────────────────────────────────
 
@@ -219,6 +228,16 @@ class TestInvokeResult:
 
 
 class TestClaudeInvoker:
+    def test_tenant_workspace_created(self, tmp_path: Path):
+        invoker = ClaudeInvoker(workspace=tmp_path, tenant_id="tenant-abc")
+        assert invoker._workspace == tmp_path / "tenant-abc"
+        assert invoker._workspace.exists()
+
+    def test_default_tenant_workspace(self, tmp_path: Path):
+        invoker = ClaudeInvoker(workspace=tmp_path)
+        assert invoker._workspace == tmp_path / "default"
+        assert invoker._workspace.exists()
+
     def test_build_cmd_new_session(self, tmp_path: Path):
         invoker = ClaudeInvoker(workspace=tmp_path)
         cmd = invoker._build_cmd("morning", session_id=None)
@@ -233,6 +252,12 @@ class TestClaudeInvoker:
         assert "--resume" in cmd
         idx = cmd.index("--resume")
         assert cmd[idx + 1] == "abc-123"
+
+    def test_build_cmd_mcp_config_in_tenant_dir(self, tmp_path: Path):
+        invoker = ClaudeInvoker(workspace=tmp_path, tenant_id="t1")
+        cmd = invoker._build_cmd("morning", session_id=None)
+        idx = cmd.index("--mcp-config")
+        assert "t1/mcp.json" in cmd[idx + 1]
 
     def test_parse_response_direct_json(self, tmp_path: Path):
         invoker = ClaudeInvoker(workspace=tmp_path)
@@ -260,6 +285,20 @@ class TestClaudeInvoker:
         assert result["trades"] == []
         assert "not json" in result["reasoning"]
 
+    def test_extract_json_non_greedy(self, tmp_path: Path):
+        """Non-greedy regex should extract first valid JSON, not greedy match."""
+        invoker = ClaudeInvoker(workspace=tmp_path)
+        text = 'First {"a": 1} then {"b": 2} end'
+        result = invoker._extract_json_from_text(text)
+        assert result == {"a": 1}
+
+    def test_extract_json_skips_invalid(self, tmp_path: Path):
+        """Should skip invalid JSON fragments and find valid one."""
+        invoker = ClaudeInvoker(workspace=tmp_path)
+        text = 'Bad {invalid} then {"valid": true} end'
+        result = invoker._extract_json_from_text(text)
+        assert result == {"valid": True}
+
     def test_extract_session_id(self, tmp_path: Path):
         invoker = ClaudeInvoker(workspace=tmp_path)
         stdout = json.dumps({"result": "hello", "session_id": "abc-def"})
@@ -285,7 +324,7 @@ class TestClaudeInvoker:
 
     def test_read_session_results(self, tmp_path: Path):
         invoker = ClaudeInvoker(workspace=tmp_path)
-        results_path = tmp_path / "session-results.json"
+        results_path = tmp_path / "default" / "session-results.json"
         results_path.write_text(
             json.dumps(
                 {
@@ -301,8 +340,62 @@ class TestClaudeInvoker:
 
     def test_read_session_results_missing(self, tmp_path: Path):
         invoker = ClaudeInvoker(workspace=tmp_path)
-        data = invoker._read_session_results(tmp_path / "nonexistent.json")
+        data = invoker._read_session_results(tmp_path / "nonexistent.json", retries=1, delay=0.01)
         assert data == {}
+
+    def test_read_session_results_retries_on_missing(self, tmp_path: Path):
+        """Should retry when file doesn't exist yet (MCP grandchild flush race)."""
+        invoker = ClaudeInvoker(workspace=tmp_path)
+        results_path = tmp_path / "default" / "session-results.json"
+
+        # File appears on 3rd attempt
+        call_count = 0
+
+        def delayed_exists():
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                return False
+            results_path.write_text(json.dumps({"posture": "defensive"}))
+            return True
+
+        with patch.object(type(results_path), "exists", side_effect=delayed_exists):
+            data = invoker._read_session_results(results_path, retries=5, delay=0.01)
+
+        assert data == {"posture": "defensive"}
+
+    def test_write_mcp_config(self, tmp_path: Path):
+        invoker = ClaudeInvoker(workspace=tmp_path, tenant_id="t1")
+        path = invoker._write_mcp_config()
+        assert path.exists()
+        data = json.loads(path.read_text())
+        server = data["mcpServers"]["kukulkan"]
+        assert server["type"] == "stdio"
+        assert "python" in server["command"] or ".venv" in server["command"]
+        assert "mcp_server.py" in server["args"][0]
+        # Session state points to tenant workspace
+        assert "t1" in server["env"]["KUKULKAN_SESSION_STATE"]
+
+    @pytest.mark.asyncio
+    async def test_invoke_validates_session_type(self, tmp_path: Path):
+        invoker = ClaudeInvoker(workspace=tmp_path)
+        with pytest.raises(ValueError, match="Invalid session_type"):
+            await invoker.invoke("bogus")
+
+    @pytest.mark.asyncio
+    async def test_invoke_accepts_all_valid_types(self, tmp_path: Path):
+        """All VALID_SESSION_TYPES should pass validation (test early exit via mock)."""
+        invoker = ClaudeInvoker(workspace=tmp_path)
+        for st in VALID_SESSION_TYPES:
+            mock_result = subprocess.CompletedProcess(
+                args=["claude"],
+                returncode=0,
+                stdout=json.dumps({"result": "{}", "session_id": "s1"}),
+                stderr="",
+            )
+            with patch("src.agent.claude_invoker._run_with_kill", return_value=mock_result):
+                result = await invoker.invoke(st, today=date(2024, 6, 15))
+            assert result.error is None
 
     @pytest.mark.asyncio
     async def test_invoke_subprocess_success(self, tmp_path: Path):
@@ -315,12 +408,14 @@ class TestClaudeInvoker:
             }
         )
 
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = cli_output
-        mock_result.stderr = ""
+        mock_result = subprocess.CompletedProcess(
+            args=["claude"],
+            returncode=0,
+            stdout=cli_output,
+            stderr="",
+        )
 
-        with patch("src.agent.claude_invoker.subprocess.run", return_value=mock_result):
+        with patch("src.agent.claude_invoker._run_with_kill", return_value=mock_result):
             result = await invoker.invoke("morning", today=date(2024, 6, 15))
 
         assert result.error is None
@@ -331,12 +426,14 @@ class TestClaudeInvoker:
     async def test_invoke_subprocess_failure(self, tmp_path: Path):
         invoker = ClaudeInvoker(workspace=tmp_path)
 
-        mock_result = MagicMock()
-        mock_result.returncode = 1
-        mock_result.stdout = ""
-        mock_result.stderr = "claude: command not found"
+        mock_result = subprocess.CompletedProcess(
+            args=["claude"],
+            returncode=1,
+            stdout="",
+            stderr="claude: command not found",
+        )
 
-        with patch("src.agent.claude_invoker.subprocess.run", return_value=mock_result):
+        with patch("src.agent.claude_invoker._run_with_kill", return_value=mock_result):
             result = await invoker.invoke("morning", today=date(2024, 6, 15))
 
         assert result.error is not None
@@ -344,12 +441,10 @@ class TestClaudeInvoker:
 
     @pytest.mark.asyncio
     async def test_invoke_timeout(self, tmp_path: Path):
-        import subprocess
-
         invoker = ClaudeInvoker(workspace=tmp_path, timeout=1)
 
         with patch(
-            "src.agent.claude_invoker.subprocess.run",
+            "src.agent.claude_invoker._run_with_kill",
             side_effect=subprocess.TimeoutExpired(cmd="claude", timeout=1),
         ):
             result = await invoker.invoke("morning", today=date(2024, 6, 15))
@@ -372,15 +467,17 @@ class TestClaudeInvoker:
             }
         )
 
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = cli_output
-        mock_result.stderr = ""
+        mock_result = subprocess.CompletedProcess(
+            args=["claude"],
+            returncode=0,
+            stdout=cli_output,
+            stderr="",
+        )
 
-        with patch("src.agent.claude_invoker.subprocess.run", return_value=mock_result) as mock_run:
+        with patch("src.agent.claude_invoker._run_with_kill", return_value=mock_result) as mock_run:
             await invoker.invoke("midday", today=today)
 
-        # Verify --resume was passed
+        # Verify --resume was passed — first positional arg is the cmd list
         call_args = mock_run.call_args[0][0]
         assert "--resume" in call_args
         idx = call_args.index("--resume")
@@ -391,15 +488,55 @@ class TestClaudeInvoker:
         """Ensure ANTHROPIC_API_KEY is never passed to Claude Code (use Max sub)."""
         invoker = ClaudeInvoker(workspace=tmp_path)
 
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = json.dumps({"result": "{}", "session_id": "s1"})
-        mock_result.stderr = ""
+        mock_result = subprocess.CompletedProcess(
+            args=["claude"],
+            returncode=0,
+            stdout=json.dumps({"result": "{}", "session_id": "s1"}),
+            stderr="",
+        )
 
         with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-ant-test"}, clear=False):
-            with patch("src.agent.claude_invoker.subprocess.run", return_value=mock_result) as mock_run:
+            with patch("src.agent.claude_invoker._run_with_kill", return_value=mock_result) as mock_run:
                 await invoker.invoke("morning", today=date(2024, 6, 15))
 
-        # Check env passed to subprocess
-        call_kwargs = mock_run.call_args[1]
-        assert "ANTHROPIC_API_KEY" not in call_kwargs["env"]
+        # Second positional arg is the env dict
+        call_env = mock_run.call_args[0][1]
+        assert "ANTHROPIC_API_KEY" not in call_env
+
+
+# ── _run_with_kill tests ─────────────────────────────────────────────────────
+
+
+class TestRunWithKill:
+    def test_successful_run(self):
+        result = _run_with_kill(["echo", "hello"], env=dict(os.environ), timeout=10)
+        assert result.returncode == 0
+        assert "hello" in result.stdout
+
+    def test_timeout_kills_process(self):
+        with pytest.raises(subprocess.TimeoutExpired):
+            _run_with_kill(["sleep", "60"], env=dict(os.environ), timeout=1)
+
+    def test_captures_stderr(self):
+        result = _run_with_kill(
+            ["python", "-c", "import sys; sys.stderr.write('err')"],
+            env=dict(os.environ),
+            timeout=10,
+        )
+        assert "err" in result.stderr
+
+
+# ── VALID_SESSION_TYPES tests ───────────────────────────────────────────────
+
+
+class TestValidSessionTypes:
+    def test_contains_expected_types(self):
+        assert "morning" in VALID_SESSION_TYPES
+        assert "midday" in VALID_SESSION_TYPES
+        assert "closing" in VALID_SESSION_TYPES
+        assert "manual" in VALID_SESSION_TYPES
+        assert "event" in VALID_SESSION_TYPES
+        assert "sentinel-crisis" in VALID_SESSION_TYPES
+
+    def test_is_frozen(self):
+        assert isinstance(VALID_SESSION_TYPES, frozenset)
