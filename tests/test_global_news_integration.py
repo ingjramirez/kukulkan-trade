@@ -1,7 +1,5 @@
 """Integration tests for global news sources + sentiment."""
 
-from src.agent.context_manager import ContextManager
-from src.data.fear_greed import format_for_context
 from src.data.news_article import NewsArticle
 from src.data.news_compactor import NewsCompactor
 
@@ -57,31 +55,3 @@ def test_search_news_region_filter():
 
     result_us = asyncio.get_event_loop().run_until_complete(_search_news(context, region="us"))
     assert any("AAPL" in a for a in result_us["articles"])
-
-
-def test_morning_trigger_includes_fear_greed():
-    cm = ContextManager()
-    market = {
-        "regime": "BULL",
-        "vix": 15.2,
-        "spy_change_pct": 0.5,
-        "fear_greed": format_for_context(25.0, "Extreme Fear"),
-    }
-    portfolio = {"total_value": 66000, "cash": 10000, "positions_count": 5}
-
-    msg = cm.build_trigger_message("morning", market, portfolio)
-    assert "F&G:" in msg
-    assert "Extreme Fear" in msg
-
-
-def test_midday_trigger_includes_fear_greed():
-    cm = ContextManager()
-    market = {
-        "vix": 18.5,
-        "fear_greed": format_for_context(75.0, "Greed"),
-    }
-    portfolio = {"total_value": 66000, "cash": 10000}
-
-    msg = cm.build_trigger_message("midday", market, portfolio)
-    assert "F&G:" in msg
-    assert "Greed" in msg

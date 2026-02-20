@@ -11,7 +11,6 @@ from datetime import date
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from src.agent.complexity_detector import ComplexityResult
     from src.storage.models import DiscoveredTickerRow
 
 import structlog
@@ -266,109 +265,6 @@ class TelegramNotifier:
 
         text = "\n".join(lines)
         return await self.send_message(text)
-
-    async def send_approval_request(
-        self,
-        complexity: "ComplexityResult",
-        request_id: str,
-    ) -> int | None:
-        """Send a model escalation approval request with inline keyboard.
-
-        Args:
-            complexity: ComplexityResult with score and signals.
-            request_id: Unique ID to match callback responses.
-
-        Returns:
-            Message ID if sent successfully, None otherwise.
-        """
-        if not self._chat_id:
-            log.warning("telegram_no_chat_id")
-            return None
-
-        text = format_approval_request(complexity)
-        keyboard = InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton("Use Opus", callback_data=f"{request_id}:opus"),
-                    InlineKeyboardButton("Keep Sonnet", callback_data=f"{request_id}:sonnet"),
-                    InlineKeyboardButton("Skip Portfolio B", callback_data=f"{request_id}:skip"),
-                ]
-            ]
-        )
-
-        try:
-            msg = await self.bot.send_message(
-                chat_id=self._chat_id,
-                text=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=keyboard,
-            )
-            log.info("approval_request_sent", request_id=request_id, message_id=msg.message_id)
-            return msg.message_id
-        except Exception as e:
-            log.error("approval_request_failed", error=str(e))
-            return None
-
-    async def wait_for_approval(
-        self,
-        request_id: str,
-        timeout_seconds: int = 300,
-    ) -> str:
-        """Poll for user's inline keyboard response.
-
-        Args:
-            request_id: The request ID to match in callback_data.
-            timeout_seconds: Max seconds to wait before defaulting to Sonnet.
-
-        Returns:
-            "opus", "sonnet", or "skip". Defaults to "sonnet" on timeout.
-        """
-        elapsed = 0
-        poll_interval = 2
-        last_update_id: int | None = None
-
-        while elapsed < timeout_seconds:
-            try:
-                kwargs: dict = {"timeout": 1}
-                if last_update_id is not None:
-                    kwargs["offset"] = last_update_id + 1
-
-                updates = await self.bot.get_updates(**kwargs)
-                for update in updates:
-                    last_update_id = update.update_id
-                    if update.callback_query and update.callback_query.data:
-                        cb = update.callback_query
-                        # Verify callback is from the authorised chat
-                        cb_chat = str(
-                            getattr(cb.message, "chat_id", None)
-                            or getattr(getattr(cb.message, "chat", None), "id", None)
-                            or ""
-                        )
-                        if cb_chat != self._chat_id:
-                            log.warning(
-                                "approval_rejected_wrong_chat",
-                                expected=self._chat_id,
-                                got=cb_chat,
-                            )
-                            continue
-                        data = cb.data
-                        if data.startswith(f"{request_id}:"):
-                            choice = data.split(":", 1)[1]
-                            if choice in ("opus", "sonnet", "skip"):
-                                log.info(
-                                    "approval_received",
-                                    request_id=request_id,
-                                    choice=choice,
-                                )
-                                return choice
-            except Exception as e:
-                log.warning("approval_poll_error", error=str(e))
-
-            await asyncio.sleep(poll_interval)
-            elapsed += poll_interval
-
-        log.info("approval_timeout", request_id=request_id, timeout=timeout_seconds)
-        return "sonnet"
 
     async def send_inverse_trade_approval(
         self,
@@ -893,34 +789,6 @@ def format_trade_confirmation(trades: list[TradeSchema]) -> str:
     total_sell = sum(t.total for t in trades if t.side.value == "SELL")
     lines.append(f"Total bought: ${total_buy:,.0f} | Total sold: ${total_sell:,.0f}")
 
-    return "\n".join(lines)
-
-
-def format_approval_request(complexity: "ComplexityResult") -> str:
-    """Format a model escalation approval request as HTML.
-
-    Args:
-        complexity: ComplexityResult with score and signals.
-
-    Returns:
-        HTML-formatted message string.
-    """
-    lines = [
-        "🧠 <b>Model Escalation Request</b>",
-        "",
-        f"Complexity score: <b>{complexity.score}/100</b>",
-        "",
-        "<b>Triggered signals:</b>",
-    ]
-    for signal in complexity.signals:
-        lines.append(f"  • {_escape_html(signal)}")
-
-    lines.extend(
-        [
-            "",
-            "Choose model for Portfolio B analysis:",
-        ]
-    )
     return "\n".join(lines)
 
 

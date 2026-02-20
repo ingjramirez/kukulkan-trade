@@ -89,15 +89,8 @@ class TestAlpacaSnapshotPrices:
         )
         orch._macro_data.get_latest_yield_curve = MagicMock(return_value=None)
         orch._macro_data.get_latest_vix = MagicMock(return_value=None)
-        mock_response = {
-            "reasoning": "hold",
-            "trades": [],
-            "_raw": "{}",
-            "_tokens_used": 0,
-            "_model": "test",
-        }
-        orch._strategy_b._agent.analyze = MagicMock(return_value=mock_response)
-        orch._strategy_b._agent._client = MagicMock()
+        # Mock Portfolio B to avoid Claude Code CLI calls
+        orch._run_portfolio_b = AsyncMock(return_value=([], "Test hold", "No tools"))
 
         with patch("src.orchestrator.is_market_open", return_value=True):
             await orch.run_daily(today=date(2026, 2, 5))
@@ -146,15 +139,8 @@ class TestAlpacaSnapshotPrices:
         )
         orch._macro_data.get_latest_yield_curve = MagicMock(return_value=None)
         orch._macro_data.get_latest_vix = MagicMock(return_value=None)
-        mock_response = {
-            "reasoning": "hold",
-            "trades": [],
-            "_raw": "{}",
-            "_tokens_used": 0,
-            "_model": "test",
-        }
-        orch._strategy_b._agent.analyze = MagicMock(return_value=mock_response)
-        orch._strategy_b._agent._client = MagicMock()
+        # Mock Portfolio B to avoid Claude Code CLI calls
+        orch._run_portfolio_b = AsyncMock(return_value=([], "Test hold", "No tools"))
 
         with patch("src.orchestrator.is_market_open", return_value=True):
             await orch.run_daily(today=date(2026, 2, 5))

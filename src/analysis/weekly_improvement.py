@@ -6,7 +6,6 @@ analysis, and returns an ImprovementProposal with bounded changes.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 from dataclasses import dataclass, field
@@ -217,30 +216,30 @@ class ImprovementAnalyzer:
         data: WeeklyPerformanceData,
         previous_changes: list[dict] | None = None,
     ) -> ImprovementProposal:
-        """Call Sonnet to analyze performance and propose changes."""
-        import anthropic
+        """Analyze performance via Claude Code CLI and propose changes."""
+        from src.agent.claude_invoker import claude_cli_json
 
         prompt = self._build_prompt(data, previous_changes)
 
         try:
-            client = anthropic.Anthropic(max_retries=5)
-            response = await asyncio.to_thread(
-                client.messages.create,
-                model=self._model,
-                max_tokens=1024,
+            parsed = await claude_cli_json(
+                prompt=prompt,
                 system=ANALYZER_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": prompt}],
+                model=self._model,
+                timeout=120,
             )
 
-            raw_text = response.content[0].text.strip()
-            return self._parse_response(raw_text, data)
+            if not parsed:
+                return ImprovementProposal(summary="Empty response from Claude CLI")
+
+            return self._parse_response_dict(parsed, data)
 
         except Exception as e:
             log.error("improvement_analyzer_failed", error=str(e))
             return ImprovementProposal(summary=f"Analysis failed: {e}")
 
     def _parse_response(self, raw_text: str, data: WeeklyPerformanceData) -> ImprovementProposal:
-        """Parse and validate the Sonnet JSON response."""
+        """Parse and validate a raw JSON text response."""
         # Strip markdown code fences if present
         fence_match = re.search(r"```(?:json)?\s*\n(.*?)```", raw_text, re.DOTALL)
         text = fence_match.group(1).strip() if fence_match else raw_text.strip()
@@ -251,6 +250,10 @@ class ImprovementAnalyzer:
             log.warning("improvement_parse_failed", raw=raw_text[:200])
             return ImprovementProposal(summary="Failed to parse AI response", raw_json={})
 
+        return self._parse_response_dict(parsed, data)
+
+    def _parse_response_dict(self, parsed: dict, data: WeeklyPerformanceData) -> ImprovementProposal:
+        """Validate a parsed JSON dict into an ImprovementProposal."""
         changes: list[ProposedChange] = []
         raw_changes = parsed.get("changes", [])
 

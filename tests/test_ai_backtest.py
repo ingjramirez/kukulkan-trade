@@ -128,8 +128,8 @@ class TestBudgetEnforcement:
     def test_api_error_returns_empty_and_logs(self) -> None:
         strategy = AIBacktestStrategy(budget_usd=10.0, run_label="test")
         # Mock the agent to raise an error
-        strategy._strategy._agent.analyze = MagicMock(side_effect=Exception("API error"))
-        strategy._strategy._agent._client = MagicMock()
+        strategy._agent.analyze = MagicMock(side_effect=Exception("API error"))
+        strategy._agent._client = MagicMock()
 
         tickers = ["XLK", "XLF", "QQQ"]
         closes = _make_closes(tickers, days=60)
@@ -236,8 +236,8 @@ class TestPromptOverride:
             prompt_override=custom_prompt,
         )
         # Mock the agent to capture the call
-        strategy._strategy._agent.analyze = MagicMock(return_value=_mock_agent_response())
-        strategy._strategy._agent._client = MagicMock()
+        strategy._agent.analyze = MagicMock(return_value=_mock_agent_response())
+        strategy._agent._client = MagicMock()
 
         tickers = ["XLK", "XLF", "QQQ"]
         closes = _make_closes(tickers, days=60)
@@ -255,7 +255,7 @@ class TestPromptOverride:
         )
 
         # Verify the agent was called with the custom prompt
-        call_kwargs = strategy._strategy._agent.analyze.call_args
+        call_kwargs = strategy._agent.analyze.call_args
         assert call_kwargs.kwargs.get("system_prompt") == custom_prompt
 
 
@@ -265,8 +265,8 @@ class TestPromptOverride:
 class TestGenerateTrades:
     def test_successful_trade_generation(self) -> None:
         strategy = AIBacktestStrategy(budget_usd=10.0, run_label="test")
-        strategy._strategy._agent.analyze = MagicMock(return_value=_mock_agent_response(tokens=2000))
-        strategy._strategy._agent._client = MagicMock()
+        strategy._agent.analyze = MagicMock(return_value=_mock_agent_response(tokens=2000))
+        strategy._agent._client = MagicMock()
 
         tickers = ["XLK", "XLF", "QQQ"]
         closes = _make_closes(tickers, days=60)
@@ -290,8 +290,8 @@ class TestGenerateTrades:
 
     def test_sim_date_passed_to_agent(self) -> None:
         strategy = AIBacktestStrategy(budget_usd=10.0, run_label="test")
-        strategy._strategy._agent.analyze = MagicMock(return_value=_mock_agent_response())
-        strategy._strategy._agent._client = MagicMock()
+        strategy._agent.analyze = MagicMock(return_value=_mock_agent_response())
+        strategy._agent._client = MagicMock()
 
         tickers = ["XLK", "XLF", "QQQ"]
         closes = _make_closes(tickers, days=60)
@@ -308,7 +308,7 @@ class TestGenerateTrades:
             sim_date=date(2026, 1, 15),
         )
 
-        call_kwargs = strategy._strategy._agent.analyze.call_args
+        call_kwargs = strategy._agent.analyze.call_args
         assert call_kwargs.kwargs.get("analysis_date") == date(2026, 1, 15)
 
 
@@ -337,8 +337,8 @@ class TestRunnerIntegration:
         await trader.initialize_portfolios()
 
         ai_bt = AIBacktestStrategy(budget_usd=10.0, run_label="test")
-        ai_bt._strategy._agent.analyze = MagicMock(return_value=_mock_agent_response())
-        ai_bt._strategy._agent._client = MagicMock()
+        ai_bt._agent.analyze = MagicMock(return_value=_mock_agent_response())
+        ai_bt._agent._client = MagicMock()
 
         trades = await runner._run_portfolio_b_ai(
             ai_bt,

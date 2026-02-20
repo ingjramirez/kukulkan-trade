@@ -13,7 +13,18 @@ from src.data.news_article import NewsArticle
 
 # Common uppercase words that could false-match ticker symbols in news text
 _TICKER_STOPWORDS: set[str] = {
-    "CEO", "IPO", "GDP", "USA", "FBI", "SEC", "ETF", "API", "CPI", "PMI", "NYSE", "FOMC",
+    "CEO",
+    "IPO",
+    "GDP",
+    "USA",
+    "FBI",
+    "SEC",
+    "ETF",
+    "API",
+    "CPI",
+    "PMI",
+    "NYSE",
+    "FOMC",
 }
 
 

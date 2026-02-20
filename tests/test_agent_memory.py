@@ -1,7 +1,7 @@
 """Tests for the agent memory system."""
 
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -263,24 +263,21 @@ async def test_save_agent_notes_empty_list(db, memory_manager):
     assert len(all_notes) == 0
 
 
-async def test_run_weekly_compaction(db, memory_manager):
-    """Weekly compaction calls Claude and saves a summary."""
+@patch("src.agent.claude_invoker.claude_cli_call", new_callable=AsyncMock)
+async def test_run_weekly_compaction(mock_cli, db, memory_manager):
+    """Weekly compaction calls Claude CLI and saves a summary."""
     # Seed some short-term memories
     await db.upsert_agent_memory("short_term", "2026-01-13", "Bull | Tech up | BUY XLK")
     await db.upsert_agent_memory("short_term", "2026-01-14", "Bull | Continued momentum")
     await db.upsert_agent_memory("short_term", "2026-01-15", "Rotation | Shifting to value")
 
-    # Mock the Claude agent
-    mock_agent = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="Tech rotation was the key theme this week. XLK outperformed.")]
-    mock_agent.client.messages.create.return_value = mock_response
+    mock_cli.return_value = "Tech rotation was the key theme this week. XLK outperformed."
 
-    await memory_manager.run_weekly_compaction(db, mock_agent)
+    await memory_manager.run_weekly_compaction(db)
 
-    # Verify Claude was called
-    mock_agent.client.messages.create.assert_called_once()
-    call_kwargs = mock_agent.client.messages.create.call_args
+    # Verify Claude CLI was called
+    mock_cli.assert_called_once()
+    call_kwargs = mock_cli.call_args
     assert "claude-haiku" in call_kwargs.kwargs["model"]
 
     # Verify summary was saved
@@ -290,17 +287,17 @@ async def test_run_weekly_compaction(db, memory_manager):
     assert weekly[0].key.startswith("week_")
 
 
-async def test_run_weekly_compaction_no_data(db, memory_manager):
+@patch("src.agent.claude_invoker.claude_cli_call", new_callable=AsyncMock)
+async def test_run_weekly_compaction_no_data(mock_cli, db, memory_manager):
     """Compaction is skipped when there are no short-term memories."""
-    mock_agent = MagicMock()
+    await memory_manager.run_weekly_compaction(db)
 
-    await memory_manager.run_weekly_compaction(db, mock_agent)
-
-    # Claude should not be called
-    mock_agent.client.messages.create.assert_not_called()
+    # Claude CLI should not be called
+    mock_cli.assert_not_called()
 
 
-async def test_run_weekly_compaction_prunes_old_summaries(db, memory_manager):
+@patch("src.agent.claude_invoker.claude_cli_call", new_callable=AsyncMock)
+async def test_run_weekly_compaction_prunes_old_summaries(mock_cli, db, memory_manager):
     """Only the last MAX_WEEKLY_SUMMARIES are kept."""
     # Seed more than MAX weekly summaries
     for i in range(MAX_WEEKLY_SUMMARIES + 2):
@@ -309,12 +306,9 @@ async def test_run_weekly_compaction_prunes_old_summaries(db, memory_manager):
     # Add a short-term memory so compaction runs
     await db.upsert_agent_memory("short_term", "2026-01-15", "Some decision")
 
-    mock_agent = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="New week summary.")]
-    mock_agent.client.messages.create.return_value = mock_response
+    mock_cli.return_value = "New week summary."
 
-    await memory_manager.run_weekly_compaction(db, mock_agent)
+    await memory_manager.run_weekly_compaction(db)
 
     weekly = await db.get_agent_memories("weekly_summary")
     assert len(weekly) <= MAX_WEEKLY_SUMMARIES
@@ -425,7 +419,8 @@ async def test_save_agent_notes_with_tenant_id(db, memory_manager):
     assert tenant_notes[0].key == "thesis-1"
 
 
-async def test_run_weekly_compaction_with_tenant_id(db, memory_manager):
+@patch("src.agent.claude_invoker.claude_cli_call", new_callable=AsyncMock)
+async def test_run_weekly_compaction_with_tenant_id(mock_cli, db, memory_manager):
     """Weekly compaction reads and writes under the given tenant_id."""
     # Seed short-term under tenant-1
     await db.upsert_agent_memory(
@@ -442,16 +437,13 @@ async def test_run_weekly_compaction_with_tenant_id(db, memory_manager):
         tenant_id="default",
     )
 
-    mock_agent = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="Tenant-1 week summary.")]
-    mock_agent.client.messages.create.return_value = mock_response
+    mock_cli.return_value = "Tenant-1 week summary."
 
-    await memory_manager.run_weekly_compaction(db, mock_agent, tenant_id="tenant-1")
+    await memory_manager.run_weekly_compaction(db, tenant_id="tenant-1")
 
-    # The prompt sent to Claude should contain tenant-1's data
-    call_args = mock_agent.client.messages.create.call_args
-    prompt_text = call_args.kwargs["messages"][0]["content"]
+    # The prompt sent to Claude CLI should contain tenant-1's data
+    call_args = mock_cli.call_args
+    prompt_text = call_args.kwargs["prompt"]
     assert "Tech up" in prompt_text
     assert "Everything down" not in prompt_text
 

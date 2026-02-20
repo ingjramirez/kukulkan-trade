@@ -713,7 +713,6 @@ class TenantUpdate(BaseModel):
     is_active: bool | None = None
     dashboard_user: str | None = None
     dashboard_password: str | None = None
-    use_agent_loop: bool | None = None
     use_claude_code: bool | None = None
     quiet_hours_start: str | None = None
     quiet_hours_end: str | None = None
@@ -741,7 +740,6 @@ class TenantRead(BaseModel):
     ticker_whitelist: list[str] | None = None
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None
-    use_agent_loop: bool = False
     use_claude_code: bool = False
     quiet_hours_start: str = "21:00"
     quiet_hours_end: str = "07:00"

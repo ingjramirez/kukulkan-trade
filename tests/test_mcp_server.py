@@ -32,9 +32,7 @@ class TestMCPServerModule:
 
         mcp_mod._action_state = ActionState()
         mcp_mod._action_state.declared_posture = "aggressive"
-        mcp_mod._action_state.trailing_stop_requests.append(
-            {"ticker": "NVDA", "trail_pct": 0.07}
-        )
+        mcp_mod._action_state.trailing_stop_requests.append({"ticker": "NVDA", "trail_pct": 0.07})
 
         results_path = tmp_path / "session-results.json"
         _write_session_results(results_path)

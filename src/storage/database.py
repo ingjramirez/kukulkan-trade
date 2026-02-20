@@ -1776,9 +1776,7 @@ class Database:
         async with self.session() as s:
             for ticker in target:
                 result = await s.execute(
-                    select(MarketDataRow)
-                    .where(MarketDataRow.ticker == ticker)
-                    .order_by(MarketDataRow.date)
+                    select(MarketDataRow).where(MarketDataRow.ticker == ticker).order_by(MarketDataRow.date)
                 )
                 rows = list(result.scalars().all())
                 if rows:

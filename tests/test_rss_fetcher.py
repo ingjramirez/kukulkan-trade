@@ -173,9 +173,7 @@ def test_create_default_rss_fetchers():
 @patch("src.data.rss_news.httpx.get", return_value=_mock_httpx_response())
 @patch("src.data.rss_news.feedparser.parse")
 def test_metadata_includes_feed_url(mock_parse, mock_get):
-    mock_parse.return_value = _make_feed(
-        [{"title": "Test article", "summary": "", "link": ""}]
-    )
+    mock_parse.return_value = _make_feed([{"title": "Test article", "summary": "", "link": ""}])
 
     fetcher = RSSNewsFetcher(
         source_name="test",

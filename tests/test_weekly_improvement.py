@@ -346,30 +346,26 @@ async def test_collector_with_outcomes(db: Database):
         assert data.track_record.win_rate_pct == 100.0
 
 
-# ── ImprovementAnalyzer.analyze (mocked Anthropic) ───────────────
+# ── ImprovementAnalyzer.analyze (mocked Claude CLI) ───────────────
 
 
-async def test_analyzer_analyze_success():
+@patch("src.agent.claude_invoker.claude_cli_json", new_callable=AsyncMock)
+async def test_analyzer_analyze_success(mock_cli):
     analyzer = ImprovementAnalyzer()
     data = _make_data()
 
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text='{"changes": [], "summary": "looks good"}')]
+    mock_cli.return_value = {"changes": [], "summary": "looks good"}
 
-    async def fake_to_thread(fn, *args, **kwargs):
-        return mock_response
-
-    with patch("asyncio.to_thread", side_effect=fake_to_thread):
-        with patch("anthropic.Anthropic"):
-            result = await analyzer.analyze(data)
-            assert result.summary == "looks good"
-            assert result.changes == []
+    result = await analyzer.analyze(data)
+    assert result.summary == "looks good"
+    assert result.changes == []
 
 
-async def test_analyzer_analyze_api_error():
+@patch("src.agent.claude_invoker.claude_cli_json", new_callable=AsyncMock)
+async def test_analyzer_analyze_api_error(mock_cli):
     analyzer = ImprovementAnalyzer()
     data = _make_data()
 
-    with patch("anthropic.Anthropic", side_effect=Exception("API down")):
-        result = await analyzer.analyze(data)
-        assert "failed" in result.summary.lower()
+    mock_cli.side_effect = Exception("CLI error")
+    result = await analyzer.analyze(data)
+    assert "failed" in result.summary.lower()

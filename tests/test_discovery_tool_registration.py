@@ -104,16 +104,3 @@ class TestToolDefinitions:
         defs = {d["name"]: d for d in registry.get_tool_definitions()}
         schema = defs["list_discovered_tickers"]["input_schema"]
         assert "status" in schema["properties"]
-
-
-class TestSystemPrompt:
-    def test_system_prompt_includes_discovery_section(self) -> None:
-        from src.agent.context_manager import ContextManager
-
-        cm = ContextManager()
-        prompt = cm.build_system_prompt(pinned_context="")
-
-        assert "Universe Discovery" in prompt
-        assert "search_ticker_info" in prompt
-        assert "discover_ticker" in prompt
-        assert "list_discovered_tickers" in prompt

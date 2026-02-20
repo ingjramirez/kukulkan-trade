@@ -3,7 +3,6 @@
 from config.risk_rules import RISK_RULES
 from config.settings import settings
 from src.agent.claude_agent import SYSTEM_PROMPT, build_system_prompt
-from src.agent.haiku_scanner import SCAN_SYSTEM_PROMPT
 from src.agent.posture import PostureLevel, PostureManager
 from src.analysis.risk_manager import (
     HEDGE_ALLOWED_REGIMES,
@@ -224,20 +223,3 @@ class TestImprovementBounds:
 
     def test_max_learnings_widened(self) -> None:
         assert MAX_LEARNINGS_PER_WEEK == 5
-
-
-# ── Batch 6: Haiku Triage ──
-
-
-class TestHaikuRelaxed:
-    def test_scan_prompt_no_investigate_bias(self) -> None:
-        assert "BIAS TOWARD" not in SCAN_SYSTEM_PROMPT
-
-    def test_scan_prompt_classifies_accurately(self) -> None:
-        assert "Classify accurately" in SCAN_SYSTEM_PROMPT
-
-    def test_scan_prompt_lower_threshold(self) -> None:
-        assert "1.5%" in SCAN_SYSTEM_PROMPT
-
-    def test_scan_prompt_mentions_btc(self) -> None:
-        assert "BTC" in SCAN_SYSTEM_PROMPT

@@ -137,7 +137,7 @@ class TestParseResponse:
 
 class TestAgentResponseToTrades:
     def setup_method(self) -> None:
-        self.strategy = AIAutonomyStrategy(agent=ClaudeAgent(api_key="fake-key"))
+        self.strategy = AIAutonomyStrategy()
         self.prices = pd.Series(
             {
                 "XLK": 200.0,
@@ -696,7 +696,7 @@ class TestSaveDecision:
         db = Database(url="sqlite+aiosqlite:///:memory:")
         await db.init_db()
 
-        strategy = AIAutonomyStrategy(agent=ClaudeAgent(api_key="fake-key"))
+        strategy = AIAutonomyStrategy()
         response = {
             "regime_assessment": "Bullish outlook",
             "reasoning": "Markets look strong",

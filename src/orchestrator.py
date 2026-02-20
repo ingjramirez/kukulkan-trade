@@ -8,7 +8,6 @@ creating per-tenant Alpaca clients and Telegram bots.
 """
 
 import asyncio
-import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -26,15 +25,12 @@ from config.universe import (
 from src.agent.claude_agent import (
     _build_decision_review,
     _build_track_record,
-    build_system_prompt,
 )
-from src.agent.complexity_detector import ComplexityDetector
 from src.agent.memory import AgentMemoryManager
 from src.agent.ticker_discovery import TickerDiscovery
 from src.analysis.performance import PerformanceTracker
 from src.analysis.regime import RegimeClassifier, RegimeResult
 from src.analysis.risk_manager import RiskManager
-from src.analysis.technical import compute_all_indicators
 from src.data.macro_data import MacroDataFetcher
 from src.data.market_data import MarketDataFetcher
 from src.data.news_aggregator import NewsAggregator
@@ -87,14 +83,12 @@ class NewsContext:
 
 @dataclass
 class PortfolioBContext:
-    """Context about Portfolio B positions, trades, and complexity."""
+    """Context about Portfolio B positions, trades, and performance."""
 
     positions_for_agent: list[dict] = field(default_factory=list)
     recent_trades: list[dict] = field(default_factory=list)
-    complexity: Any = None
     memory_text: str | None = None
     perf_text: str | None = None
-    model_override: str | None = None
     position_map: dict[str, float] = field(default_factory=dict)
     cash: float = 0.0
     total_value: float = 0.0
@@ -174,7 +168,6 @@ class Orchestrator:
         self._news_aggregator = NewsAggregator()
         self._register_extra_fetchers()
         self._news_compactor = NewsCompactor()
-        self._complexity_detector = ComplexityDetector()
         self._ticker_discovery = TickerDiscovery(db)
         self._risk_manager = RiskManager()
         self._performance_tracker = PerformanceTracker()
@@ -1257,7 +1250,7 @@ class Orchestrator:
         alloc: TenantAllocations,
         session: str,
     ) -> PortfolioBContext:
-        """Build position/trade/complexity context for Portfolio B."""
+        """Build position/trade/performance context for Portfolio B."""
         portfolio = await self._db.get_portfolio("B", tenant_id=tenant_id)
         positions = await self._db.get_positions("B", tenant_id=tenant_id)
         position_map = {p.ticker: p.shares for p in positions}
@@ -1279,44 +1272,6 @@ class Orchestrator:
             {"ticker": t.ticker, "side": t.side, "shares": t.shares, "price": t.price, "reason": t.reason or ""}
             for t in recent_trades_raw[:5]
         ]
-
-        # Complexity detection & model routing
-        snapshots = await self._db.get_snapshots("B", tenant_id=tenant_id)
-        peak_value = max((s.total_value for s in snapshots if s.total_value), default=total_value)
-
-        held_indicators: dict[str, dict] = {}
-        for p in positions:
-            if p.ticker in closes.columns and len(closes[p.ticker].dropna()) >= 50:
-                try:
-                    ind = compute_all_indicators(closes[p.ticker].dropna())
-                    latest = ind.iloc[-1]
-                    held_indicators[p.ticker] = {
-                        "rsi_14": float(latest["rsi_14"]) if pd.notna(latest["rsi_14"]) else None,
-                        "macd": float(latest["macd"]) if pd.notna(latest["macd"]) else None,
-                    }
-                except (ValueError, KeyError, IndexError) as e:
-                    log.debug("held_indicator_failed", ticker=p.ticker, error=str(e))
-
-        regime_str = regime_result.regime.value if regime_result else None
-        complexity = self._complexity_detector.evaluate(
-            closes=closes,
-            positions=positions_for_agent,
-            total_value=total_value,
-            peak_value=peak_value,
-            regime_today=regime_str,
-            regime_yesterday=None,
-            vix=vix,
-            indicators=held_indicators,
-        )
-
-        model_override: str | None = None
-        if complexity.should_escalate and self._notifier_available():
-            choice = await self._request_model_approval(complexity)
-            if choice == "opus":
-                model_override = PORTFOLIO_B.escalation_model
-            elif choice == "skip":
-                log.info("portfolio_b_skipped_by_user")
-                return PortfolioBContext(model_override="__skip__")
 
         # Build memory context
         memory_text: str | None = None
@@ -1358,10 +1313,8 @@ class Orchestrator:
         return PortfolioBContext(
             positions_for_agent=positions_for_agent,
             recent_trades=recent_trades,
-            complexity=complexity,
             memory_text=memory_text,
             perf_text=perf_text,
-            model_override=model_override,
             position_map=position_map,
             cash=cash,
             total_value=total_value,
@@ -1502,37 +1455,6 @@ class Orchestrator:
             inverse_etf_context=inverse_etf_context,
         )
 
-    def _build_portfolio_b_prompt(
-        self,
-        perf_text: str | None,
-        memory_text: str | None,
-        active_strategy: str,
-        session: str,
-        regime_result: RegimeResult | None,
-        alloc: TenantAllocations,
-        portfolio_b_universe: list[str] | None,
-        dynamic_ctx: DynamicContext,
-        earnings_context: str | None,
-        decision_review_text: str | None,
-        track_record_text: str | None,
-    ) -> str:
-        """Assemble the dynamic system prompt for Portfolio B from all context blocks."""
-        return build_system_prompt(
-            performance_stats=perf_text,
-            memory_context=memory_text,
-            strategy_mode=active_strategy,
-            session=session,
-            regime_summary=regime_result.summary if regime_result else None,
-            portfolio_allocation=alloc.portfolio_b_cash,
-            universe_size=(len(portfolio_b_universe) if portfolio_b_universe else None),
-            trailing_stops_context=dynamic_ctx.trailing_context,
-            earnings_context=earnings_context,
-            watchlist_context=dynamic_ctx.watchlist_context,
-            decision_review=decision_review_text,
-            track_record=track_record_text,
-            inverse_etf_context=dynamic_ctx.inverse_etf_context,
-        )
-
     async def _run_portfolio_a(
         self,
         closes: pd.DataFrame,
@@ -1587,12 +1509,11 @@ class Orchestrator:
         portfolio_b_universe: list[str] | None = None,
         earnings_context: str | None = None,
     ):
-        """Run Portfolio B AI strategy with complexity-based model routing."""
+        """Run Portfolio B AI strategy via Claude Code CLI."""
         alloc = allocations or DEFAULT_ALLOCATIONS
-        active_strategy = strategy_mode or settings.agent.strategy_mode
         regime_str = regime_result.regime.value if regime_result else None
 
-        # Build context (positions, trades, complexity, memory, perf)
+        # Build context (positions, trades, memory, perf)
         pb_ctx = await self._build_portfolio_b_context(
             closes,
             vix,
@@ -1601,14 +1522,8 @@ class Orchestrator:
             alloc,
             session,
         )
-        if pb_ctx.model_override == "__skip__":
-            return [], "", None
 
         positions_for_agent = pb_ctx.positions_for_agent
-        recent_trades = pb_ctx.recent_trades
-        complexity = pb_ctx.complexity
-        model_override = pb_ctx.model_override
-        position_map = pb_ctx.position_map
         cash = pb_ctx.cash
         total_value = pb_ctx.total_value
 
@@ -1619,369 +1534,28 @@ class Orchestrator:
         positions = await self._db.get_positions("B", tenant_id=tenant_id)
         dynamic_ctx = await self._build_dynamic_context(closes, positions, today, tenant_id)
 
-        # Assemble system prompt
-        dynamic_prompt = self._build_portfolio_b_prompt(
-            pb_ctx.perf_text,
-            pb_ctx.memory_text,
-            active_strategy,
-            session,
-            regime_result,
-            alloc,
-            portfolio_b_universe,
-            dynamic_ctx,
-            earnings_context,
-            decision_review_text,
-            track_record_text,
-        )
-
-        # ── Check agentic mode ────────────────────────────────────────────
-        tenant = await self._db.get_tenant(tenant_id)
-        use_claude_code = getattr(tenant, "use_claude_code", False) if tenant else False
-        use_persistent = getattr(tenant, "use_persistent_agent", False) if tenant else False
-        use_agent_loop = getattr(tenant, "use_agent_loop", False) if tenant else False
-
-        tool_summary: dict | None = None
-
-        if use_claude_code:
-            # ── Claude Code CLI path (Max subscription) ───────────────
-            return await self._run_portfolio_b_claude_code(
-                tenant_id=tenant_id,
-                session_type=session.lower() if session else "morning",
-                closes=closes,
-                volumes=volumes,
-                vix=vix,
-                yield_curve=yield_curve,
-                regime_str=regime_str,
-                news_context=news_context,
-                positions_for_agent=positions_for_agent,
-                cash=cash,
-                total_value=total_value,
-                today=today,
-                session=session,
-                portfolio_b_universe=portfolio_b_universe,
-                allocations=alloc,
-                earnings_context=earnings_context,
-                dynamic_ctx=dynamic_ctx,
-                decision_review_text=decision_review_text,
-                track_record_text=track_record_text,
-                pb_ctx=pb_ctx,
-            )
-
-        if use_persistent:
-            # ── Persistent agent path ────────────────────────────────────
-            return await self._run_portfolio_b_persistent(
-                tenant_id=tenant_id,
-                trigger_type=session.lower() if session else "morning",
-                dynamic_prompt=dynamic_prompt,
-                closes=closes,
-                volumes=volumes,
-                vix=vix,
-                yield_curve=yield_curve,
-                regime_str=regime_str,
-                news_context=news_context,
-                positions_for_agent=positions_for_agent,
-                cash=cash,
-                total_value=total_value,
-                recent_trades=recent_trades,
-                model_override=model_override,
-                portfolio_b_universe=portfolio_b_universe,
-                allocations=alloc,
-                today=today,
-                session=session,
-                strategy_mode=active_strategy,
-            )
-
-        if use_agent_loop:
-            # ── Agentic path: two-phase seed → investigate ───────────────
-            log.info("portfolio_b_agentic_mode", tenant_id=tenant_id)
-            from src.agent.agent_runner import AgentRunner
-            from src.agent.tools.actions import ActionState, register_action_tools
-            from src.agent.tools.market import register_market_tools
-            from src.agent.tools.news import register_news_tools
-            from src.agent.tools.portfolio import register_portfolio_tools
-
-            # Shared context (called once for both phases)
-            context = self._strategy_b.prepare_context(
-                closes=closes,
-                volumes=volumes,
-                positions=positions_for_agent,
-                cash=cash,
-                total_value=total_value,
-                recent_trades=recent_trades,
-                regime=regime_str,
-                yield_curve=yield_curve,
-                vix=vix,
-                news_context=news_context,
-                system_prompt=dynamic_prompt,
-                universe=portfolio_b_universe,
-            )
-
-            # ── Phase 1: Seed (single-shot, complexity-routed model) ────
-            context["model_override"] = model_override
-            seed_response = self._strategy_b._agent.analyze(**context)
-
-            seed_trades = seed_response.get("trades", [])
-            seed_reasoning = seed_response.get("reasoning", "")
-            seed_regime = seed_response.get("regime_assessment", "")
-            seed_risk = seed_response.get("risk_notes", "")
-
-            log.info(
-                "seed_phase_complete",
-                trades=len(seed_trades),
-                reasoning=seed_reasoning[:100],
-            )
-
-            # ── Phase 2: Investigate (agentic loop, always tool model) ──
-            investigation_message = (
-                f"## Initial Analysis (from senior analyst)\n"
-                f"Regime: {seed_regime}\n"
-                f"Reasoning: {seed_reasoning}\n"
-                f"Proposed Trades: {json.dumps(seed_trades)}\n"
-                f"Risk Notes: {seed_risk}\n\n"
-                f"## Your Task\n"
-                f"Use tools to verify or refine. Submit final trades via propose_trades."
-            )
-
-            investigation_prompt = (
-                dynamic_prompt + "\n\nYou have tools to investigate before finalizing. "
-                "Verify key assumptions. When satisfied, submit trades via propose_trades."
-            )
-
-            from src.agent.request_pacer import RequestPacer
-
-            pacer = RequestPacer(tokens_per_minute=settings.agent.agent_tpm_limit)
-            runner = AgentRunner(
-                api_key=settings.anthropic_api_key,
-                model=settings.agent.agent_tool_model,
-                max_turns=settings.agent.agent_max_turns,
-                max_cost_usd=settings.agent.agent_session_budget,
-                pacer=pacer,
-            )
-
-            current_prices = {t: float(closes[t].iloc[-1]) for t in closes.columns if not pd.isna(closes[t].iloc[-1])}
-
-            action_state = ActionState()
-            register_portfolio_tools(runner.registry, self._db, tenant_id, current_prices, closes=closes)
-            held_tickers = [p["ticker"] for p in positions_for_agent] if positions_for_agent else []
-            register_market_tools(
-                runner.registry,
-                closes,
-                vix=vix,
-                yield_curve=yield_curve,
-                regime=regime_str,
-                db=self._db,
-                held_tickers=held_tickers,
-                tenant_id=tenant_id,
-            )
-            register_news_tools(
-                runner.registry,
-                news_context,
-                news_fetcher=getattr(self, "_news_fetcher", None),
-                db=self._db,
-                tenant_id=tenant_id,
-                current_prices=current_prices,
-            )
-            register_action_tools(
-                runner.registry,
-                action_state,
-                db=self._db,
-                tenant_id=tenant_id,
-                ticker_discovery=self._ticker_discovery,
-            )
-
-            result = await runner.run(
-                system_prompt=investigation_prompt,
-                user_message=investigation_message,
-            )
-
-            # ── Merge: investigation overrides seed ─────────────────────
-            response = result.response
-            accumulated = action_state.get_accumulated_state()
-
-            # Use investigation trades if any, otherwise fall back to seed
-            if accumulated["trades"]:
-                response["trades"] = accumulated["trades"]
-            elif not response.get("trades"):
-                response["trades"] = seed_trades
-
-            if accumulated["watchlist_updates"] and not response.get("watchlist_updates"):
-                response["watchlist_updates"] = accumulated["watchlist_updates"]
-            if accumulated["memory_notes"] and not response.get("memory_notes"):
-                response["memory_notes"] = accumulated["memory_notes"]
-
-            # Carry forward seed fields if investigation didn't produce them
-            if not response.get("regime_assessment"):
-                response["regime_assessment"] = seed_regime
-            if not response.get("reasoning"):
-                response["reasoning"] = seed_reasoning
-            if not response.get("risk_notes"):
-                response["risk_notes"] = seed_risk
-
-            # Preserve token info from seed for decision logging
-            if "_tokens_used" not in response:
-                response["_tokens_used"] = seed_response.get("_tokens_used", 0)
-            if "_model" not in response:
-                response["_model"] = seed_response.get("_model", "")
-
-            tool_summary = {
-                "tools_used": len(result.tool_calls),
-                "turns": result.turns,
-                "cost_usd": round(result.token_tracker.total_cost_usd, 4),
-                "trailing_stop_requests": accumulated.get("trailing_stop_requests", []),
-                "declared_posture": accumulated.get("declared_posture"),
-            }
-
-            # Save tool call logs (capture IDs for influenced_decision tracking)
-            saved_log_ids: list[int] = []
-            try:
-                tool_log_entries = [
-                    {
-                        "turn": tc.turn,
-                        "tool_name": tc.tool_name,
-                        "tool_input": tc.tool_input,
-                        "tool_output_preview": tc.tool_output_preview,
-                        "success": tc.success,
-                        "error": tc.error,
-                    }
-                    for tc in result.tool_calls
-                ]
-                saved_log_ids = await self._db.save_tool_call_logs(
-                    tool_log_entries, today, session_label=session, tenant_id=tenant_id
-                )
-            except Exception as e:
-                log.warning("tool_call_log_save_failed", error=str(e))
-
-            log.info(
-                "agent_loop_complete",
-                turns=result.turns,
-                tool_calls=len(result.tool_calls),
-                cost_usd=tool_summary["cost_usd"],
-            )
-        else:
-            # ── Single-shot path (existing) ──────────────────────────────
-            context = self._strategy_b.prepare_context(
-                closes=closes,
-                volumes=volumes,
-                positions=positions_for_agent,
-                cash=cash,
-                total_value=total_value,
-                recent_trades=recent_trades,
-                regime=regime_str,
-                yield_curve=yield_curve,
-                vix=vix,
-                news_context=news_context,
-                system_prompt=dynamic_prompt,
-                universe=portfolio_b_universe,
-            )
-            context["model_override"] = model_override
-
-            response = self._strategy_b._agent.analyze(**context)
-
-        # Convert to trades (include dynamic tickers as valid)
-        dynamic_tickers = await self._ticker_discovery.get_active_tickers(
+        return await self._run_portfolio_b_claude_code(
             tenant_id=tenant_id,
-        )
-        trades = self._strategy_b.agent_response_to_trades(
-            response=response,
+            session_type=session.lower() if session else "morning",
+            closes=closes,
+            volumes=volumes,
+            vix=vix,
+            yield_curve=yield_curve,
+            regime_str=regime_str,
+            news_context=news_context,
+            positions_for_agent=positions_for_agent,
+            cash=cash,
             total_value=total_value,
-            current_positions=position_map,
-            latest_prices=closes.iloc[-1],
-            extra_tickers=dynamic_tickers,
-            universe=portfolio_b_universe,
+            today=today,
+            session=session,
+            portfolio_b_universe=portfolio_b_universe,
+            allocations=alloc,
+            earnings_context=earnings_context,
+            dynamic_ctx=dynamic_ctx,
+            decision_review_text=decision_review_text,
+            track_record_text=track_record_text,
+            pb_ctx=pb_ctx,
         )
-
-        # Save decision
-        await self._strategy_b.save_decision(
-            self._db,
-            today,
-            response,
-            trades,
-            tenant_id=tenant_id,
-            regime=regime_str,
-            session_label=session,
-        )
-
-        # Mark influential tool calls (agentic path only)
-        if use_agent_loop and saved_log_ids:
-            try:
-                traded_tickers = {t.ticker for t in trades}
-                always_influential = {
-                    # Phase 2 tools
-                    "execute_trade",
-                    "set_trailing_stop",
-                    "save_observation",
-                    "get_portfolio_state",
-                    "get_market_overview",
-                    # Legacy aliases
-                    "propose_trades",
-                    "update_watchlist",
-                    "save_memory_note",
-                    "get_current_positions",
-                    "get_portfolio_summary",
-                    "get_market_context",
-                }
-                influenced_ids: list[int] = []
-                for idx, tc in enumerate(result.tool_calls):
-                    if idx >= len(saved_log_ids):
-                        break
-                    if tc.tool_name in always_influential:
-                        influenced_ids.append(saved_log_ids[idx])
-                    elif traded_tickers:
-                        # Check if tool_input mentions any traded ticker
-                        input_str = json.dumps(tc.tool_input) if isinstance(tc.tool_input, dict) else str(tc.tool_input)
-                        if any(ticker in input_str for ticker in traded_tickers):
-                            influenced_ids.append(saved_log_ids[idx])
-                if influenced_ids:
-                    await self._db.update_tool_call_influenced(influenced_ids)
-                    log.info("tool_calls_marked_influential", count=len(influenced_ids))
-            except Exception as e:
-                log.warning("influenced_decision_marking_failed", error=str(e))
-
-        # Save agent memory (short-term + notes)
-        try:
-            await self._memory_manager.save_short_term(
-                self._db,
-                today.isoformat(),
-                response,
-                tenant_id=tenant_id,
-            )
-            await self._memory_manager.save_agent_notes(
-                self._db,
-                response.get("memory_notes", []),
-                tenant_id=tenant_id,
-            )
-        except Exception as e:
-            log.warning("memory_save_failed", error=str(e))
-
-        # Process suggested tickers from agent response (passive path)
-        await self._process_suggested_tickers(response, today, tenant_id=tenant_id)
-
-        # Process tool-based ticker discoveries (already validated + saved by tool)
-        try:
-            await self._process_tool_discoveries(accumulated, today, tenant_id=tenant_id)
-        except Exception as e:
-            log.warning("tool_discovery_processing_failed", error=str(e))
-
-        # Process watchlist updates from agent response
-        try:
-            await self._process_watchlist_updates(
-                response.get("watchlist_updates", []),
-                tenant_id,
-                today,
-            )
-        except Exception as e:
-            log.warning("watchlist_update_failed", error=str(e))
-
-        log.info(
-            "portfolio_b_complete",
-            trades=len(trades),
-            reasoning=response.get("reasoning", "")[:100],
-            tokens=response.get("_tokens_used", 0),
-            model_override=model_override,
-            complexity_score=complexity.score,
-            agentic=use_agent_loop,
-        )
-        return trades, response.get("reasoning", ""), tool_summary
 
     async def _run_portfolio_b_claude_code(
         self,
@@ -2029,9 +1603,7 @@ class Orchestrator:
             log.debug("event_publish_failed", error=str(exc))
 
         # ── 1. Write session-state.json for MCP server ──────────────────
-        current_prices = {
-            t: float(closes[t].iloc[-1]) for t in closes.columns if not pd.isna(closes[t].iloc[-1])
-        }
+        current_prices = {t: float(closes[t].iloc[-1]) for t in closes.columns if not pd.isna(closes[t].iloc[-1])}
         held_tickers = [p["ticker"] for p in positions_for_agent] if positions_for_agent else []
 
         fear_greed_data: dict | None = None
@@ -2226,492 +1798,6 @@ class Orchestrator:
             log.debug("event_publish_failed", error=str(exc))
 
         return trades, response.get("reasoning", ""), tool_summary
-
-    async def _run_portfolio_b_persistent(
-        self,
-        tenant_id: str,
-        trigger_type: str,
-        dynamic_prompt: str,
-        closes,
-        volumes,
-        vix: float | None,
-        yield_curve: float | None,
-        regime_str: str | None,
-        news_context: str,
-        positions_for_agent: list[dict],
-        cash: float,
-        total_value: float,
-        recent_trades: list[dict],
-        model_override: str | None,
-        portfolio_b_universe: list[str] | None,
-        allocations: TenantAllocations | None,
-        today: date | None,
-        session: str,
-        strategy_mode: str | None,
-    ):
-        """Run Portfolio B through the persistent agent path.
-
-        Wraps the existing AgentRunner with conversation persistence.
-        Returns the same 3-tuple as _run_portfolio_b: (trades, reasoning, tool_summary).
-        """
-        from src.agent.agent_runner import AgentRunner
-        from src.agent.persistent_agent import PersistentAgent
-        from src.agent.tools.actions import ActionState, register_action_tools
-        from src.agent.tools.market import register_market_tools
-        from src.agent.tools.news import register_news_tools
-        from src.agent.tools.portfolio import register_portfolio_tools
-
-        log.info("portfolio_b_persistent_mode", tenant_id=tenant_id, trigger=trigger_type)
-        try:
-            from src.events.event_bus import Event, EventType, event_bus
-
-            event_bus.publish(
-                Event(
-                    type=EventType.SESSION_STARTED,
-                    tenant_id=tenant_id,
-                    data={"trigger": trigger_type, "session": session},
-                )
-            )
-        except Exception as exc:
-            log.debug("event_publish_failed", error=str(exc))
-
-        # Build runner (same as agentic path)
-        from src.agent.request_pacer import RequestPacer
-
-        pacer = RequestPacer(tokens_per_minute=settings.agent.agent_tpm_limit)
-        runner = AgentRunner(
-            api_key=settings.anthropic_api_key,
-            model=settings.agent.agent_tool_model,
-            max_turns=settings.agent.agent_max_turns,
-            max_cost_usd=settings.agent.agent_session_budget,
-            pacer=pacer,
-        )
-
-        # Register tools
-        current_prices = {t: float(closes[t].iloc[-1]) for t in closes.columns if not pd.isna(closes[t].iloc[-1])}
-        action_state = ActionState()
-        register_portfolio_tools(runner.registry, self._db, tenant_id, current_prices, closes=closes)
-        held_tickers = [p["ticker"] for p in positions_for_agent] if positions_for_agent else []
-        # Fetch Fear & Greed for tool context
-        fear_greed_data: dict | None = None
-        try:
-            fg_row = await self._db.get_latest_sentiment(tenant_id, "fear_greed_index")
-            if fg_row:
-                fear_greed_data = {"value": fg_row.value, "classification": fg_row.classification}
-        except Exception as e:
-            log.debug("fear_greed_for_tools_failed", error=str(e))
-
-        register_market_tools(
-            runner.registry,
-            closes,
-            vix=vix,
-            yield_curve=yield_curve,
-            regime=regime_str,
-            db=self._db,
-            held_tickers=held_tickers,
-            tenant_id=tenant_id,
-            fear_greed=fear_greed_data,
-        )
-        register_news_tools(
-            runner.registry,
-            news_context,
-            news_fetcher=getattr(self, "_news_fetcher", None),
-            db=self._db,
-            tenant_id=tenant_id,
-            current_prices=current_prices,
-        )
-        register_action_tools(
-            runner.registry,
-            action_state,
-            db=self._db,
-            tenant_id=tenant_id,
-            ticker_discovery=self._ticker_discovery,
-        )
-
-        # Build market data for trigger message
-        market_data = {
-            "regime": regime_str or "unknown",
-            "vix": vix,
-            "spy_change_pct": (
-                round(((float(closes["SPY"].iloc[-1]) / float(closes["SPY"].iloc[-2])) - 1) * 100, 2)
-                if "SPY" in closes.columns and len(closes["SPY"].dropna()) >= 2
-                else None
-            ),
-        }
-        portfolio_data = {
-            "total_value": total_value,
-            "cash": cash,
-            "positions_count": len(positions_for_agent),
-        }
-
-        # Inject Fear & Greed index if available (already fetched above)
-        if fear_greed_data:
-            from src.data.fear_greed import format_for_context
-
-            market_data["fear_greed"] = format_for_context(
-                fear_greed_data["value"], fear_greed_data["classification"]
-            )
-
-        # Inject signal rankings if available (from signal_engine_job)
-        try:
-            signal_rows = await self._db.get_latest_signals(tenant_id)
-            if signal_rows:
-                from src.analysis.signal_engine import db_rows_to_signals, format_signals_for_agent
-
-                signals = db_rows_to_signals(signal_rows)
-                held = {p["ticker"] for p in positions_for_agent}
-                signal_text = format_signals_for_agent(signals, held)
-                if signal_text:
-                    portfolio_data["signal_rankings"] = signal_text
-        except Exception as e:
-            log.debug("signal_fetch_for_trigger_failed", error=str(e))
-
-        # Build pinned context from DB (posture, playbook, calibration)
-        pinned_context = ""
-        try:
-            from src.agent.context_manager import ContextManager
-            from src.analysis.conviction_calibrator import ConvictionBucket, ConvictionCalibrator
-            from src.analysis.playbook_generator import PlaybookCell, PlaybookGenerator
-
-            ctx_mgr = ContextManager()
-
-            # Current posture
-            posture_row = await self._db.get_current_posture(tenant_id)
-            current_posture = posture_row.effective_posture if posture_row else "balanced"
-
-            # Track record
-            tr_summary = ""
-            try:
-                from src.analysis.outcome_tracker import OutcomeTracker
-                from src.analysis.track_record import TrackRecord
-
-                tracker = OutcomeTracker(self._db)
-                outcomes = await tracker.get_recent_outcomes(days=30, tenant_id=tenant_id)
-                if outcomes:
-                    stats = TrackRecord().compute(outcomes, min_trades=1)
-                    tr_summary = TrackRecord.format_for_prompt(stats)
-            except Exception as e:
-                log.warning("pinned_context_track_record_failed", error=str(e))
-
-            pinned_context = ctx_mgr.build_pinned_context(
-                current_posture=current_posture.capitalize(),
-                track_record_summary=tr_summary,
-            )
-
-            # Append playbook
-            playbook_rows = await self._db.get_latest_playbook(tenant_id)
-            if playbook_rows:
-                cells = [
-                    PlaybookCell(
-                        regime=r.regime,
-                        sector=r.sector,
-                        total=r.total_trades,
-                        wins=r.wins,
-                        losses=r.losses,
-                        win_rate_pct=r.win_rate_pct,
-                        avg_pnl_pct=r.avg_pnl_pct,
-                        recommendation=r.recommendation,
-                    )
-                    for r in playbook_rows
-                ]
-                playbook_text = PlaybookGenerator().format_for_prompt(cells)
-                if playbook_text:
-                    pinned_context += f"\n\n{playbook_text}"
-
-            # Append calibration
-            cal_rows = await self._db.get_latest_calibration(tenant_id)
-            if cal_rows:
-                buckets = [
-                    ConvictionBucket(
-                        conviction=r.conviction_level,
-                        total=r.total_trades,
-                        wins=r.wins,
-                        losses=r.losses,
-                        win_rate_pct=r.win_rate_pct,
-                        avg_pnl_pct=r.avg_pnl_pct,
-                        assessment=r.assessment,
-                        suggested_multiplier=r.suggested_multiplier,
-                    )
-                    for r in cal_rows
-                ]
-                cal_text = ConvictionCalibrator().format_for_prompt(buckets)
-                if cal_text:
-                    pinned_context += f"\n\n{cal_text}"
-            # Decision quality feedback (causal — did your specific calls work?)
-            try:
-                from src.analysis.decision_quality import DecisionQualityTracker
-
-                dq = DecisionQualityTracker(self._db)
-                qualities = await dq.analyze_recent(days=14, tenant_id=tenant_id)
-                if qualities:
-                    summary = DecisionQualityTracker.summarize(qualities)
-                    dq_text = DecisionQualityTracker.format_for_prompt(summary)
-                    if dq_text:
-                        pinned_context += f"\n\n## Your Decision Accuracy\n{dq_text}"
-            except Exception as e:
-                log.warning("pinned_context_decision_quality_failed", error=str(e))
-
-            # Portfolio A benchmark
-            try:
-                from config.strategies import PORTFOLIO_A
-
-                a_alloc = PORTFOLIO_A.allocation_usd
-                a_snaps = await self._db.get_snapshots("A", tenant_id=tenant_id)
-                if a_snaps:
-                    a_return = ((a_snaps[-1].total_value - a_alloc) / a_alloc) * 100
-                    pinned_context += (
-                        f"\n\n## Benchmark: Portfolio A (Momentum)\n"
-                        f"Return: {a_return:+.1f}% — you must outperform this."
-                    )
-            except Exception as e:
-                log.warning("pinned_context_benchmark_failed", error=str(e))
-
-        except Exception as e:
-            log.warning("pinned_context_build_failed", error=str(e))
-
-        # ── Tiered model + budget integration ─────────────────────────────
-        extra_runner_kwargs: dict = {}
-        budget_tracker = None
-        session_profile_str: str | None = None
-
-        tenant_row = await self._db.get_tenant(tenant_id)
-        use_tiered = (
-            (settings.agent.enable_tiered and getattr(tenant_row, "use_tiered_models", False)) if tenant_row else False
-        )
-
-        if use_tiered:
-            from src.agent.budget_tracker import BudgetTracker
-            from src.agent.haiku_scanner import HaikuScanner
-            from src.agent.opus_validator import OpusValidator
-            from src.agent.session_profiles import get_session_profile
-            from src.agent.tiered_runner import TieredModelRunner
-
-            budget_tracker = BudgetTracker(
-                self._db,
-                daily_limit=settings.agent.daily_budget,
-                monthly_limit=settings.agent.monthly_budget,
-            )
-            budget_status = await budget_tracker.check_budget(tenant_id, today)
-
-            if budget_status.daily_exhausted:
-                log.warning("daily_budget_exhausted", tenant_id=tenant_id, spent=budget_status.daily_spent)
-                try:
-                    from src.events.event_bus import Event, EventType, event_bus
-
-                    event_bus.publish(
-                        Event(
-                            type=EventType.SESSION_SKIPPED,
-                            tenant_id=tenant_id,
-                            data={"reason": "daily_budget_exhausted", "spent": budget_status.daily_spent},
-                        )
-                    )
-                except Exception as exc:
-                    log.debug("event_publish_failed", error=str(exc))
-                return [], "Daily budget exhausted — session skipped", None
-
-            session_profile = get_session_profile(trigger_type, budget_exhausted=budget_status.monthly_exhausted)
-            session_profile_str = session_profile.value
-
-            scanner = HaikuScanner(api_key=settings.anthropic_api_key)
-            validator = OpusValidator(api_key=settings.anthropic_api_key)
-            tiered_runner = TieredModelRunner(
-                scanner=scanner,
-                validator=validator,
-                agent_runner=runner,
-                token_tracker=runner._token_tracker,
-            )
-            extra_runner_kwargs["tiered_runner"] = tiered_runner
-            extra_runner_kwargs["session_profile"] = session_profile
-            extra_runner_kwargs["market_data"] = market_data
-            extra_runner_kwargs["portfolio_summary"] = portfolio_data
-            try:
-                _posture_val = posture_row.effective_posture if posture_row else "balanced"
-            except NameError:
-                _posture_val = "balanced"
-            extra_runner_kwargs["posture"] = _posture_val
-
-        # Resolve strategy directive
-        from src.agent.strategy_directives import SESSION_DIRECTIVES, STRATEGY_MAP
-
-        strategy_directive = STRATEGY_MAP.get(settings.agent.strategy_mode, "")
-        session_label = {"morning": "Morning", "midday": "Midday", "close": "Closing"}.get(trigger_type)
-        if session_label and session_label in SESSION_DIRECTIVES:
-            strategy_directive += SESSION_DIRECTIVES[session_label]
-
-        strategy_directive += (
-            "\n\n## Position Sizing Philosophy\n"
-            "Portfolio A (your benchmark) uses extreme concentration: 100% in one ETF.\n"
-            "Its outperformance shows that conviction > diversification for paper trading.\n"
-            "- Aim for 5-8 high-conviction positions, NOT 15-20 small ones\n"
-            "- Size top 3 ideas at 10-20% each\n"
-            "- A position under 3% of portfolio is noise — size up or skip it"
-        )
-
-        # Build system prompt (cached if enabled and tiered)
-        if use_tiered and settings.agent.enable_cache:
-            from src.agent.context_manager import ContextManager as CtxCached
-
-            cached_prompt = CtxCached().build_cached_system_prompt(
-                pinned_context=pinned_context,
-                strategy_directive=strategy_directive,
-            )
-            extra_runner_kwargs["cached_system_prompt"] = cached_prompt
-
-        # Run persistent session
-        persistent = PersistentAgent(
-            db=self._db,
-            api_key=settings.anthropic_api_key,
-            tenant_id=tenant_id,
-        )
-        result = await persistent.run_session(
-            trigger_type=trigger_type,
-            market_data=market_data,
-            portfolio_summary=portfolio_data,
-            runner_kwargs={
-                "runner": runner,
-                "system_prompt": dynamic_prompt,
-                **extra_runner_kwargs,
-            },
-            pinned_context=pinned_context,
-            strategy_directive=strategy_directive,
-        )
-
-        response = result.response
-
-        # Merge action state (same as agentic path)
-        accumulated = action_state.get_accumulated_state()
-        if accumulated["trades"] and not response.get("trades"):
-            response["trades"] = accumulated["trades"]
-        if accumulated["watchlist_updates"] and not response.get("watchlist_updates"):
-            response["watchlist_updates"] = accumulated["watchlist_updates"]
-        if accumulated["memory_notes"] and not response.get("memory_notes"):
-            response["memory_notes"] = accumulated["memory_notes"]
-
-        # Attach agent's trailing stop requests + posture to tool_summary for Step 7.1
-        persistent_tool_summary = result.tool_summary or {}
-        if accumulated.get("trailing_stop_requests"):
-            persistent_tool_summary["trailing_stop_requests"] = accumulated["trailing_stop_requests"]
-        if accumulated.get("declared_posture"):
-            persistent_tool_summary["declared_posture"] = accumulated["declared_posture"]
-
-        # Convert to trades
-        position_map = {p["ticker"]: p["shares"] for p in positions_for_agent}
-        dynamic_tickers = await self._ticker_discovery.get_active_tickers(tenant_id=tenant_id)
-        trades = self._strategy_b.agent_response_to_trades(
-            response=response,
-            total_value=total_value,
-            current_positions=position_map,
-            latest_prices=closes.iloc[-1],
-            extra_tickers=dynamic_tickers,
-            universe=portfolio_b_universe,
-        )
-
-        # Save decision
-        await self._strategy_b.save_decision(
-            self._db,
-            today,
-            response,
-            trades,
-            tenant_id=tenant_id,
-            regime=regime_str,
-            session_label=session,
-        )
-
-        # Save tool call logs
-        if result.tool_calls:
-            try:
-                tool_log_entries = [
-                    {
-                        "turn": tc.turn,
-                        "tool_name": tc.tool_name,
-                        "tool_input": tc.tool_input,
-                        "tool_output_preview": tc.tool_output_preview,
-                        "success": tc.success,
-                        "error": tc.error,
-                    }
-                    for tc in result.tool_calls
-                ]
-                await self._db.save_tool_call_logs(tool_log_entries, today, session_label=session, tenant_id=tenant_id)
-            except Exception as e:
-                log.warning("tool_call_log_save_failed", error=str(e))
-
-        # Save agent memory
-        try:
-            await self._memory_manager.save_short_term(
-                self._db,
-                today.isoformat() if today else "",
-                response,
-                tenant_id=tenant_id,
-            )
-            await self._memory_manager.save_agent_notes(
-                self._db,
-                response.get("memory_notes", []),
-                tenant_id=tenant_id,
-            )
-        except Exception as e:
-            log.warning("memory_save_failed", error=str(e))
-
-        # Process suggested tickers (passive path)
-        await self._process_suggested_tickers(response, today, tenant_id=tenant_id)
-
-        # Process tool-based ticker discoveries (already validated + saved by tool)
-        try:
-            await self._process_tool_discoveries(accumulated, today, tenant_id=tenant_id)
-        except Exception as e:
-            log.warning("tool_discovery_processing_failed", error=str(e))
-
-        # Process watchlist updates
-        try:
-            await self._process_watchlist_updates(
-                response.get("watchlist_updates", []),
-                tenant_id,
-                today,
-            )
-        except Exception as e:
-            log.warning("watchlist_update_failed", error=str(e))
-
-        # Record budget spend (if tiered mode active)
-        if budget_tracker is not None:
-            try:
-                await budget_tracker.record_session(
-                    tenant_id=tenant_id,
-                    session_date=today or date.today(),
-                    session_label=trigger_type,
-                    session_id=result.session_id,
-                    token_tracker=result.token_tracker,
-                    session_profile=session_profile_str,
-                )
-            except Exception as e:
-                log.warning("budget_record_failed", error=str(e))
-
-        # Add tiered info to tool summary for Telegram
-        if session_profile_str:
-            persistent_tool_summary["session_profile"] = session_profile_str
-
-        log.info(
-            "portfolio_b_persistent_complete",
-            trades=len(trades),
-            session_id=result.session_id,
-            compressed=result.compressed_count,
-            tokens=result.token_tracker.total_input_tokens + result.token_tracker.total_output_tokens,
-            cost_usd=round(result.token_tracker.total_cost_usd, 4),
-        )
-        try:
-            from src.events.event_bus import Event, EventType, event_bus
-
-            event_bus.publish(
-                Event(
-                    type=EventType.SESSION_COMPLETED,
-                    tenant_id=tenant_id,
-                    data={
-                        "trades": len(trades),
-                        "cost_usd": round(result.token_tracker.total_cost_usd, 4),
-                    },
-                )
-            )
-        except Exception as exc:
-            log.debug("event_publish_failed", error=str(exc))
-        return trades, response.get("reasoning", ""), persistent_tool_summary
 
     async def _check_trailing_stops(
         self,
@@ -3206,18 +2292,6 @@ class Orchestrator:
             portfolio_a_pct=a_pct,
             portfolio_b_pct=b_pct,
         )
-
-    async def _request_model_approval(self, complexity) -> str:
-        """Send approval request via Telegram and wait for response.
-
-        Returns:
-            "opus", "sonnet", or "skip".
-        """
-        request_id = uuid.uuid4().hex
-        msg_id = await self._notifier.send_approval_request(complexity, request_id)
-        if msg_id is None:
-            return "sonnet"
-        return await self._notifier.wait_for_approval(request_id, PORTFOLIO_B.approval_timeout_seconds)
 
     async def _request_inverse_trade_approval(
         self,

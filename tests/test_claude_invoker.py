@@ -286,11 +286,15 @@ class TestClaudeInvoker:
     def test_read_session_results(self, tmp_path: Path):
         invoker = ClaudeInvoker(workspace=tmp_path)
         results_path = tmp_path / "session-results.json"
-        results_path.write_text(json.dumps({
-            "trades": [{"ticker": "NVDA"}],
-            "declared_posture": "aggressive",
-            "trailing_stop_requests": [{"ticker": "NVDA", "trail_pct": 0.07}],
-        }))
+        results_path.write_text(
+            json.dumps(
+                {
+                    "trades": [{"ticker": "NVDA"}],
+                    "declared_posture": "aggressive",
+                    "trailing_stop_requests": [{"ticker": "NVDA", "trail_pct": 0.07}],
+                }
+            )
+        )
         data = invoker._read_session_results(results_path)
         assert data["declared_posture"] == "aggressive"
         assert not results_path.exists()  # Cleaned up
@@ -304,10 +308,12 @@ class TestClaudeInvoker:
     async def test_invoke_subprocess_success(self, tmp_path: Path):
         invoker = ClaudeInvoker(workspace=tmp_path, timeout=30)
 
-        cli_output = json.dumps({
-            "result": json.dumps({"regime_assessment": "bull", "trades": []}),
-            "session_id": "sess-new",
-        })
+        cli_output = json.dumps(
+            {
+                "result": json.dumps({"regime_assessment": "bull", "trades": []}),
+                "session_id": "sess-new",
+            }
+        )
 
         mock_result = MagicMock()
         mock_result.returncode = 0
@@ -359,10 +365,12 @@ class TestClaudeInvoker:
         # Simulate morning session saving an ID
         invoker._save_daily_session_id(today, "morning-sess-id")
 
-        cli_output = json.dumps({
-            "result": json.dumps({"trades": [], "reasoning": "no changes"}),
-            "session_id": "morning-sess-id",
-        })
+        cli_output = json.dumps(
+            {
+                "result": json.dumps({"trades": [], "reasoning": "no changes"}),
+                "session_id": "morning-sess-id",
+            }
+        )
 
         mock_result = MagicMock()
         mock_result.returncode = 0

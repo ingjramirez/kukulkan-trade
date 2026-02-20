@@ -419,3 +419,137 @@ class ClaudeInvoker:
         except (json.JSONDecodeError, OSError) as e:
             log.warning("session_results_read_failed", error=str(e))
             return {}
+
+
+# ── Lightweight Claude CLI utility ───────────────────────────────────────────
+
+
+async def claude_cli_call(
+    prompt: str,
+    system: str | None = None,
+    model: str = "claude-sonnet-4-6",
+    max_tokens: int = 1024,
+    timeout: int = 120,
+) -> str:
+    """Simple text-in/text-out Claude CLI call (no MCP, no session).
+
+    Replaces direct Anthropic SDK calls (anthropic.Anthropic().messages.create)
+    with Claude Code CLI using the Max subscription.
+
+    Args:
+        prompt: User message to send.
+        system: Optional system prompt (prepended to user prompt).
+        model: Claude model to use.
+        max_tokens: Maximum response tokens.
+        timeout: Subprocess timeout in seconds.
+
+    Returns:
+        Response text, or empty string on failure.
+    """
+    full_prompt = prompt
+    if system:
+        full_prompt = f"<system>{system}</system>\n\n{prompt}"
+
+    cmd = [
+        "claude",
+        "-p",
+        full_prompt,
+        "--output-format",
+        "text",
+        "--max-turns",
+        "1",
+        "--model",
+        model,
+    ]
+
+    env = {**os.environ}
+    env.pop("ANTHROPIC_API_KEY", None)
+
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run,
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+        )
+        if result.returncode != 0:
+            log.error("claude_cli_call_failed", returncode=result.returncode, stderr=result.stderr[:200])
+            return ""
+        return result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        log.error("claude_cli_call_timeout", timeout=timeout)
+        return ""
+    except Exception as e:
+        log.error("claude_cli_call_error", error=str(e))
+        return ""
+
+
+async def claude_cli_json(
+    prompt: str,
+    system: str | None = None,
+    model: str = "claude-sonnet-4-6",
+    timeout: int = 120,
+) -> dict:
+    """Claude CLI call that expects a JSON response.
+
+    Args:
+        prompt: User message (should instruct JSON output).
+        system: Optional system prompt.
+        model: Claude model to use.
+        timeout: Subprocess timeout in seconds.
+
+    Returns:
+        Parsed dict, or empty dict on failure.
+    """
+    full_prompt = prompt
+    if system:
+        full_prompt = f"<system>{system}</system>\n\n{prompt}"
+
+    cmd = [
+        "claude",
+        "-p",
+        full_prompt,
+        "--output-format",
+        "json",
+        "--max-turns",
+        "1",
+        "--model",
+        model,
+    ]
+
+    env = {**os.environ}
+    env.pop("ANTHROPIC_API_KEY", None)
+
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run,
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+        )
+        if result.returncode != 0:
+            log.error("claude_cli_json_failed", returncode=result.returncode)
+            return {}
+
+        data = json.loads(result.stdout)
+        # Claude Code wraps in {"result": "...", "session_id": "..."}
+        if "result" in data and isinstance(data["result"], str):
+            text = data["result"]
+        else:
+            return data
+
+        # Parse JSON from result text
+        fence = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text)
+        if fence:
+            return json.loads(fence.group(1))
+        brace = re.search(r"\{[\s\S]*\}", text)
+        if brace:
+            return json.loads(brace.group())
+        return {}
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception) as e:
+        log.error("claude_cli_json_error", error=str(e))
+        return {}

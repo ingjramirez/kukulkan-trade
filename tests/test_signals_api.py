@@ -32,19 +32,37 @@ async def seeded_db(db):
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     rows = [
         TickerSignalRow(
-            tenant_id="default", ticker="XLK", composite_score=85.3,
-            rank=1, prev_rank=3, rank_velocity=2.0,
-            momentum_20d=0.08, momentum_63d=0.15, rsi=55,
-            macd_histogram=0.5, sma_trend_score=3, bollinger_pct_b=0.7,
-            volume_ratio=1.2, alerts=json.dumps(["golden_cross"]),
+            tenant_id="default",
+            ticker="XLK",
+            composite_score=85.3,
+            rank=1,
+            prev_rank=3,
+            rank_velocity=2.0,
+            momentum_20d=0.08,
+            momentum_63d=0.15,
+            rsi=55,
+            macd_histogram=0.5,
+            sma_trend_score=3,
+            bollinger_pct_b=0.7,
+            volume_ratio=1.2,
+            alerts=json.dumps(["golden_cross"]),
             scored_at=now,
         ),
         TickerSignalRow(
-            tenant_id="default", ticker="XLF", composite_score=60.0,
-            rank=2, prev_rank=2, rank_velocity=0,
-            momentum_20d=0.03, momentum_63d=0.05, rsi=45,
-            macd_histogram=0.1, sma_trend_score=2, bollinger_pct_b=0.5,
-            volume_ratio=1.0, alerts=json.dumps([]),
+            tenant_id="default",
+            ticker="XLF",
+            composite_score=60.0,
+            rank=2,
+            prev_rank=2,
+            rank_velocity=0,
+            momentum_20d=0.03,
+            momentum_63d=0.05,
+            rsi=45,
+            macd_histogram=0.1,
+            sma_trend_score=2,
+            bollinger_pct_b=0.5,
+            volume_ratio=1.0,
+            alerts=json.dumps([]),
             scored_at=now,
         ),
     ]
@@ -124,7 +142,12 @@ async def test_signal_response_fields(client):
     resp = await client.get("/api/signals/rankings")
     first = resp.json()["signals"][0]
     for field in [
-        "momentum_20d", "momentum_63d", "rsi", "macd_histogram",
-        "sma_trend_score", "bollinger_pct_b", "volume_ratio",
+        "momentum_20d",
+        "momentum_63d",
+        "rsi",
+        "macd_histogram",
+        "sma_trend_score",
+        "bollinger_pct_b",
+        "volume_ratio",
     ]:
         assert field in first

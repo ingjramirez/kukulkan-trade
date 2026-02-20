@@ -61,7 +61,7 @@ class RSSNewsFetcher(BaseNewsFetcher):
                     log.warning("rss_feed_parse_error", source=self.source_name, url=url)
                     continue
 
-                for entry in feed.entries[:self._max_entries]:
+                for entry in feed.entries[: self._max_entries]:
                     title = entry.get("title", "")
                     if not title:
                         continue

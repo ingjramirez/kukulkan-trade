@@ -12,7 +12,6 @@ import structlog
 
 from config.strategies import PORTFOLIO_B
 from config.universe import PORTFOLIO_B_UNIVERSE
-from src.agent.claude_agent import ClaudeAgent
 from src.analysis.technical import compute_all_indicators, compute_rsi
 from src.storage.database import Database
 from src.storage.models import (
@@ -156,8 +155,8 @@ def build_universe_opportunities(
 class AIAutonomyStrategy:
     """Portfolio B strategy: Claude decides everything."""
 
-    def __init__(self, agent: ClaudeAgent | None = None) -> None:
-        self._agent = agent or ClaudeAgent()
+    def __init__(self) -> None:
+        pass
 
     def prepare_context(
         self,

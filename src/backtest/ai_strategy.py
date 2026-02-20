@@ -56,7 +56,7 @@ class AIBacktestStrategy:
         self._decisions_dir = decisions_dir
 
         self._agent = agent or ClaudeAgent()
-        self._strategy = AIAutonomyStrategy(agent=self._agent)
+        self._strategy = AIAutonomyStrategy()
 
         # Resolve effective system prompt:
         # 1. Explicit prompt_override text takes priority (legacy / custom)
@@ -156,7 +156,7 @@ class AIBacktestStrategy:
             context["system_prompt"] = self._prompt_override
 
         try:
-            response = self._strategy._agent.analyze(**context)
+            response = self._agent.analyze(**context)
         except Exception as e:
             log.error(
                 "ai_backtest_api_error",

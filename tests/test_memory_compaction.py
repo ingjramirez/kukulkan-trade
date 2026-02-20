@@ -1,6 +1,6 @@
 """Tests for the weekly compaction evaluation prompt (Fix #5)."""
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -30,92 +30,63 @@ async def _seed_short_term(db: Database, count: int = 3, tenant_id: str = "defau
 class TestWeeklyCompactionPrompt:
     """Verify the evaluation prompt structure."""
 
-    async def test_prompt_contains_evaluate_questions(self, db: Database) -> None:
+    @patch("src.agent.claude_invoker.claude_cli_call", new_callable=AsyncMock)
+    async def test_prompt_contains_evaluate_questions(self, mock_cli, db: Database) -> None:
         """The compaction prompt should contain 4 evaluation questions."""
         await _seed_short_term(db)
 
         manager = AgentMemoryManager()
-        mock_agent = MagicMock()
+        mock_cli.return_value = "Weekly evaluation summary."
 
-        captured_prompt = {}
+        await manager.run_weekly_compaction(db)
 
-        def capture_create(**kwargs):
-            captured_prompt["messages"] = kwargs.get("messages", [])
-            mock_response = MagicMock()
-            mock_response.content = [MagicMock(text="Weekly evaluation summary.")]
-            return mock_response
-
-        mock_agent.client.messages.create = capture_create
-
-        await manager.run_weekly_compaction(db, mock_agent)
-
-        prompt_text = captured_prompt["messages"][0]["content"]
+        prompt_text = mock_cli.call_args.kwargs["prompt"]
         assert "Evaluate" in prompt_text
         assert "Which decisions worked" in prompt_text
         assert "What went wrong" in prompt_text
         assert "Patterns" in prompt_text
         assert "What should change" in prompt_text
 
-    async def test_track_record_text_included(self, db: Database) -> None:
+    @patch("src.agent.claude_invoker.claude_cli_call", new_callable=AsyncMock)
+    async def test_track_record_text_included(self, mock_cli, db: Database) -> None:
         """When track_record_text is provided, it's included in the prompt."""
         await _seed_short_term(db)
 
         manager = AgentMemoryManager()
-        mock_agent = MagicMock()
-
-        captured_prompt = {}
-
-        def capture_create(**kwargs):
-            captured_prompt["messages"] = kwargs.get("messages", [])
-            mock_response = MagicMock()
-            mock_response.content = [MagicMock(text="Summary.")]
-            return mock_response
-
-        mock_agent.client.messages.create = capture_create
+        mock_cli.return_value = "Summary."
 
         await manager.run_weekly_compaction(
             db,
-            mock_agent,
             track_record_text="Win rate: 67% (2W/1L/0S from 3 trades)",
         )
 
-        prompt_text = captured_prompt["messages"][0]["content"]
+        prompt_text = mock_cli.call_args.kwargs["prompt"]
         assert "Track Record:" in prompt_text
         assert "Win rate: 67%" in prompt_text
 
-    async def test_outcome_summary_included(self, db: Database) -> None:
+    @patch("src.agent.claude_invoker.claude_cli_call", new_callable=AsyncMock)
+    async def test_outcome_summary_included(self, mock_cli, db: Database) -> None:
         """When outcome_summary is provided, it's included in the prompt."""
         await _seed_short_term(db)
 
         manager = AgentMemoryManager()
-        mock_agent = MagicMock()
-
-        captured_prompt = {}
-
-        def capture_create(**kwargs):
-            captured_prompt["messages"] = kwargs.get("messages", [])
-            mock_response = MagicMock()
-            mock_response.content = [MagicMock(text="Summary.")]
-            return mock_response
-
-        mock_agent.client.messages.create = capture_create
+        mock_cli.return_value = "Summary."
 
         await manager.run_weekly_compaction(
             db,
-            mock_agent,
             outcome_summary="- XLK (BUY): +5.0% in 5d [OPEN, high conviction]",
         )
 
-        prompt_text = captured_prompt["messages"][0]["content"]
+        prompt_text = mock_cli.call_args.kwargs["prompt"]
         assert "Trade Outcomes" in prompt_text
         assert "XLK" in prompt_text
 
-    async def test_skips_when_no_data(self, db: Database) -> None:
+    @patch("src.agent.claude_invoker.claude_cli_call", new_callable=AsyncMock)
+    async def test_skips_when_no_data(self, mock_cli, db: Database) -> None:
         """Compaction is skipped when there are no short-term memories."""
         manager = AgentMemoryManager()
-        mock_agent = MagicMock()
 
-        await manager.run_weekly_compaction(db, mock_agent)
+        await manager.run_weekly_compaction(db)
 
-        # Agent should not have been called
-        mock_agent.client.messages.create.assert_not_called()
+        # CLI should not have been called
+        mock_cli.assert_not_called()

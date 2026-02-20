@@ -51,6 +51,7 @@ POSTURE_CONFIGS: dict[PostureLevel, PostureLimits] = {
     ),
 }
 
+
 class PostureManager:
     """Manages posture declarations and resolves effective risk limits."""
 

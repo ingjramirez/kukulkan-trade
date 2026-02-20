@@ -142,12 +142,14 @@ class TestGetCachedClosesAndVolumes:
 
         from src.storage.models import MarketDataRow
 
-        await db.save_market_data([
-            MarketDataRow(ticker="XLK", date=d(2026, 2, 3), open=200, high=205, low=198, close=203, volume=1000000),
-            MarketDataRow(ticker="XLK", date=d(2026, 2, 4), open=203, high=207, low=201, close=205, volume=1100000),
-            MarketDataRow(ticker="XLF", date=d(2026, 2, 3), open=40, high=41, low=39.5, close=40.5, volume=500000),
-            MarketDataRow(ticker="XLF", date=d(2026, 2, 4), open=40.5, high=42, low=40, close=41.5, volume=600000),
-        ])
+        await db.save_market_data(
+            [
+                MarketDataRow(ticker="XLK", date=d(2026, 2, 3), open=200, high=205, low=198, close=203, volume=1000000),
+                MarketDataRow(ticker="XLK", date=d(2026, 2, 4), open=203, high=207, low=201, close=205, volume=1100000),
+                MarketDataRow(ticker="XLF", date=d(2026, 2, 3), open=40, high=41, low=39.5, close=40.5, volume=500000),
+                MarketDataRow(ticker="XLF", date=d(2026, 2, 4), open=40.5, high=42, low=40, close=41.5, volume=600000),
+            ]
+        )
         closes, volumes = await db.get_cached_closes_and_volumes(tickers=["XLK", "XLF"])
         assert "XLK" in closes.columns
         assert "XLF" in closes.columns

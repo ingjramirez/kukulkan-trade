@@ -153,23 +153,22 @@ class AgentMemoryManager:
     async def run_weekly_compaction(
         self,
         db: Database,
-        agent,
         tenant_id: str = "default",
         outcome_summary: str | None = None,
         track_record_text: str | None = None,
     ) -> None:
         """Evaluate the past week's trading decisions and compress into a summary.
 
-        Fetches recent agent decisions, asks Claude to evaluate them with
-        outcome data, and stores as a weekly_summary memory.
+        Uses Claude Code CLI (Max subscription) instead of direct Anthropic SDK.
 
         Args:
             db: Database instance.
-            agent: ClaudeAgent instance for the evaluation call.
             tenant_id: Tenant UUID.
             outcome_summary: Optional trade outcome feedback to include.
             track_record_text: Optional track record stats text.
         """
+        from src.agent.claude_invoker import claude_cli_call
+
         # Fetch last 7 days of short-term memories
         short_term = await db.get_agent_memories("short_term", tenant_id=tenant_id)
         if not short_term:
@@ -205,13 +204,15 @@ Answer these questions in a ~200-token summary:
 Write a concise evaluation paragraph (no headers, no bullets):"""
 
         try:
-            response = agent.client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=300,
+            summary = await claude_cli_call(
+                prompt=prompt,
                 system="You are a trading journal summarizer. Be concise and specific.",
-                messages=[{"role": "user", "content": prompt}],
+                model="claude-haiku-4-5-20251001",
+                timeout=60,
             )
-            summary = response.content[0].text.strip()
+            if not summary:
+                log.error("weekly_compaction_empty_response")
+                return
         except Exception as e:
             log.error("weekly_compaction_failed", error=str(e))
             return

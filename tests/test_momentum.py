@@ -73,7 +73,6 @@ class TestCalculateMomentum:
         result = calculate_momentum(df)
         assert "BAD" not in result["ticker"].values
 
-
     def test_weekend_nan_rows_dropped(self) -> None:
         """BTC-USD weekend rows (all NaN for stocks) don't break momentum."""
         # Create 80 business days of stock data

@@ -296,8 +296,8 @@ class TestBacktestRunnerUnit:
             "_tokens_used": 100,
             "_model": "test-model",
         }
-        ai_bt._strategy._agent.analyze = MagicMock(return_value=mock_response)
-        ai_bt._strategy._agent._client = MagicMock()
+        ai_bt._agent.analyze = MagicMock(return_value=mock_response)
+        ai_bt._agent._client = MagicMock()
 
         trades = await runner._run_portfolio_b_ai(
             ai_bt,
@@ -308,4 +308,4 @@ class TestBacktestRunnerUnit:
         )
 
         assert isinstance(trades, list)
-        ai_bt._strategy._agent.analyze.assert_called_once()
+        ai_bt._agent.analyze.assert_called_once()

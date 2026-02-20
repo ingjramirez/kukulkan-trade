@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.agent.complexity_detector import ComplexityResult
 from src.orchestrator import Orchestrator
 from src.storage.database import Database
 
@@ -96,20 +95,8 @@ class TestOrchestrator:
         orchestrator._macro_data.get_latest_yield_curve = MagicMock(return_value=1.2)
         orchestrator._macro_data.get_latest_vix = MagicMock(return_value=18.0)
 
-        # Mock the Claude agent to avoid API calls
-        mock_response = {
-            "regime_assessment": "Neutral test environment",
-            "reasoning": "This is a test. Buying XLK for momentum.",
-            "trades": [
-                {"ticker": "XLK", "side": "BUY", "weight": 0.15, "reason": "test buy"},
-            ],
-            "risk_notes": "Test only",
-            "_raw": "{}",
-            "_tokens_used": 100,
-            "_model": "test-model",
-        }
-        orchestrator._strategy_b._agent.analyze = MagicMock(return_value=mock_response)
-        orchestrator._strategy_b._agent._client = MagicMock()
+        # Mock Portfolio B to avoid Claude Code CLI calls
+        orchestrator._run_portfolio_b = AsyncMock(return_value=([], "Test reasoning", "No tools"))
 
         summary = await orchestrator.run_daily(today=date(2026, 2, 5))
 
@@ -146,17 +133,8 @@ class TestOrchestrator:
         orchestrator._macro_data.get_latest_yield_curve = MagicMock(return_value=0.5)
         orchestrator._macro_data.get_latest_vix = MagicMock(return_value=20.0)
 
-        mock_response = {
-            "regime_assessment": "test",
-            "reasoning": "test",
-            "trades": [],
-            "risk_notes": "test",
-            "_raw": "{}",
-            "_tokens_used": 50,
-            "_model": "test",
-        }
-        orchestrator._strategy_b._agent.analyze = MagicMock(return_value=mock_response)
-        orchestrator._strategy_b._agent._client = MagicMock()
+        # Mock Portfolio B to avoid Claude Code CLI calls
+        orchestrator._run_portfolio_b = AsyncMock(return_value=([], "Test reasoning", "No tools"))
 
         await orchestrator.run_daily(today=date(2026, 2, 5))
 
@@ -166,46 +144,6 @@ class TestOrchestrator:
             assert len(snapshots) == 1
             assert snapshots[0].date == date(2026, 2, 5)
             assert snapshots[0].total_value > 0
-
-    @patch("src.orchestrator.MacroDataFetcher")
-    @patch("src.data.market_data.yf")
-    async def test_agent_decision_persisted(self, mock_yf, mock_macro_cls, orchestrator: Orchestrator) -> None:
-        """Verify that Claude's decision is saved to the database."""
-        tickers = ["XLK", "XLF", "QQQ", "GLD", "IBIT"]
-        fake_data = _make_market_data(tickers)
-
-        orchestrator._market_data.fetch_universe = AsyncMock(return_value=fake_data)
-        orchestrator._macro_data.get_latest_yield_curve = MagicMock(return_value=1.0)
-        orchestrator._macro_data.get_latest_vix = MagicMock(return_value=15.0)
-
-        mock_response = {
-            "regime_assessment": "Bullish test",
-            "reasoning": "Testing persistence of agent decisions",
-            "trades": [{"ticker": "XLK", "side": "BUY", "weight": 0.20, "reason": "test"}],
-            "risk_notes": "none",
-            "_raw": '{"test": true}',
-            "_tokens_used": 200,
-            "_model": "claude-sonnet-4-6",
-        }
-        orchestrator._strategy_b._agent.analyze = MagicMock(return_value=mock_response)
-        orchestrator._strategy_b._agent._client = MagicMock()
-
-        await orchestrator.run_daily(today=date(2026, 2, 5))
-
-        # Check agent_decisions table
-        from sqlalchemy import select
-
-        from src.storage.models import AgentDecisionRow
-
-        async with orchestrator._db.session() as s:
-            result = await s.execute(select(AgentDecisionRow))
-            decisions = result.scalars().all()
-        assert len(decisions) == 1
-        assert decisions[0].reasoning == "Testing persistence of agent decisions"
-        assert decisions[0].tokens_used == 200
-
-
-# ── Complexity-based model routing tests ────────────────────────────────────
 
 
 class TestPortfolioAReason:
@@ -298,154 +236,3 @@ class TestPortfolioAReason:
         )
         assert len(trades) > 0
         assert "Rebalancing to" in reason
-
-
-class TestComplexityRouting:
-    """Tests for complexity detection and model routing in the orchestrator."""
-
-    def _setup_orchestrator(self, orchestrator: Orchestrator, tickers: list[str]) -> dict:
-        """Common setup: mock market data, macro, and agent."""
-        fake_data = _make_market_data(tickers)
-        orchestrator._market_data.fetch_universe = AsyncMock(return_value=fake_data)
-        orchestrator._macro_data.get_latest_yield_curve = MagicMock(return_value=1.0)
-        orchestrator._macro_data.get_latest_vix = MagicMock(return_value=15.0)
-
-        mock_response = {
-            "regime_assessment": "Test",
-            "reasoning": "Testing complexity routing",
-            "trades": [],
-            "risk_notes": "test",
-            "_raw": "{}",
-            "_tokens_used": 100,
-            "_model": "claude-sonnet-4-6",
-        }
-        orchestrator._strategy_b._agent.analyze = MagicMock(return_value=mock_response)
-        orchestrator._strategy_b._agent._client = MagicMock()
-        return mock_response
-
-    @patch("src.orchestrator.MacroDataFetcher")
-    @patch("src.data.market_data.yf")
-    async def test_low_complexity_uses_sonnet(self, mock_yf, mock_macro_cls, orchestrator: Orchestrator) -> None:
-        """Low complexity → no escalation, default Sonnet used."""
-        tickers = ["XLK", "XLF", "QQQ", "GLD", "IBIT"]
-        self._setup_orchestrator(orchestrator, tickers)
-
-        # Set low VIX, no drawdown, same regime — low complexity
-        orchestrator._macro_data.get_latest_vix = MagicMock(return_value=12.0)
-
-        await orchestrator.run_daily(today=date(2026, 2, 5))
-
-        # Agent was called without model_override
-        call_kwargs = orchestrator._strategy_b._agent.analyze.call_args
-        assert call_kwargs[1].get("model_override") is None
-
-    @patch("src.orchestrator.MacroDataFetcher")
-    @patch("src.data.market_data.yf")
-    async def test_high_complexity_no_telegram_defaults_sonnet(
-        self, mock_yf, mock_macro_cls, orchestrator: Orchestrator
-    ) -> None:
-        """High complexity but no Telegram → defaults to Sonnet (no approval)."""
-        tickers = ["XLK", "XLF", "QQQ", "GLD", "IBIT"]
-        self._setup_orchestrator(orchestrator, tickers)
-
-        # Force high complexity via detector mock
-        escalation = ComplexityResult(
-            score=70,
-            should_escalate=True,
-            signals=["VIX elevated at 35.0"],
-        )
-        orchestrator._complexity_detector.evaluate = MagicMock(return_value=escalation)
-        # Ensure notifier is not configured
-        orchestrator._notifier._token = ""
-        orchestrator._notifier._chat_id = ""
-
-        await orchestrator.run_daily(today=date(2026, 2, 5))
-
-        # Agent was called without model_override (no Telegram approval)
-        call_kwargs = orchestrator._strategy_b._agent.analyze.call_args
-        assert call_kwargs[1].get("model_override") is None
-
-    @patch("src.orchestrator.MacroDataFetcher")
-    @patch("src.data.market_data.yf")
-    async def test_user_approves_opus(self, mock_yf, mock_macro_cls, orchestrator: Orchestrator) -> None:
-        """High complexity + Telegram approval = Opus used."""
-        tickers = ["XLK", "XLF", "QQQ", "GLD", "IBIT"]
-        mock_response = self._setup_orchestrator(orchestrator, tickers)
-        mock_response["_model"] = "claude-opus-4-6"
-
-        # Force high complexity via detector mock
-        escalation = ComplexityResult(
-            score=70,
-            should_escalate=True,
-            signals=["VIX elevated at 35.0"],
-        )
-        orchestrator._complexity_detector.evaluate = MagicMock(return_value=escalation)
-        # Configure Telegram
-        orchestrator._notifier._token = "test-token"
-        orchestrator._notifier._chat_id = "12345"
-
-        # Mock approval request + wait
-        orchestrator._notifier.send_approval_request = AsyncMock(return_value=42)
-        orchestrator._notifier.wait_for_approval = AsyncMock(return_value="opus")
-
-        await orchestrator.run_daily(today=date(2026, 2, 5))
-
-        call_kwargs = orchestrator._strategy_b._agent.analyze.call_args
-        assert call_kwargs[1].get("model_override") == "claude-opus-4-6"
-
-    @patch("src.orchestrator.MacroDataFetcher")
-    @patch("src.data.market_data.yf")
-    async def test_user_chooses_skip(self, mock_yf, mock_macro_cls, orchestrator: Orchestrator) -> None:
-        """User chooses Skip → no trades from Portfolio B."""
-        tickers = ["XLK", "XLF", "QQQ", "GLD", "IBIT"]
-        self._setup_orchestrator(orchestrator, tickers)
-
-        # Force high complexity via detector mock
-        escalation = ComplexityResult(
-            score=70,
-            should_escalate=True,
-            signals=["VIX elevated at 35.0"],
-        )
-        orchestrator._complexity_detector.evaluate = MagicMock(return_value=escalation)
-        orchestrator._notifier._token = "test-token"
-        orchestrator._notifier._chat_id = "12345"
-
-        orchestrator._notifier.send_approval_request = AsyncMock(return_value=42)
-        orchestrator._notifier.wait_for_approval = AsyncMock(return_value="skip")
-
-        summary = await orchestrator.run_daily(today=date(2026, 2, 5))
-
-        # Agent should NOT have been called
-        orchestrator._strategy_b._agent.analyze.assert_not_called()
-        assert summary["trades"]["B"] == 0
-
-    @patch("src.orchestrator.MacroDataFetcher")
-    @patch("src.data.market_data.yf")
-    async def test_model_used_recorded_in_decision(self, mock_yf, mock_macro_cls, orchestrator: Orchestrator) -> None:
-        """Verify that model_used in AgentDecisionRow reflects the model actually used."""
-        tickers = ["XLK", "XLF", "QQQ", "GLD", "IBIT"]
-        mock_response = self._setup_orchestrator(orchestrator, tickers)
-        mock_response["_model"] = "claude-opus-4-6"
-
-        escalation = ComplexityResult(
-            score=70,
-            should_escalate=True,
-            signals=["VIX elevated at 35.0"],
-        )
-        orchestrator._complexity_detector.evaluate = MagicMock(return_value=escalation)
-        orchestrator._notifier._token = "test-token"
-        orchestrator._notifier._chat_id = "12345"
-        orchestrator._notifier.send_approval_request = AsyncMock(return_value=42)
-        orchestrator._notifier.wait_for_approval = AsyncMock(return_value="opus")
-
-        await orchestrator.run_daily(today=date(2026, 2, 5))
-
-        from sqlalchemy import select
-
-        from src.storage.models import AgentDecisionRow
-
-        async with orchestrator._db.session() as s:
-            result = await s.execute(select(AgentDecisionRow))
-            decisions = result.scalars().all()
-        assert len(decisions) == 1
-        assert decisions[0].model_used == "claude-opus-4-6"

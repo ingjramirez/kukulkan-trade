@@ -245,8 +245,7 @@ def register_news_tools(
     registry.register(
         name="search_news",
         description=(
-            "Search today's news articles. Filter by ticker and/or region. "
-            "Regions: us, asia, europe, china, global."
+            "Search today's news articles. Filter by ticker and/or region. Regions: us, asia, europe, china, global."
         ),
         input_schema={
             "type": "object",

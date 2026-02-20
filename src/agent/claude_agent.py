@@ -7,6 +7,7 @@ Uses Anthropic Claude API (Sonnet 4.5) to:
 """
 
 import json
+import os
 from datetime import date
 
 import anthropic
@@ -614,7 +615,7 @@ class ClaudeAgent:
         api_key: str | None = None,
         model: str = PORTFOLIO_B.model,
     ) -> None:
-        self._api_key = api_key or settings.anthropic_api_key
+        self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         self._model = model
         self._client: anthropic.Anthropic | None = None
 
@@ -766,40 +767,3 @@ class ClaudeAgent:
                 "trades": [],
                 "risk_notes": "Response was not valid JSON. No trades will be executed.",
             }
-
-    def generate_daily_commentary(
-        self,
-        analysis_date: date,
-        portfolio_a_summary: str,
-        portfolio_b_summary: str,
-        regime: str | None = None,
-    ) -> str:
-        """Generate a brief daily market commentary for the Telegram brief.
-
-        Args:
-            analysis_date: Current date.
-            portfolio_a_summary: One-line summary of Portfolio A state.
-            portfolio_b_summary: One-line summary of Portfolio B state.
-            regime: Current detected regime.
-
-        Returns:
-            2-3 paragraph commentary string.
-        """
-        prompt = f"""Date: {analysis_date.isoformat()}
-Regime: {regime or "Unknown"}
-
-Portfolio A (Momentum): {portfolio_a_summary}
-Portfolio B (AI Autonomy): {portfolio_b_summary}
-
-Write a concise 2-3 paragraph daily market brief for the Kukulkan Trading Bot.
-Cover: today's key market theme, how each portfolio is positioned, and one thing to watch tomorrow.
-Keep it under 200 words. No headers or bullet points — just flowing text."""
-
-        response = self.client.messages.create(
-            model=self._model,
-            max_tokens=512,
-            system="You are a concise financial market commentator for an educational trading bot.",
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        return response.content[0].text.strip()

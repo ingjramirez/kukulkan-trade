@@ -1,7 +1,6 @@
 """Tests for inverse ETF system prompt additions."""
 
 from src.agent.claude_agent import build_system_prompt
-from src.agent.context_manager import _SYSTEM_IDENTITY, ContextManager
 
 
 class TestBuildSystemPrompt:
@@ -31,21 +30,3 @@ class TestBuildSystemPrompt:
     def test_inverse_etf_context_omitted_when_none(self) -> None:
         prompt = build_system_prompt(inverse_etf_context=None)
         assert "## Inverse ETF Positions" not in prompt
-
-
-class TestContextManager:
-    def test_guardrails_mention_inverse(self) -> None:
-        assert "Inverse ETF" in _SYSTEM_IDENTITY
-        assert "SH, PSQ, RWM" in _SYSTEM_IDENTITY
-
-    def test_build_system_prompt_includes_guardrails(self) -> None:
-        cm = ContextManager()
-        prompt = cm.build_system_prompt(pinned_context="")
-        assert "inverse ETF" in prompt.lower() or "Inverse ETF" in prompt
-
-    def test_build_cached_system_prompt_includes_guardrails(self) -> None:
-        cm = ContextManager()
-        blocks = cm.build_cached_system_prompt(pinned_context="")
-        # The identity block should contain inverse ETF mentions
-        identity_text = blocks[0]["text"]
-        assert "Inverse ETF" in identity_text

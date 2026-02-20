@@ -17,7 +17,6 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from config.settings import settings
-from src.agent.claude_agent import ClaudeAgent
 from src.agent.memory import AgentMemoryManager
 from src.notifications.telegram_bot import TelegramNotifier
 from src.notifications.weekly_report import WeeklyReporter
@@ -803,7 +802,6 @@ async def run_scheduled() -> None:
 
     # Weekly memory compaction (Sunday 6 PM ET)
     memory_manager = AgentMemoryManager()
-    agent = ClaudeAgent()
 
     async def weekly_compaction():
         try:
@@ -816,7 +814,6 @@ async def run_scheduled() -> None:
                 for tenant in tenants:
                     if Orchestrator.tenant_fully_configured(tenant):
                         try:
-                            # Compute outcome feedback for evaluation
                             outcome_summary = None
                             track_record_text = None
                             try:
@@ -831,7 +828,6 @@ async def run_scheduled() -> None:
 
                             await memory_manager.run_weekly_compaction(
                                 db,
-                                agent,
                                 tenant_id=tenant.id,
                                 outcome_summary=outcome_summary,
                                 track_record_text=track_record_text,
@@ -843,7 +839,6 @@ async def run_scheduled() -> None:
                                 error=str(e),
                             )
             else:
-                # Default tenant path
                 outcome_summary = None
                 track_record_text = None
                 try:
@@ -858,7 +853,6 @@ async def run_scheduled() -> None:
 
                 await memory_manager.run_weekly_compaction(
                     db,
-                    agent,
                     outcome_summary=outcome_summary,
                     track_record_text=track_record_text,
                 )

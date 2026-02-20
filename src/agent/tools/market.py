@@ -310,8 +310,7 @@ async def _get_signal_rankings(
     # All alerts
     alerted = [s for s in signals if s.alerts]
     result["alerts"] = [
-        {"ticker": s.ticker, "rank": s.rank, "alerts": s.alerts, "held": s.ticker in held_set}
-        for s in alerted
+        {"ticker": s.ticker, "rank": s.rank, "alerts": s.alerts, "held": s.ticker in held_set} for s in alerted
     ]
 
     return result
@@ -524,8 +523,7 @@ def register_market_tools(
     registry.register(
         name="get_market_overview",
         description=(
-            "Broad market overview: regime, VIX, yield curve, SPY stats, Fear & Greed Index, "
-            "and sector 1-week heatmap."
+            "Broad market overview: regime, VIX, yield curve, SPY stats, Fear & Greed Index, and sector 1-week heatmap."
         ),
         input_schema={"type": "object", "properties": {}},
         handler=partial(_get_market_overview, closes, vix, yield_curve, regime, fear_greed),

@@ -43,27 +43,13 @@ class DashboardSettings(BaseSettings):
 
 
 class AgentSettings(BaseSettings):
-    """AI agent strategy settings."""
+    """AI agent settings (Claude Code CLI via Max subscription)."""
 
     strategy_mode: str = "conservative"  # conservative | standard | aggressive
-    agent_tool_model: str = "claude-sonnet-4-6"
-    agent_max_turns: int = 8
-    agent_session_budget: float = 0.50
-    daily_budget: float = 3.0  # env: AGENT_DAILY_BUDGET
-    monthly_budget: float = 75.0  # env: AGENT_MONTHLY_BUDGET
-    scan_model: str = "claude-haiku-4-5-20251001"  # env: AGENT_SCAN_MODEL
-    validate_model: str = "claude-opus-4-6"  # env: AGENT_VALIDATE_MODEL
-    enable_tiered: bool = False  # env: AGENT_ENABLE_TIERED
-    enable_cache: bool = True  # env: AGENT_ENABLE_CACHE
-    max_retries: int = 4  # env: AGENT_MAX_RETRIES — SDK auto-retries 429s with retry-after
+    max_retries: int = 4  # env: AGENT_MAX_RETRIES — SDK auto-retries for weekly compaction
     fallback_model: str = "claude-sonnet-4-6"  # env: AGENT_FALLBACK_MODEL
-    agent_history_recent_n: int = 2  # env: AGENT_AGENT_HISTORY_RECENT_N — recent sessions to replay
-    agent_history_summaries_n: int = 10  # env: AGENT_AGENT_HISTORY_SUMMARIES_N — compressed summaries
-    agent_skip_history_triggers: str = "manual,event"  # CSV — these triggers get no recent history
-    agent_routine_max_turns: int = 3  # env: AGENT_AGENT_ROUTINE_MAX_TURNS — mini investigation on ROUTINE
-    agent_event_history_recent_n: int = 1  # env: AGENT_AGENT_EVENT_HISTORY_RECENT_N — recent sessions for manual/event
-    agent_tool_result_max_chars: int = 1500  # env: AGENT_AGENT_TOOL_RESULT_MAX_CHARS — tool result truncation
-    agent_tpm_limit: int = 22500  # env: AGENT_AGENT_TPM_LIMIT — 75% of 30K TPM (scanner/validator headroom)
+    daily_budget: float = 3.0  # env: AGENT_DAILY_BUDGET (legacy — displayed in dashboard)
+    monthly_budget: float = 75.0  # env: AGENT_MONTHLY_BUDGET (legacy — displayed in dashboard)
 
     model_config = {"env_prefix": "AGENT_", "env_file": ".env", "extra": "ignore"}
 
@@ -90,7 +76,6 @@ class Settings(BaseSettings):
     """Root application settings."""
 
     # API keys
-    anthropic_api_key: str = ""
     fred_api_key: str = ""
 
     # Executor: "alpaca" or "paper"

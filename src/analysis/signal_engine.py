@@ -168,7 +168,9 @@ class SignalEngine:
             velocity = ((prev_rank - rank) / hours_elapsed) if prev_rank is not None else 0.0
 
             alerts = _detect_alerts(
-                rank, prev_rank, hours_elapsed,
+                rank,
+                prev_rank,
+                hours_elapsed,
                 raw_indicators.get(ticker, {}),
                 prev_ind.get(ticker, {}),
             )
@@ -291,7 +293,9 @@ class SignalEngine:
 
     @staticmethod
     def _compute_volume_score(
-        closes: pd.DataFrame, volumes: pd.DataFrame, tickers: list[str],
+        closes: pd.DataFrame,
+        volumes: pd.DataFrame,
+        tickers: list[str],
     ) -> pd.Series:
         """Today's volume vs 20-day average."""
         scores: dict[str, float] = {}

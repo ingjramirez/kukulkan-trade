@@ -726,10 +726,9 @@ class TestPortfolioBExtraTickers:
         """Agent can trade dynamically approved tickers."""
         import pandas as pd
 
-        from src.agent.claude_agent import ClaudeAgent
         from src.strategies.portfolio_b import AIAutonomyStrategy
 
-        strategy = AIAutonomyStrategy(agent=ClaudeAgent(api_key="fake-key"))
+        strategy = AIAutonomyStrategy()
         prices = pd.Series({"XLK": 200.0, "PLTR": 75.0})
 
         response = {

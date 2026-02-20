@@ -195,28 +195,39 @@ class TestSignalEngineRun:
 class TestAlertDetection:
     def test_rank_jump_up(self) -> None:
         alerts = _detect_alerts(
-            rank=5, prev_rank=20, hours_elapsed=1.0,
-            indicators={}, prev_indicators={},
+            rank=5,
+            prev_rank=20,
+            hours_elapsed=1.0,
+            indicators={},
+            prev_indicators={},
         )
         assert any("rank_jump_up" in a for a in alerts)
 
     def test_rank_jump_down(self) -> None:
         alerts = _detect_alerts(
-            rank=25, prev_rank=10, hours_elapsed=1.0,
-            indicators={}, prev_indicators={},
+            rank=25,
+            prev_rank=10,
+            hours_elapsed=1.0,
+            indicators={},
+            prev_indicators={},
         )
         assert any("rank_jump_down" in a for a in alerts)
 
     def test_no_rank_jump_small_change(self) -> None:
         alerts = _detect_alerts(
-            rank=10, prev_rank=15, hours_elapsed=1.0,
-            indicators={}, prev_indicators={},
+            rank=10,
+            prev_rank=15,
+            hours_elapsed=1.0,
+            indicators={},
+            prev_indicators={},
         )
         assert not any("rank_jump" in a for a in alerts)
 
     def test_rsi_oversold_cross(self) -> None:
         alerts = _detect_alerts(
-            rank=1, prev_rank=1, hours_elapsed=1.0,
+            rank=1,
+            prev_rank=1,
+            hours_elapsed=1.0,
             indicators={"rsi": 28.0},
             prev_indicators={"rsi": 32.0},
         )
@@ -224,7 +235,9 @@ class TestAlertDetection:
 
     def test_rsi_overbought_cross(self) -> None:
         alerts = _detect_alerts(
-            rank=1, prev_rank=1, hours_elapsed=1.0,
+            rank=1,
+            prev_rank=1,
+            hours_elapsed=1.0,
             indicators={"rsi": 72.0},
             prev_indicators={"rsi": 68.0},
         )
@@ -233,7 +246,9 @@ class TestAlertDetection:
     def test_rsi_no_cross_when_already_oversold(self) -> None:
         """No alert if RSI was already below 30 (not a transition)."""
         alerts = _detect_alerts(
-            rank=1, prev_rank=1, hours_elapsed=1.0,
+            rank=1,
+            prev_rank=1,
+            hours_elapsed=1.0,
             indicators={"rsi": 25.0},
             prev_indicators={"rsi": 28.0},
         )
@@ -241,7 +256,9 @@ class TestAlertDetection:
 
     def test_golden_cross(self) -> None:
         alerts = _detect_alerts(
-            rank=1, prev_rank=1, hours_elapsed=1.0,
+            rank=1,
+            prev_rank=1,
+            hours_elapsed=1.0,
             indicators={"sma20": 105.0, "sma50": 100.0},
             prev_indicators={"sma20": 99.0, "sma50": 100.0},
         )
@@ -249,7 +266,9 @@ class TestAlertDetection:
 
     def test_death_cross(self) -> None:
         alerts = _detect_alerts(
-            rank=1, prev_rank=1, hours_elapsed=1.0,
+            rank=1,
+            prev_rank=1,
+            hours_elapsed=1.0,
             indicators={"sma20": 95.0, "sma50": 100.0},
             prev_indicators={"sma20": 101.0, "sma50": 100.0},
         )
@@ -257,7 +276,9 @@ class TestAlertDetection:
 
     def test_volume_spike(self) -> None:
         alerts = _detect_alerts(
-            rank=1, prev_rank=1, hours_elapsed=1.0,
+            rank=1,
+            prev_rank=1,
+            hours_elapsed=1.0,
             indicators={"volume_ratio": 2.5},
             prev_indicators={},
         )
@@ -265,7 +286,9 @@ class TestAlertDetection:
 
     def test_bollinger_upper_breakout(self) -> None:
         alerts = _detect_alerts(
-            rank=1, prev_rank=1, hours_elapsed=1.0,
+            rank=1,
+            prev_rank=1,
+            hours_elapsed=1.0,
             indicators={"bollinger_pct_b": 1.05},
             prev_indicators={},
         )
@@ -273,7 +296,9 @@ class TestAlertDetection:
 
     def test_bollinger_lower_breakout(self) -> None:
         alerts = _detect_alerts(
-            rank=1, prev_rank=1, hours_elapsed=1.0,
+            rank=1,
+            prev_rank=1,
+            hours_elapsed=1.0,
             indicators={"bollinger_pct_b": -0.05},
             prev_indicators={},
         )
@@ -281,7 +306,9 @@ class TestAlertDetection:
 
     def test_no_alerts_normal_conditions(self) -> None:
         alerts = _detect_alerts(
-            rank=10, prev_rank=12, hours_elapsed=1.0,
+            rank=10,
+            prev_rank=12,
+            hours_elapsed=1.0,
             indicators={"rsi": 50.0, "sma20": 100, "sma50": 95, "volume_ratio": 1.1, "bollinger_pct_b": 0.5},
             prev_indicators={"rsi": 52.0, "sma20": 99, "sma50": 95},
         )
@@ -325,16 +352,34 @@ class TestFormatForAgent:
     def test_format_non_held_section(self) -> None:
         signals = [
             TickerSignal(
-                ticker="XLK", composite_score=85, rank=1, prev_rank=None,
-                rank_velocity=0, momentum_20d=0.08, momentum_63d=0.15,
-                rsi=55, macd_histogram=0.5, sma_trend_score=3,
-                bollinger_pct_b=0.7, volume_ratio=1.2, alerts=[],
+                ticker="XLK",
+                composite_score=85,
+                rank=1,
+                prev_rank=None,
+                rank_velocity=0,
+                momentum_20d=0.08,
+                momentum_63d=0.15,
+                rsi=55,
+                macd_histogram=0.5,
+                sma_trend_score=3,
+                bollinger_pct_b=0.7,
+                volume_ratio=1.2,
+                alerts=[],
             ),
             TickerSignal(
-                ticker="XLF", composite_score=60, rank=2, prev_rank=None,
-                rank_velocity=0, momentum_20d=0.03, momentum_63d=0.05,
-                rsi=45, macd_histogram=0.1, sma_trend_score=2,
-                bollinger_pct_b=0.5, volume_ratio=1.0, alerts=[],
+                ticker="XLF",
+                composite_score=60,
+                rank=2,
+                prev_rank=None,
+                rank_velocity=0,
+                momentum_20d=0.03,
+                momentum_63d=0.05,
+                rsi=45,
+                macd_histogram=0.1,
+                sma_trend_score=2,
+                bollinger_pct_b=0.5,
+                volume_ratio=1.0,
+                alerts=[],
             ),
         ]
         result = format_signals_for_agent(signals, held_tickers={"XLF"})
@@ -344,10 +389,18 @@ class TestFormatForAgent:
     def test_format_alerts_section(self) -> None:
         signals = [
             TickerSignal(
-                ticker="XLE", composite_score=70, rank=1, prev_rank=10,
-                rank_velocity=9, momentum_20d=0.05, momentum_63d=0.1,
-                rsi=28, macd_histogram=0.2, sma_trend_score=2,
-                bollinger_pct_b=0.3, volume_ratio=2.5,
+                ticker="XLE",
+                composite_score=70,
+                rank=1,
+                prev_rank=10,
+                rank_velocity=9,
+                momentum_20d=0.05,
+                momentum_63d=0.1,
+                rsi=28,
+                macd_histogram=0.2,
+                sma_trend_score=2,
+                bollinger_pct_b=0.3,
+                volume_ratio=2.5,
                 alerts=["rsi_oversold_cross", "volume_spike_2.5x"],
             ),
         ]
@@ -358,10 +411,19 @@ class TestFormatForAgent:
     def test_format_movers_section(self) -> None:
         signals = [
             TickerSignal(
-                ticker="NVDA", composite_score=90, rank=3, prev_rank=28,
-                rank_velocity=25, momentum_20d=0.1, momentum_63d=0.2,
-                rsi=62, macd_histogram=1.0, sma_trend_score=3,
-                bollinger_pct_b=0.8, volume_ratio=3.2, alerts=[],
+                ticker="NVDA",
+                composite_score=90,
+                rank=3,
+                prev_rank=28,
+                rank_velocity=25,
+                momentum_20d=0.1,
+                momentum_63d=0.2,
+                rsi=62,
+                macd_histogram=1.0,
+                sma_trend_score=3,
+                bollinger_pct_b=0.8,
+                volume_ratio=3.2,
+                alerts=[],
             ),
         ]
         result = format_signals_for_agent(signals, held_tickers=set())
@@ -371,10 +433,19 @@ class TestFormatForAgent:
     def test_format_held_marker(self) -> None:
         signals = [
             TickerSignal(
-                ticker="XLK", composite_score=80, rank=1, prev_rank=5,
-                rank_velocity=4, momentum_20d=0.06, momentum_63d=0.12,
-                rsi=55, macd_histogram=0.3, sma_trend_score=3,
-                bollinger_pct_b=0.6, volume_ratio=1.5, alerts=[],
+                ticker="XLK",
+                composite_score=80,
+                rank=1,
+                prev_rank=5,
+                rank_velocity=4,
+                momentum_20d=0.06,
+                momentum_63d=0.12,
+                rsi=55,
+                macd_histogram=0.3,
+                sma_trend_score=3,
+                bollinger_pct_b=0.6,
+                volume_ratio=1.5,
+                alerts=[],
             ),
         ]
         result = format_signals_for_agent(signals, held_tickers={"XLK"})
@@ -392,10 +463,18 @@ class TestSignalsToDbRows:
     def test_conversion(self) -> None:
         signals = [
             TickerSignal(
-                ticker="XLK", composite_score=85.3, rank=1, prev_rank=2,
-                rank_velocity=1.0, momentum_20d=0.08, momentum_63d=0.15,
-                rsi=55, macd_histogram=0.5, sma_trend_score=3,
-                bollinger_pct_b=0.7, volume_ratio=1.2,
+                ticker="XLK",
+                composite_score=85.3,
+                rank=1,
+                prev_rank=2,
+                rank_velocity=1.0,
+                momentum_20d=0.08,
+                momentum_63d=0.15,
+                rsi=55,
+                macd_histogram=0.5,
+                sma_trend_score=3,
+                bollinger_pct_b=0.7,
+                volume_ratio=1.2,
                 alerts=["golden_cross"],
             ),
         ]
@@ -409,10 +488,19 @@ class TestSignalsToDbRows:
     def test_empty_alerts_serialized(self) -> None:
         signals = [
             TickerSignal(
-                ticker="XLF", composite_score=50, rank=5, prev_rank=None,
-                rank_velocity=0, momentum_20d=0, momentum_63d=0,
-                rsi=50, macd_histogram=0, sma_trend_score=1,
-                bollinger_pct_b=0.5, volume_ratio=1.0, alerts=[],
+                ticker="XLF",
+                composite_score=50,
+                rank=5,
+                prev_rank=None,
+                rank_velocity=0,
+                momentum_20d=0,
+                momentum_63d=0,
+                rsi=50,
+                macd_histogram=0,
+                sma_trend_score=1,
+                bollinger_pct_b=0.5,
+                volume_ratio=1.0,
+                alerts=[],
             ),
         ]
         rows = signals_to_db_rows("t1", signals)
@@ -427,10 +515,18 @@ class TestDbRowsToSignals:
         """signals → db rows → signals preserves data."""
         original = [
             TickerSignal(
-                ticker="XLK", composite_score=85.3, rank=1, prev_rank=2,
-                rank_velocity=1.5, momentum_20d=0.08, momentum_63d=0.15,
-                rsi=55, macd_histogram=0.5, sma_trend_score=3,
-                bollinger_pct_b=0.7, volume_ratio=1.2,
+                ticker="XLK",
+                composite_score=85.3,
+                rank=1,
+                prev_rank=2,
+                rank_velocity=1.5,
+                momentum_20d=0.08,
+                momentum_63d=0.15,
+                rsi=55,
+                macd_histogram=0.5,
+                sma_trend_score=3,
+                bollinger_pct_b=0.7,
+                volume_ratio=1.2,
                 alerts=["golden_cross"],
             ),
         ]
@@ -446,12 +542,21 @@ class TestDbRowsToSignals:
     def test_null_fields_get_defaults(self) -> None:
         """NULL indicator fields default to safe values."""
         row = TickerSignalRow(
-            tenant_id="t1", ticker="BTC-USD", composite_score=40, rank=10,
-            prev_rank=None, rank_velocity=0.0,
-            momentum_20d=None, momentum_63d=None, rsi=None,
-            macd_histogram=None, sma_trend_score=None,
-            bollinger_pct_b=None, volume_ratio=None,
-            alerts=None, scored_at=None,
+            tenant_id="t1",
+            ticker="BTC-USD",
+            composite_score=40,
+            rank=10,
+            prev_rank=None,
+            rank_velocity=0.0,
+            momentum_20d=None,
+            momentum_63d=None,
+            rsi=None,
+            macd_histogram=None,
+            sma_trend_score=None,
+            bollinger_pct_b=None,
+            volume_ratio=None,
+            alerts=None,
+            scored_at=None,
         )
         restored = db_rows_to_signals([row])
         assert restored[0].momentum_20d == 0.0
