@@ -187,9 +187,8 @@ def _write_session_results(results_path: Path) -> None:
         tmp = results_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(accumulated, default=str))
         tmp.rename(results_path)
-        log.info("session_results_written", path=str(results_path))
-    except Exception as e:
-        log.warning("session_results_write_failed", error=str(e))
+    except Exception:
+        pass  # stdio closed at shutdown — structlog can't write
 
 
 async def main() -> None:
