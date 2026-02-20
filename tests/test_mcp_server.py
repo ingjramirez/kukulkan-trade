@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+mcp = pytest.importorskip("mcp", reason="mcp SDK not installed")
+
 
 class TestMCPServerModule:
     """Test mcp_server.py module functions without requiring the MCP SDK."""
