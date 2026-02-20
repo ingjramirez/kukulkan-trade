@@ -1620,7 +1620,7 @@ class Orchestrator:
         write_session_state(
             workspace=workspace,
             tenant_id=tenant_id,
-            closes_dict={col: closes[col].dropna().to_dict() for col in closes.columns},
+            closes_dict={col: {str(k): v for k, v in closes[col].dropna().items()} for col in closes.columns},
             closes_index=[str(idx) for idx in closes.index],
             current_prices=current_prices,
             held_tickers=held_tickers,
