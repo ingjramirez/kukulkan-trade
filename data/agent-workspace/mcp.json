@@ -2,7 +2,7 @@
   "mcpServers": {
     "kukulkan": {
       "type": "stdio",
-      "command": "python",
+      "command": "/opt/kukulkan-trade/.venv/bin/python",
       "args": ["-m", "src.agent.mcp_server"],
       "cwd": "/opt/kukulkan-trade",
       "env": {
