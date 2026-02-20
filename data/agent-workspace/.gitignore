@@ -1,0 +1,10 @@
+# Session state (written fresh by orchestrator before each invocation)
+session-state.json
+
+# Claude Code session data
+.claude/sessions/
+.claude/memory/
+.claude/projects/
+
+# Context file (ephemeral)
+context.md

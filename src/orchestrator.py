@@ -1636,10 +1636,36 @@ class Orchestrator:
 
         # ── Check agentic mode ────────────────────────────────────────────
         tenant = await self._db.get_tenant(tenant_id)
+        use_claude_code = getattr(tenant, "use_claude_code", False) if tenant else False
         use_persistent = getattr(tenant, "use_persistent_agent", False) if tenant else False
         use_agent_loop = getattr(tenant, "use_agent_loop", False) if tenant else False
 
         tool_summary: dict | None = None
+
+        if use_claude_code:
+            # ── Claude Code CLI path (Max subscription) ───────────────
+            return await self._run_portfolio_b_claude_code(
+                tenant_id=tenant_id,
+                session_type=session.lower() if session else "morning",
+                closes=closes,
+                volumes=volumes,
+                vix=vix,
+                yield_curve=yield_curve,
+                regime_str=regime_str,
+                news_context=news_context,
+                positions_for_agent=positions_for_agent,
+                cash=cash,
+                total_value=total_value,
+                today=today,
+                session=session,
+                portfolio_b_universe=portfolio_b_universe,
+                allocations=alloc,
+                earnings_context=earnings_context,
+                dynamic_ctx=dynamic_ctx,
+                decision_review_text=decision_review_text,
+                track_record_text=track_record_text,
+                pb_ctx=pb_ctx,
+            )
 
         if use_persistent:
             # ── Persistent agent path ────────────────────────────────────
@@ -1955,6 +1981,250 @@ class Orchestrator:
             complexity_score=complexity.score,
             agentic=use_agent_loop,
         )
+        return trades, response.get("reasoning", ""), tool_summary
+
+    async def _run_portfolio_b_claude_code(
+        self,
+        tenant_id: str,
+        session_type: str,
+        closes: pd.DataFrame,
+        volumes: pd.DataFrame,
+        vix: float | None,
+        yield_curve: float | None,
+        regime_str: str | None,
+        news_context: str,
+        positions_for_agent: list[dict],
+        cash: float,
+        total_value: float,
+        today: date,
+        session: str,
+        portfolio_b_universe: list[str] | None,
+        allocations: "TenantAllocations | None",
+        earnings_context: str | None,
+        dynamic_ctx: DynamicContext,
+        decision_review_text: str | None,
+        track_record_text: str | None,
+        pb_ctx: PortfolioBContext,
+    ):
+        """Run Portfolio B through Claude Code CLI (Max subscription).
+
+        Replaces AgentRunner + PersistentAgent with a single subprocess call.
+        Returns the same 3-tuple: (trades, reasoning, tool_summary).
+        """
+        from src.agent.claude_invoker import ClaudeInvoker, write_context_file, write_session_state
+
+        log.info("portfolio_b_claude_code_mode", tenant_id=tenant_id, session_type=session_type)
+
+        try:
+            from src.events.event_bus import Event, EventType, event_bus
+
+            event_bus.publish(
+                Event(
+                    type=EventType.SESSION_STARTED,
+                    tenant_id=tenant_id,
+                    data={"trigger": session_type, "session": session, "mode": "claude_code"},
+                )
+            )
+        except Exception as exc:
+            log.debug("event_publish_failed", error=str(exc))
+
+        # ── 1. Write session-state.json for MCP server ──────────────────
+        current_prices = {
+            t: float(closes[t].iloc[-1]) for t in closes.columns if not pd.isna(closes[t].iloc[-1])
+        }
+        held_tickers = [p["ticker"] for p in positions_for_agent] if positions_for_agent else []
+
+        fear_greed_data: dict | None = None
+        try:
+            fg_row = await self._db.get_latest_sentiment(tenant_id, "fear_greed_index")
+            if fg_row:
+                fear_greed_data = {"value": fg_row.value, "classification": fg_row.classification}
+        except Exception as e:
+            log.debug("fear_greed_for_claude_code_failed", error=str(e))
+
+        invoker = ClaudeInvoker()
+        workspace = invoker._workspace
+
+        write_session_state(
+            workspace=workspace,
+            tenant_id=tenant_id,
+            closes_dict={col: closes[col].dropna().to_dict() for col in closes.columns},
+            closes_index=[str(idx) for idx in closes.index],
+            current_prices=current_prices,
+            held_tickers=held_tickers,
+            vix=vix,
+            yield_curve=yield_curve,
+            regime=regime_str,
+            news_context=news_context,
+            fear_greed=fear_greed_data,
+        )
+
+        # ── 2. Build pinned context (posture, playbook, calibration, benchmark) ──
+        pinned_context = ""
+        try:
+            posture_row = await self._db.get_current_posture(tenant_id)
+            current_posture = posture_row.effective_posture if posture_row else "balanced"
+            pinned_context = f"## Current Posture: {current_posture.capitalize()}\n"
+
+            # Track record
+            try:
+                from src.analysis.outcome_tracker import OutcomeTracker
+                from src.analysis.track_record import TrackRecord
+
+                tracker = OutcomeTracker(self._db)
+                outcomes = await tracker.get_recent_outcomes(days=30, tenant_id=tenant_id)
+                if outcomes:
+                    stats = TrackRecord().compute(outcomes, min_trades=1)
+                    tr_text = TrackRecord.format_for_prompt(stats)
+                    if tr_text:
+                        pinned_context += f"\n{tr_text}"
+            except Exception as e:
+                log.warning("claude_code_track_record_failed", error=str(e))
+
+            # Decision quality
+            if decision_review_text:
+                pinned_context += f"\n\n## Recent Decision Outcomes\n{decision_review_text}"
+            if track_record_text:
+                pinned_context += f"\n\n## Win Rate Analysis\n{track_record_text}"
+
+            # Benchmark
+            try:
+                from config.strategies import PORTFOLIO_A
+
+                a_alloc = PORTFOLIO_A.allocation_usd
+                a_snaps = await self._db.get_snapshots("A", tenant_id=tenant_id)
+                if a_snaps:
+                    a_return = ((a_snaps[-1].total_value - a_alloc) / a_alloc) * 100
+                    pinned_context += (
+                        f"\n\n## Benchmark: Portfolio A (Momentum)\n"
+                        f"Return: {a_return:+.1f}% — you must outperform this."
+                    )
+            except Exception as e:
+                log.warning("claude_code_benchmark_failed", error=str(e))
+        except Exception as e:
+            log.warning("claude_code_pinned_context_failed", error=str(e))
+
+        # ── 3. Build signal rankings text ────────────────────────────────
+        signal_text = None
+        try:
+            signal_rows = await self._db.get_latest_signals(tenant_id)
+            if signal_rows:
+                from src.analysis.signal_engine import db_rows_to_signals, format_signals_for_agent
+
+                signals = db_rows_to_signals(signal_rows)
+                held = {p["ticker"] for p in positions_for_agent}
+                signal_text = format_signals_for_agent(signals, held)
+        except Exception as e:
+            log.debug("claude_code_signal_fetch_failed", error=str(e))
+
+        # ── 4. Write context.md ──────────────────────────────────────────
+        write_context_file(
+            workspace=workspace,
+            session_type=session_type,
+            today=today,
+            regime=regime_str,
+            vix=vix,
+            yield_curve=yield_curve,
+            cash=cash,
+            total_value=total_value,
+            positions=positions_for_agent,
+            signal_text=signal_text,
+            fear_greed=fear_greed_data,
+            earnings_context=earnings_context,
+            news_context=news_context,
+            pinned_context=pinned_context or None,
+            trailing_stops_context=dynamic_ctx.trailing_context,
+            watchlist_context=dynamic_ctx.watchlist_context,
+        )
+
+        # ── 5. Invoke Claude Code CLI ────────────────────────────────────
+        result = await invoker.invoke(session_type=session_type, today=today)
+
+        if result.error:
+            log.error("claude_code_session_failed", error=result.error)
+            return [], f"Claude Code session failed: {result.error}", None
+
+        response = result.response
+
+        # ── 6. Convert trades to TradeSchema ─────────────────────────────
+        position_map = pb_ctx.position_map
+        dynamic_tickers = await self._ticker_discovery.get_active_tickers(tenant_id=tenant_id)
+        trades = self._strategy_b.agent_response_to_trades(
+            response=response,
+            total_value=total_value,
+            current_positions=position_map,
+            latest_prices=closes.iloc[-1],
+            extra_tickers=dynamic_tickers,
+            universe=portfolio_b_universe,
+        )
+
+        # ── 7. Save decision ─────────────────────────────────────────────
+        await self._strategy_b.save_decision(
+            self._db,
+            today,
+            response,
+            trades,
+            tenant_id=tenant_id,
+            regime=regime_str,
+            session_label=session,
+        )
+
+        # ── 8. Save agent memory ─────────────────────────────────────────
+        try:
+            await self._memory_manager.save_short_term(
+                self._db,
+                today.isoformat(),
+                response,
+                tenant_id=tenant_id,
+            )
+            await self._memory_manager.save_agent_notes(
+                self._db,
+                response.get("memory_notes", []),
+                tenant_id=tenant_id,
+            )
+        except Exception as e:
+            log.warning("claude_code_memory_save_failed", error=str(e))
+
+        # ── 9. Process suggested tickers ─────────────────────────────────
+        await self._process_suggested_tickers(response, today, tenant_id=tenant_id)
+
+        # ── 10. Process watchlist updates ────────────────────────────────
+        try:
+            wl_updates = response.get("watchlist_updates", [])
+            # Also merge from MCP ActionState if available
+            if result.accumulated.get("watchlist_updates"):
+                wl_updates = wl_updates or result.accumulated["watchlist_updates"]
+            await self._process_watchlist_updates(wl_updates, tenant_id, today)
+        except Exception as e:
+            log.warning("claude_code_watchlist_update_failed", error=str(e))
+
+        # ── 11. Build tool summary (same shape as persistent path) ───────
+        tool_summary = result.tool_summary
+
+        log.info(
+            "portfolio_b_claude_code_complete",
+            trades=len(trades),
+            session_id=result.session_id,
+            posture=result.posture,
+        )
+
+        try:
+            from src.events.event_bus import Event, EventType, event_bus
+
+            event_bus.publish(
+                Event(
+                    type=EventType.SESSION_COMPLETED,
+                    tenant_id=tenant_id,
+                    data={
+                        "trades": len(trades),
+                        "mode": "claude_code",
+                        "session_id": result.session_id,
+                    },
+                )
+            )
+        except Exception as exc:
+            log.debug("event_publish_failed", error=str(exc))
+
         return trades, response.get("reasoning", ""), tool_summary
 
     async def _run_portfolio_b_persistent(

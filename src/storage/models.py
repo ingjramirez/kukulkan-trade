@@ -538,6 +538,9 @@ class TenantRow(Base):
     # Tiered model runner (Haiku scan → Sonnet investigate → Opus validate)
     use_tiered_models = Column(Boolean, nullable=False, default=False)
 
+    # Claude Code CLI (Max subscription — replaces AgentRunner + PersistentAgent)
+    use_claude_code = Column(Boolean, nullable=False, default=False)
+
     # Trailing stop multiplier (0.5-2.0, scales TRAIL_PCT matrix)
     trailing_stop_multiplier = Column(Float, nullable=False, default=1.0)
 
@@ -711,6 +714,7 @@ class TenantUpdate(BaseModel):
     dashboard_user: str | None = None
     dashboard_password: str | None = None
     use_agent_loop: bool | None = None
+    use_claude_code: bool | None = None
     quiet_hours_start: str | None = None
     quiet_hours_end: str | None = None
     quiet_hours_timezone: str | None = None
@@ -738,6 +742,7 @@ class TenantRead(BaseModel):
     ticker_additions: list[str] | None = None
     ticker_exclusions: list[str] | None = None
     use_agent_loop: bool = False
+    use_claude_code: bool = False
     quiet_hours_start: str = "21:00"
     quiet_hours_end: str = "07:00"
     quiet_hours_timezone: str = "America/Mexico_City"

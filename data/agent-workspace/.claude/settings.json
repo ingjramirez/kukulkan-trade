@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__kukulkan__*"
+    ],
+    "deny": [
+      "Bash(*)",
+      "Edit(*)",
+      "Write(*)",
+      "Read(*)"
+    ]
+  },
+  "model": "claude-sonnet-4-6"
+}

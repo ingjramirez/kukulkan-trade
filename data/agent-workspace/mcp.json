@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "kukulkan": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "src.agent.mcp_server"],
+      "cwd": "/opt/kukulkan-trade",
+      "env": {
+        "DATABASE_URL": "sqlite+aiosqlite:///data/kukulkan.db",
+        "KUKULKAN_SESSION_STATE": "data/agent-workspace/session-state.json",
+        "TOOL_RESULT_MAX_CHARS": "3000"
+      }
+    }
+  }
+}
