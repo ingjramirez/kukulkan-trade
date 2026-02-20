@@ -66,7 +66,7 @@ async def _init_registry(state: dict) -> ToolRegistry:
     # Connect to database
     db_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///data/kukulkan.db")
     db = Database(db_url)
-    await db.initialize()
+    await db.init_db()
 
     tenant_id = state.get("tenant_id", "default")
 
