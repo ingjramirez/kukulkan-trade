@@ -44,6 +44,21 @@ class TestEnsureSessionState:
         assert data["closes"] == {"SPY": {"2026-01-01": 500.0}}  # unchanged
 
 
+class TestReadChatAccumulated:
+    def test_reads_session_results(self, invoker: ClaudeInvoker):
+        results = {"discovery_proposals": [{"ticker": "PLTR"}], "tool_call_count": 2}
+        results_path = invoker._workspace / "session-results.json"
+        results_path.write_text(json.dumps(results))
+
+        accumulated = invoker.read_chat_accumulated()
+        assert accumulated["discovery_proposals"][0]["ticker"] == "PLTR"
+        assert not results_path.exists()  # cleaned up after read
+
+    def test_returns_empty_when_no_results(self, invoker: ClaudeInvoker):
+        accumulated = invoker.read_chat_accumulated()
+        assert accumulated == {}
+
+
 def test_chat_system_prompt_is_defined():
     assert CHAT_SYSTEM_PROMPT
     assert "chat mode" in CHAT_SYSTEM_PROMPT.lower()
@@ -58,12 +73,20 @@ def test_chat_result_defaults():
     assert r.session_id is None
     assert r.tool_calls == []
     assert r.error is None
+    assert r.accumulated == {}
 
 
 def test_chat_result_with_values():
     r = ChatResult(content="Hello!", session_id="sess_1", num_turns=3, duration_ms=1200)
     assert r.content == "Hello!"
     assert r.num_turns == 3
+
+
+def test_chat_result_with_accumulated():
+    accumulated = {"discovery_proposals": [{"ticker": "PLTR"}], "tool_call_count": 3}
+    r = ChatResult(content="Found PLTR", accumulated=accumulated)
+    assert r.accumulated["discovery_proposals"][0]["ticker"] == "PLTR"
+    assert r.accumulated["tool_call_count"] == 3
 
 
 # ── _build_chat_cmd ──────────────────────────────────────────────────────────

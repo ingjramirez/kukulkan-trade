@@ -16,6 +16,7 @@ SSE event format (stream endpoint):
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import datetime
 
 import structlog
@@ -30,6 +31,54 @@ from src.storage.database import Database
 
 log = structlog.get_logger()
 router = APIRouter()
+
+
+async def _process_chat_discoveries(accumulated: dict, db: Database, tenant_id: str) -> None:
+    """Process ticker discoveries made via chat MCP tools.
+
+    Mirrors orchestrator._process_tool_discoveries() but avoids importing
+    the full orchestrator. Sends Telegram approval for each proposal.
+    """
+    proposals = accumulated.get("discovery_proposals", [])
+    if not proposals:
+        return
+
+    try:
+        from src.notifications.telegram_factory import TelegramFactory
+
+        tenant = await db.get_tenant(tenant_id)
+        if not tenant:
+            log.warning("chat_discovery_no_tenant", tenant_id=tenant_id)
+            return
+
+        notifier = TelegramFactory.get_notifier(tenant)
+        has_telegram = bool(notifier._chat_id)
+
+        for proposal in proposals:
+            ticker = proposal.get("ticker", "").upper().strip()
+            if not ticker:
+                continue
+
+            row = await db.get_discovered_ticker(ticker, tenant_id=tenant_id)
+            if not row or row.status != "proposed":
+                continue
+
+            if has_telegram:
+                request_id = uuid.uuid4().hex
+                msg_id = await notifier.send_ticker_proposal(row, request_id)
+                if msg_id is not None:
+                    choice = await notifier.wait_for_ticker_approval(
+                        request_id, timeout=120
+                    )
+                    new_status = "approved" if choice == "approve" else "rejected"
+                else:
+                    new_status = "rejected"
+                await db.update_discovered_ticker_status(ticker, new_status, tenant_id=tenant_id)
+                log.info("chat_discovery_resolved", ticker=ticker, status=new_status)
+            else:
+                log.info("chat_discovery_pending_dashboard", ticker=ticker)
+    except Exception as e:
+        log.error("chat_discovery_processing_failed", error=str(e))
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -98,6 +147,10 @@ async def chat(
         session_id=result.session_id,
         tool_calls_json=json.dumps(result.tool_calls) if result.tool_calls else None,
     )
+
+    # Process any ticker discoveries (sends Telegram approval)
+    if result.accumulated:
+        await _process_chat_discoveries(result.accumulated, db, tenant_id)
 
     return ChatResponse(
         content=result.content,
@@ -168,6 +221,14 @@ async def chat_stream(
                     )
                 except Exception as e:
                     log.warning("chat_message_save_failed", error=str(e))
+
+            # Process ticker discoveries from MCP session results
+            try:
+                accumulated = invoker.read_chat_accumulated()
+                if accumulated:
+                    await _process_chat_discoveries(accumulated, db, tenant_id)
+            except Exception as e:
+                log.warning("chat_discovery_post_process_failed", error=str(e))
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 

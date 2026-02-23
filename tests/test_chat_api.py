@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock
+from datetime import date, timedelta
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -227,3 +228,161 @@ class TestChatStream:
         assert "text" in types
         assert "tool_use" in types
         assert "done" in types
+
+
+# ── Discovery processing ─────────────────────────────────────────────────
+
+
+class TestChatDiscoveryProcessing:
+    async def test_chat_calls_process_discoveries(self, client, mock_invoker):
+        """Non-streaming chat processes discovery_proposals from accumulated state."""
+        mock_invoker.chat = AsyncMock(
+            return_value=ChatResult(
+                content="Discovered PLTR.",
+                session_id="s1",
+                num_turns=2,
+                duration_ms=500,
+                accumulated={"discovery_proposals": [{"ticker": "PLTR", "reason": "test"}]},
+            )
+        )
+        with patch("src.api.routes.chat._process_chat_discoveries", new_callable=AsyncMock) as mock_proc:
+            resp = await client.post("/api/chat", json={"message": "Discover PLTR"})
+            assert resp.status_code == 200
+            mock_proc.assert_called_once()
+            call_args = mock_proc.call_args
+            assert call_args[0][0]["discovery_proposals"][0]["ticker"] == "PLTR"
+
+    async def test_chat_skips_discoveries_when_no_accumulated(self, client, mock_invoker):
+        """No discovery processing when accumulated is empty."""
+        mock_invoker.chat = AsyncMock(
+            return_value=ChatResult(content="Hi", session_id="s1", num_turns=1, duration_ms=100)
+        )
+        with patch("src.api.routes.chat._process_chat_discoveries", new_callable=AsyncMock) as mock_proc:
+            await client.post("/api/chat", json={"message": "Hello"})
+            mock_proc.assert_not_called()
+
+    async def test_stream_calls_process_discoveries(self, client, mock_invoker):
+        """Streaming chat processes discoveries from session-results.json."""
+
+        async def _fake_stream(message, today=None):
+            yield {"type": "text", "text": "Found PLTR"}
+            yield {"type": "done", "session_id": "s1", "num_turns": 2, "duration_ms": 400}
+
+        mock_invoker.chat_stream = _fake_stream
+        mock_invoker.read_chat_accumulated = lambda: {
+            "discovery_proposals": [{"ticker": "PLTR", "reason": "momentum"}]
+        }
+
+        with patch("src.api.routes.chat._process_chat_discoveries", new_callable=AsyncMock) as mock_proc:
+            await client.post("/api/chat/stream", json={"message": "Discover PLTR"})
+            mock_proc.assert_called_once()
+
+    async def test_stream_no_discoveries_when_empty_accumulated(self, client, mock_invoker):
+        """No discovery processing when session-results is empty."""
+
+        async def _fake_stream(message, today=None):
+            yield {"type": "text", "text": "Hello"}
+            yield {"type": "done", "session_id": "s1", "num_turns": 1, "duration_ms": 100}
+
+        mock_invoker.chat_stream = _fake_stream
+        mock_invoker.read_chat_accumulated = lambda: {}
+
+        with patch("src.api.routes.chat._process_chat_discoveries", new_callable=AsyncMock) as mock_proc:
+            await client.post("/api/chat/stream", json={"message": "Hi"})
+            mock_proc.assert_not_called()
+
+
+# ── _process_chat_discoveries unit tests ─────────────────────────────────
+
+
+class TestProcessChatDiscoveriesUnit:
+    async def test_sends_telegram_approval(self, db):
+        """Sends Telegram proposal and updates status based on response."""
+        from src.api.routes.chat import _process_chat_discoveries
+        from src.storage.models import DiscoveredTickerRow
+
+        await db.ensure_tenant("default")
+
+        today = date.today()
+        row = DiscoveredTickerRow(
+            ticker="PLTR",
+            source="agent_tool",
+            rationale="momentum",
+            status="proposed",
+            tenant_id="default",
+            proposed_at=today,
+            expires_at=today + timedelta(days=7),
+        )
+        await db.save_discovered_ticker(row)
+
+        mock_notifier = AsyncMock()
+        mock_notifier._chat_id = "12345"
+        mock_notifier.send_ticker_proposal = AsyncMock(return_value=999)
+        mock_notifier.wait_for_ticker_approval = AsyncMock(return_value="approve")
+
+        mock_tenant = AsyncMock()
+        mock_tenant.id = "default"
+
+        with (
+            patch("src.notifications.telegram_factory.TelegramFactory.get_notifier", return_value=mock_notifier),
+            patch.object(db, "get_tenant", return_value=mock_tenant),
+        ):
+            await _process_chat_discoveries(
+                {"discovery_proposals": [{"ticker": "PLTR", "reason": "momentum"}]},
+                db,
+                "default",
+            )
+
+        mock_notifier.send_ticker_proposal.assert_called_once()
+        mock_notifier.wait_for_ticker_approval.assert_called_once()
+
+        # Verify status was updated
+        updated = await db.get_discovered_ticker("PLTR", tenant_id="default")
+        assert updated.status == "approved"
+
+    async def test_no_proposals_is_noop(self, db):
+        """Empty proposals list does nothing."""
+        from src.api.routes.chat import _process_chat_discoveries
+
+        await _process_chat_discoveries({}, db, "default")
+        await _process_chat_discoveries({"discovery_proposals": []}, db, "default")
+        # No errors = pass
+
+    async def test_no_telegram_leaves_as_proposed(self, db):
+        """Without Telegram, tickers stay as 'proposed' for dashboard approval."""
+        from src.api.routes.chat import _process_chat_discoveries
+        from src.storage.models import DiscoveredTickerRow
+
+        await db.ensure_tenant("default")
+
+        today = date.today()
+        row = DiscoveredTickerRow(
+            ticker="RIVN",
+            source="agent_tool",
+            rationale="EV sector",
+            status="proposed",
+            tenant_id="default",
+            proposed_at=today,
+            expires_at=today + timedelta(days=7),
+        )
+        await db.save_discovered_ticker(row)
+
+        mock_notifier = AsyncMock()
+        mock_notifier._chat_id = ""  # No Telegram configured
+
+        mock_tenant = AsyncMock()
+        mock_tenant.id = "default"
+
+        with (
+            patch("src.notifications.telegram_factory.TelegramFactory.get_notifier", return_value=mock_notifier),
+            patch.object(db, "get_tenant", return_value=mock_tenant),
+        ):
+            await _process_chat_discoveries(
+                {"discovery_proposals": [{"ticker": "RIVN"}]},
+                db,
+                "default",
+            )
+
+        # Still proposed — no Telegram to approve
+        updated = await db.get_discovered_ticker("RIVN", tenant_id="default")
+        assert updated.status == "proposed"

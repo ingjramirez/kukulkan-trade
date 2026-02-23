@@ -118,6 +118,7 @@ class ChatResult:
     num_turns: int = 0
     duration_ms: int = 0
     error: str | None = None
+    accumulated: dict = field(default_factory=dict)
 
 
 # ── Process management ─────────────────────────────────────────────────────
@@ -704,6 +705,7 @@ class ClaudeInvoker:
                 tool_calls=tool_calls,
                 num_turns=num_turns,
                 duration_ms=duration_ms,
+                accumulated=accumulated,
             )
 
         except subprocess.TimeoutExpired:
@@ -784,6 +786,15 @@ class ClaudeInvoker:
             except ProcessLookupError:
                 pass
             await proc.wait()
+
+    def read_chat_accumulated(self) -> dict:
+        """Read accumulated ActionState from the last chat session.
+
+        Call after chat_stream() completes to get discovery_proposals,
+        watchlist_updates, etc. written by MCP tools during the session.
+        """
+        results_path = self._workspace / "session-results.json"
+        return self._read_session_results(results_path)
 
     # ── End chat methods ─────────────────────────────────────────────────────
 
