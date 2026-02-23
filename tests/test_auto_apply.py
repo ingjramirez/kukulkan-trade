@@ -55,7 +55,7 @@ async def test_apply_strategy_mode_changelog(db: Database):
         win_rate_pct=60.0,
         avg_pnl_pct=1.0,
         avg_alpha_vs_spy=0.5,
-        total_cost_usd=1.0,
+        total_cost_usd=0.0,
         strategy_mode="conservative",
         trailing_stop_multiplier=1.0,
         proposal_json=None,

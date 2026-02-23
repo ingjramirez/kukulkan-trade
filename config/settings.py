@@ -48,8 +48,6 @@ class AgentSettings(BaseSettings):
     strategy_mode: str = "conservative"  # conservative | standard | aggressive
     max_retries: int = 4  # env: AGENT_MAX_RETRIES — SDK auto-retries for weekly compaction
     fallback_model: str = "claude-sonnet-4-6"  # env: AGENT_FALLBACK_MODEL
-    daily_budget: float = 3.0  # env: AGENT_DAILY_BUDGET (legacy — displayed in dashboard)
-    monthly_budget: float = 75.0  # env: AGENT_MONTHLY_BUDGET (legacy — displayed in dashboard)
 
     model_config = {"env_prefix": "AGENT_", "env_file": ".env", "extra": "ignore"}
 

@@ -32,7 +32,7 @@ def test_weekly_performance_data_defaults():
     assert data.current_strategy_mode == "conservative"
     assert data.current_trailing_stop_multiplier == 1.0
     assert data.current_ticker_exclusions == []
-    assert data.total_cost_usd == 0.0
+    assert data.total_cost_usd == 0.0  # always 0 after Claude Max migration
 
 
 def test_proposed_change_fields():
@@ -231,11 +231,10 @@ def test_parse_trailing_stop_invalid_value():
 
 def test_build_prompt_basic():
     analyzer = ImprovementAnalyzer()
-    data = _make_data(total_cost_usd=2.50, universe_size=70)
+    data = _make_data(universe_size=70)
     prompt = analyzer._build_prompt(data)
     assert "Weekly Performance Review" in prompt
     assert "Total trades: 0" in prompt
-    assert "$2.50" in prompt
     assert "70" in prompt
 
 

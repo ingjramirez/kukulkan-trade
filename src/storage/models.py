@@ -359,8 +359,6 @@ class AgentConversationRow(Base):
     trigger_type = Column(String(20), nullable=False)  # morning/midday/close/event/weekly_review
     messages_json = Column(Text, nullable=False)  # Full Anthropic messages array (JSON)
     summary = Column(Text, nullable=True)  # Haiku-compressed summary (NULL if recent)
-    token_count = Column(Integer, nullable=False, default=0)
-    cost_usd = Column(Float, nullable=False, default=0.0)
     session_status = Column(String(20), nullable=False, default="completed")  # started/completed/crashed
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 

@@ -1351,19 +1351,6 @@ class Database:
             )
             await s.commit()
 
-    async def get_daily_spend(
-        self,
-        tenant_id: str,
-        target_date: date,
-    ) -> float:
-        """Get total spend for a tenant on a given date.
-
-        Always returns 0.0 — cost tracking removed after switch to Claude Max
-        subscription (flat-rate, no per-token billing). Kept for API compatibility
-        with weekly_improvement pipeline which stores total_cost_usd in snapshots.
-        """
-        return 0.0
-
     # ── Improvement Snapshot CRUD ────────────────────────────────────
 
     async def save_improvement_snapshot(

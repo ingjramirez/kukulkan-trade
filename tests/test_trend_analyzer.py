@@ -89,7 +89,7 @@ async def _seed_snapshots(db: Database, win_rates: list[float]) -> None:
             win_rate_pct=wr,
             avg_pnl_pct=wr / 10,
             avg_alpha_vs_spy=None,
-            total_cost_usd=1.0,
+            total_cost_usd=0.0,
             strategy_mode="conservative",
             trailing_stop_multiplier=1.0,
             proposal_json=None,

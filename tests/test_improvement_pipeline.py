@@ -67,7 +67,7 @@ def _make_data(**kwargs) -> WeeklyPerformanceData:
         ),
         "current_strategy_mode": "conservative",
         "current_trailing_stop_multiplier": 1.0,
-        "total_cost_usd": 2.50,
+        "total_cost_usd": 0.0,
     }
     defaults.update(kwargs)
     return WeeklyPerformanceData(**defaults)

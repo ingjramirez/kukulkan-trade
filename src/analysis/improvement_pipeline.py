@@ -179,7 +179,6 @@ def _format_report(
         lines.append(f"Win rate: {data.track_record.win_rate_pct:.1f}%")
         lines.append(f"Avg P&L: {data.track_record.avg_pnl_pct:+.2f}%")
 
-    lines.append(f"AI cost: ${data.total_cost_usd:.2f}")
     lines.append(f"Summary: {proposal.summary}")
 
     if applied:
@@ -217,7 +216,6 @@ def _format_telegram_report(
         lines.append(f"Avg P&L: {data.track_record.avg_pnl_pct:+.2f}%")
         if data.track_record.avg_alpha_vs_spy is not None:
             lines.append(f"Alpha vs SPY: {data.track_record.avg_alpha_vs_spy:+.2f}%")
-    lines.append(f"AI cost: ${data.total_cost_usd:.2f}")
     lines.append("")
 
     # AI Assessment

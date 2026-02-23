@@ -94,12 +94,6 @@ class WeeklyDataCollector:
             except (json.JSONDecodeError, TypeError):
                 pass
 
-        # Get cost data for the week
-        total_cost = 0.0
-        for day_offset in range(7):
-            day = week_start + timedelta(days=day_offset)
-            total_cost += await self._db.get_daily_spend(tenant_id, day)
-
         # Get posture history
         posture_rows = await self._db.get_posture_history(tenant_id)
         posture_labels = [r.effective_posture for r in posture_rows[:7]]
@@ -117,7 +111,7 @@ class WeeklyDataCollector:
             current_strategy_mode=strategy_mode,
             current_trailing_stop_multiplier=trail_mult,
             current_ticker_exclusions=exclusions,
-            total_cost_usd=round(total_cost, 4),
+            total_cost_usd=0.0,
             posture_history=posture_labels,
             universe_size=universe_size,
         )
@@ -199,7 +193,6 @@ class ImprovementAnalyzer:
         parts.append(f"  Strategy mode: {data.current_strategy_mode}")
         parts.append(f"  Trailing stop multiplier: {data.current_trailing_stop_multiplier}")
         parts.append(f"  Ticker exclusions: {data.current_ticker_exclusions}")
-        parts.append(f"  AI cost this week: ${data.total_cost_usd:.2f}")
         parts.append(f"  Universe size: {data.universe_size}")
         parts.append(f"  Recent postures: {data.posture_history}")
 

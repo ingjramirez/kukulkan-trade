@@ -389,7 +389,6 @@ class ImprovementSnapshotDetailResponse(BaseModel):
     win_rate_pct: float | None = None
     avg_pnl_pct: float | None = None
     avg_alpha_vs_spy: float | None = None
-    total_cost_usd: float | None = None
     strategy_mode: str | None = None
     trailing_stop_multiplier: float | None = None
     proposal_json: dict | None = None

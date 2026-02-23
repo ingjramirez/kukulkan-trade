@@ -126,7 +126,6 @@ async def get_snapshot(
         win_rate_pct=row.win_rate_pct,
         avg_pnl_pct=row.avg_pnl_pct,
         avg_alpha_vs_spy=row.avg_alpha_vs_spy,
-        total_cost_usd=row.total_cost_usd,
         strategy_mode=row.strategy_mode,
         trailing_stop_multiplier=row.trailing_stop_multiplier,
         proposal_json=proposal,
