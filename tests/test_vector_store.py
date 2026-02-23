@@ -6,6 +6,8 @@ Uses a mocked ChromaDB collection — no external service required.
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from src.storage.vector_store import VectorStore
 
 
@@ -135,3 +137,59 @@ class TestCleanupOld:
 
         call_kwargs = col.get.call_args.kwargs
         assert call_kwargs["where"] == {"published_at": {"$lt": "2025-08-27"}}
+
+
+# ── Error / edge cases ────────────────────────────────────────────────────────
+
+
+class TestSearchSimilarErrors:
+    def test_chromadb_connection_failure_propagates(self) -> None:
+        store, col = _make_store()
+        col.query.side_effect = Exception("connection refused")
+
+        with pytest.raises(Exception, match="connection refused"):
+            store.search_similar("NVDA earnings")
+
+    def test_malformed_metadata_no_crash(self) -> None:
+        """Collection returns None metadata — should not raise."""
+        store, col = _make_store()
+        col.query.return_value = {
+            "documents": [["headline"]],
+            "metadatas": None,  # malformed
+            "distances": [[0.1]],
+        }
+        # search_similar just returns the raw dict — caller handles parsing
+        result = store.search_similar("NVDA earnings")
+        assert result["metadatas"] is None
+
+
+class TestCleanupOldErrors:
+    def test_collection_get_failure_propagates(self) -> None:
+        store, col = _make_store()
+        col.get.side_effect = Exception("ChromaDB timeout")
+
+        with pytest.raises(Exception, match="ChromaDB timeout"):
+            store.cleanup_old(days=180)
+
+    def test_partial_batch_delete_failure(self) -> None:
+        """First batch succeeds, second raises — exception propagates."""
+        store, col = _make_store()
+        ids = [f"id{i}" for i in range(150)]
+        col.get.return_value = {"ids": ids, "documents": [], "metadatas": []}
+        col.delete.side_effect = [None, Exception("delete failed")]
+
+        with pytest.raises(Exception, match="delete failed"):
+            store.cleanup_old(days=180)
+
+        # First batch was deleted
+        assert col.delete.call_count == 2
+
+    def test_missing_ids_key_returns_zero(self) -> None:
+        """collection.get() returns dict without 'ids' key — treat as nothing to delete."""
+        store, col = _make_store()
+        col.get.return_value = {}  # no 'ids' key
+
+        deleted = store.cleanup_old(days=180)
+
+        assert deleted == 0
+        col.delete.assert_not_called()

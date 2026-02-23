@@ -1,7 +1,7 @@
 """Async database setup and CRUD operations (SQLite for dev/test, PostgreSQL for production)."""
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from pathlib import Path
 
 import structlog
@@ -46,7 +46,15 @@ class Database:
     def __init__(self, url: str = "sqlite+aiosqlite:///data/kukulkan.db") -> None:
         self._url = url
         self._is_sqlite = url.startswith("sqlite")
-        self._engine = create_async_engine(url, echo=False)
+        if self._is_sqlite:
+            self._engine = create_async_engine(url, echo=False)
+        else:
+            self._engine = create_async_engine(
+                url,
+                echo=False,
+                pool_size=20,
+                pool_recycle=3600,
+            )
         self._session_factory = sessionmaker(self._engine, class_=AsyncSession, expire_on_commit=False)
 
         # Enable foreign key enforcement for SQLite connections
@@ -132,7 +140,7 @@ class Database:
             if existing:
                 existing.cash = cash
                 existing.total_value = total_value
-                existing.updated_at = datetime.now(timezone.utc)
+                existing.updated_at = datetime.utcnow()
             else:
                 s.add(
                     PortfolioRow(
@@ -186,7 +194,7 @@ class Database:
             elif existing:
                 existing.shares = shares
                 existing.avg_price = avg_price
-                existing.updated_at = datetime.now(timezone.utc)
+                existing.updated_at = datetime.utcnow()
             elif shares > 0:
                 s.add(
                     PositionRow(
@@ -224,7 +232,7 @@ class Database:
                 if price is not None:
                     p.current_price = price
                     p.market_value = p.shares * price
-                    p.updated_at = datetime.now(timezone.utc)
+                    p.updated_at = datetime.utcnow()
             await s.commit()
 
     # ── Trade Log ────────────────────────────────────────────────────────
@@ -621,7 +629,7 @@ class Database:
             if existing:
                 existing.content = content
                 existing.expires_at = expires_at
-                existing.created_at = datetime.now(timezone.utc)
+                existing.created_at = datetime.utcnow()
             else:
                 s.add(
                     AgentMemoryRow(
@@ -640,7 +648,7 @@ class Database:
             result = await s.execute(
                 select(AgentMemoryRow).where(
                     AgentMemoryRow.expires_at.isnot(None),
-                    AgentMemoryRow.expires_at <= datetime.now(timezone.utc),
+                    AgentMemoryRow.expires_at <= datetime.utcnow(),
                 )
             )
             expired = list(result.scalars().all())
@@ -678,7 +686,7 @@ class Database:
         """Create or replace a trailing stop for a position."""
         peak_price = entry_price
         stop_price = peak_price * (1 - trail_pct)
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         async with self.session() as s:
             # Delete existing stop for same tenant/portfolio/ticker (unique constraint)
             existing = (
@@ -746,7 +754,7 @@ class Database:
                 row.stop_price = stop_price
             if is_active is not None:
                 row.is_active = is_active
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_at = datetime.utcnow()
             await s.commit()
 
     async def deactivate_trailing_stop(self, stop_id: int) -> None:
@@ -771,7 +779,7 @@ class Database:
             )
             for row in result.scalars().all():
                 row.is_active = False
-                row.updated_at = datetime.now(timezone.utc)
+                row.updated_at = datetime.utcnow()
             await s.commit()
 
     async def update_trailing_stop_pct(
@@ -801,7 +809,7 @@ class Database:
                 return False
             row.trail_pct = trail_pct
             row.stop_price = round(row.peak_price * (1 - trail_pct), 2)
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_at = datetime.utcnow()
             await s.commit()
             return True
 
@@ -825,14 +833,14 @@ class Database:
             ).scalar_one_or_none()
             if existing:
                 existing.source = source
-                existing.fetched_at = datetime.now(timezone.utc)
+                existing.fetched_at = datetime.utcnow()
             else:
                 s.add(
                     EarningsCalendarRow(
                         ticker=ticker,
                         earnings_date=earnings_date,
                         source=source,
-                        fetched_at=datetime.now(timezone.utc),
+                        fetched_at=datetime.utcnow(),
                     )
                 )
             await s.commit()
@@ -1051,7 +1059,7 @@ class Database:
         """Delete intraday snapshots older than N days. Returns count deleted."""
         from datetime import timedelta
 
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff = datetime.utcnow() - timedelta(days=days)
         async with self.session() as s:
             result = await s.execute(
                 select(IntradaySnapshotRow).where(
@@ -1223,7 +1231,7 @@ class Database:
         """
         if not cells:
             return
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         async with self.session() as s:
             for cell in cells:
                 s.add(
@@ -1284,7 +1292,7 @@ class Database:
         """
         if not buckets:
             return
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         async with self.session() as s:
             for bucket in buckets:
                 s.add(
@@ -1486,7 +1494,7 @@ class Database:
         """Get recent changes for a specific parameter (for flip-flop detection)."""
         from datetime import timedelta
 
-        cutoff = datetime.now(timezone.utc) - timedelta(weeks=weeks)
+        cutoff = datetime.utcnow() - timedelta(weeks=weeks)
         async with self.session() as s:
             result = await s.execute(
                 select(ParameterChangelogRow)
@@ -1564,7 +1572,7 @@ class Database:
             for key, value in updates.items():
                 if hasattr(row, key) and value is not None:
                     setattr(row, key, value)
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_at = datetime.utcnow()
             await s.commit()
             await s.refresh(row)
         log.info("tenant_updated", tenant_id=tenant_id, fields=list(updates.keys()))
@@ -1581,7 +1589,7 @@ class Database:
             if row is None:
                 return False
             row.is_active = False
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_at = datetime.utcnow()
             await s.commit()
         log.info("tenant_deactivated", tenant_id=tenant_id)
         return True
@@ -1652,7 +1660,7 @@ class Database:
                 return False
             row.status = status
             row.resolved_by = resolved_by
-            row.resolved_at = datetime.now(timezone.utc)
+            row.resolved_at = datetime.utcnow()
             await s.commit()
             return True
 
@@ -1707,7 +1715,7 @@ class Database:
         """Delete signal data older than keep_hours. Returns rows deleted."""
         from datetime import timedelta
 
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=keep_hours)
+        cutoff = datetime.utcnow() - timedelta(hours=keep_hours)
         async with self.session() as s:
             result = await s.execute(
                 delete(TickerSignalRow).where(
@@ -1768,7 +1776,7 @@ class Database:
                     value=value,
                     classification=classification,
                     sub_indicators=sub_indicators,
-                    fetched_at=datetime.now(timezone.utc),
+                    fetched_at=datetime.utcnow(),
                 )
             )
             await s.commit()

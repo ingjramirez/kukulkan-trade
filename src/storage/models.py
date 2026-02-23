@@ -1,6 +1,6 @@
 """Pydantic schemas and SQLAlchemy ORM models for Kukulkan."""
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -60,7 +60,7 @@ class PortfolioRow(Base):
     name = Column(String(1), nullable=False)  # A, B
     cash = Column(Float, nullable=False, default=33_000.0)
     total_value = Column(Float, nullable=False, default=33_000.0)
-    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class PositionRow(Base):
@@ -77,7 +77,7 @@ class PositionRow(Base):
     avg_price = Column(Float, nullable=False)
     current_price = Column(Float)
     market_value = Column(Float)
-    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class TradeRow(Base):
@@ -94,7 +94,7 @@ class TradeRow(Base):
     price = Column(Float, nullable=False)
     total = Column(Float, nullable=False)
     reason = Column(Text)
-    executed_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    executed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class DailySnapshotRow(Base):
@@ -143,7 +143,7 @@ class AgentDecisionRow(Base):
     tokens_used = Column(Integer)
     regime = Column(String(30), nullable=True)
     session_label = Column(String(20), nullable=True)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class MarketDataRow(Base):
@@ -208,7 +208,7 @@ class NewsLogRow(Base):
     published_at = Column(DateTime)
     sentiment = Column(Float)  # -1.0 to 1.0
     embedding_id = Column(String(100))  # ChromaDB document ID
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class DiscoveredTickerRow(Base):
@@ -241,7 +241,7 @@ class AgentMemoryRow(Base):
     category = Column(String(20), nullable=False)  # short_term, weekly_summary, agent_note
     key = Column(String(100), nullable=False)
     content = Column(Text, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=True)
 
 
@@ -260,8 +260,8 @@ class TrailingStopRow(Base):
     trail_pct = Column(Float, nullable=False)  # 0.05 = 5%
     stop_price = Column(Float, nullable=False)  # peak * (1 - trail_pct)
     is_active = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class EarningsCalendarRow(Base):
@@ -274,7 +274,7 @@ class EarningsCalendarRow(Base):
     ticker = Column(String(10), nullable=False)
     earnings_date = Column(Date, nullable=False)
     source = Column(String(20), default="yfinance")
-    fetched_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    fetched_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class WatchlistRow(Base):
@@ -318,7 +318,7 @@ class SentinelActionRow(Base):
 
     id = Column(Integer, primary_key=True)
     tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     action_type = Column(String(20), nullable=False)  # sell | reduce | hedge | review
     ticker = Column(String(10), nullable=False)
     reason = Column(Text, nullable=False)
@@ -345,7 +345,7 @@ class ToolCallLogRow(Base):
     success = Column(Boolean, nullable=False, default=True)
     error = Column(Text, nullable=True)
     influenced_decision = Column(Boolean, nullable=False, default=False)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class AgentConversationRow(Base):
@@ -360,7 +360,7 @@ class AgentConversationRow(Base):
     messages_json = Column(Text, nullable=False)  # Full Anthropic messages array (JSON)
     summary = Column(Text, nullable=True)  # Haiku-compressed summary (NULL if recent)
     session_status = Column(String(20), nullable=False, default="completed")  # started/completed/crashed
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class PostureHistoryRow(Base):
@@ -375,7 +375,7 @@ class PostureHistoryRow(Base):
     posture = Column(String(20), nullable=False)  # balanced/defensive/crisis/aggressive
     effective_posture = Column(String(20), nullable=False)  # after gate checks
     reason = Column(Text, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class PlaybookSnapshotRow(Base):
@@ -385,7 +385,7 @@ class PlaybookSnapshotRow(Base):
 
     id = Column(Integer, primary_key=True)
     tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
-    generated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    generated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     regime = Column(String(30), nullable=False)
     sector = Column(String(50), nullable=False)
     total_trades = Column(Integer, nullable=False)
@@ -403,7 +403,7 @@ class ConvictionCalibrationRow(Base):
 
     id = Column(Integer, primary_key=True)
     tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, default="default")
-    generated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    generated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     conviction_level = Column(String(10), nullable=False)
     total_trades = Column(Integer, nullable=False)
     wins = Column(Integer, nullable=False)
@@ -427,7 +427,7 @@ class AgentBudgetLogRow(Base):
     num_turns = Column(Integer, nullable=False, default=0)
     tool_calls = Column(Integer, nullable=False, default=0)
     duration_ms = Column(Integer, nullable=False, default=0)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class ImprovementSnapshotRow(Base):
@@ -449,7 +449,7 @@ class ImprovementSnapshotRow(Base):
     proposal_json = Column(Text, nullable=True)  # Full Sonnet proposal JSON
     applied_changes = Column(Text, nullable=True)  # JSON list of applied changes
     report_text = Column(Text, nullable=True)  # Plain-text summary
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class ParameterChangelogRow(Base):
@@ -464,7 +464,7 @@ class ParameterChangelogRow(Base):
     old_value = Column(Text, nullable=True)
     new_value = Column(Text, nullable=True)
     reason = Column(Text, nullable=True)
-    applied_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    applied_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class TenantRow(Base):
@@ -522,8 +522,8 @@ class TenantRow(Base):
     ticker_additions = Column(Text, nullable=True)  # JSON: ["COIN","MSTR"]
     ticker_exclusions = Column(Text, nullable=True)  # JSON: ["META","GOOGL"]
 
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     def __repr__(self) -> str:
         """Mask sensitive fields in repr to prevent credential leaks."""
@@ -542,7 +542,7 @@ class SentimentIndicatorRow(Base):
     value = Column(Float, nullable=False)  # Numeric value (0-100 for F&G)
     classification = Column(String(30), nullable=False)  # "Extreme Fear", "Fear", "Neutral", "Greed", "Extreme Greed"
     sub_indicators = Column(Text, nullable=True)  # JSON: component breakdown
-    fetched_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    fetched_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class TickerSignalRow(Base):

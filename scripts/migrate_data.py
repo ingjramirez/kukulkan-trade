@@ -115,16 +115,27 @@ def _get_pk_columns(engine: sa.engine.Engine, table_name: str) -> list[str]:
 def _insert_batch(
     session: Session, table_name: str, columns: list[str], batch: list[dict], pk_cols: list[str]
 ) -> None:
-    """Insert a batch of rows. On PK conflict, update all non-PK columns (upsert)."""
+    """Insert a batch of rows. On PK conflict, update non-PK columns only if source row is newer.
+
+    Guards against overwriting live PG data with stale SQLite data on re-run: if the table
+    has an updated_at or created_at column, the DO UPDATE is gated on EXCLUDED being >= existing.
+    """
     cols = ", ".join(columns)
     placeholders = ", ".join(f":{c}" for c in columns)
     non_pk = [c for c in columns if c not in pk_cols]
     if non_pk:
         updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in non_pk)
         conflict_cols = ", ".join(pk_cols)
+        # Staleness guard: only overwrite if source row is at least as new as destination
+        if "updated_at" in columns:
+            guard = f" WHERE EXCLUDED.updated_at >= {table_name}.updated_at"
+        elif "created_at" in columns:
+            guard = f" WHERE EXCLUDED.created_at >= {table_name}.created_at"
+        else:
+            guard = ""
         sql = text(
             f"INSERT INTO {table_name} ({cols}) VALUES ({placeholders}) "
-            f"ON CONFLICT ({conflict_cols}) DO UPDATE SET {updates}"
+            f"ON CONFLICT ({conflict_cols}) DO UPDATE SET {updates}{guard}"
         )
     else:
         sql = text(f"INSERT INTO {table_name} ({cols}) VALUES ({placeholders}) ON CONFLICT DO NOTHING")
