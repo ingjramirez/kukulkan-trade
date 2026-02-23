@@ -11,5 +11,5 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     created_at  TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT (NOW() AT TIME ZONE 'utc')
 );
 
-CREATE INDEX idx_chat_messages_tenant_created ON chat_messages (tenant_id, created_at);
-CREATE INDEX idx_chat_messages_session ON chat_messages (tenant_id, session_id);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_tenant_created ON chat_messages (tenant_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages (tenant_id, session_id);
