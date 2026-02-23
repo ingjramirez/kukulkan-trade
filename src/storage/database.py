@@ -1,7 +1,7 @@
 """Async database setup and CRUD operations (SQLite for dev/test, PostgreSQL for production)."""
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import structlog
@@ -14,6 +14,7 @@ from src.storage.models import (
     AgentDecisionRow,
     AgentMemoryRow,
     Base,
+    ChatMessageRow,
     ConvictionCalibrationRow,
     DailySnapshotRow,
     DiscoveredTickerRow,
@@ -1798,3 +1799,70 @@ class Database:
                 .limit(1)
             )
             return result.scalar_one_or_none()
+
+    # ── Chat Messages ──────────────────────────────────────────────────────────
+
+    async def save_chat_message(
+        self,
+        tenant_id: str,
+        role: str,
+        content: str,
+        session_id: str | None = None,
+        tool_calls_json: str | None = None,
+    ) -> int:
+        """Save a single chat message (user or assistant).
+
+        Args:
+            tenant_id: Tenant UUID.
+            role: "user" | "assistant".
+            content: Message text.
+            session_id: Optional Claude session_id for correlation.
+            tool_calls_json: JSON array of tool call summaries (assistant only).
+
+        Returns:
+            Saved row ID.
+        """
+        async with self.session() as s:
+            row = ChatMessageRow(
+                tenant_id=tenant_id,
+                session_id=session_id,
+                role=role,
+                content=content,
+                tool_calls_json=tool_calls_json,
+                created_at=datetime.utcnow(),
+            )
+            s.add(row)
+            await s.flush()
+            row_id = row.id
+            await s.commit()
+        return row_id
+
+    async def get_chat_messages(
+        self,
+        tenant_id: str = "default",
+        days: int = 7,
+        limit: int = 100,
+    ) -> list[ChatMessageRow]:
+        """Get recent chat messages ordered chronologically.
+
+        Args:
+            tenant_id: Tenant UUID.
+            days: How many days back to look.
+            limit: Max messages to return.
+
+        Returns:
+            List of ChatMessageRow ordered by created_at asc.
+        """
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        async with self.session() as s:
+            stmt = (
+                select(ChatMessageRow)
+                .where(
+                    ChatMessageRow.tenant_id == tenant_id,
+                    ChatMessageRow.created_at >= cutoff,
+                )
+                .order_by(ChatMessageRow.created_at.asc())
+                .limit(limit)
+            )
+            result = await s.execute(stmt)
+            return list(result.scalars().all())

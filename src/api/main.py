@@ -11,6 +11,7 @@ from config.settings import settings
 from src.api.auth import router as auth_router
 from src.api.rate_limit import RateLimitMiddleware
 from src.api.routes.account import router as account_router
+from src.api.routes.chat import router as chat_router
 from src.api.routes.agent_insights import router as agent_insights_router
 from src.api.routes.decisions import router as decisions_router
 from src.api.routes.discovered import router as discovered_router
@@ -75,6 +76,7 @@ app.include_router(improvements_router)
 app.include_router(run_router)
 app.include_router(signals_router)
 app.include_router(events_router)
+app.include_router(chat_router)
 
 
 @app.exception_handler(Exception)

@@ -572,6 +572,24 @@ class TickerSignalRow(Base):
     scored_at = Column(DateTime, nullable=False)
 
 
+class ChatMessageRow(Base):
+    """User↔agent chat message history for the interactive chat feature."""
+
+    __tablename__ = "chat_messages"
+    __table_args__ = (
+        Index("idx_chat_messages_tenant_created", "tenant_id", "created_at"),
+        Index("idx_chat_messages_session", "tenant_id", "session_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    session_id = Column(Text, nullable=True)   # Claude session_id for correlation with trading sessions
+    role = Column(String(10), nullable=False)  # "user" | "assistant"
+    content = Column(Text, nullable=False)
+    tool_calls_json = Column(Text, nullable=True)  # JSON array of tool call summaries
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
 # ── Pydantic Schemas (for API / validation layer) ───────────────────────────
 
 

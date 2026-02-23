@@ -176,3 +176,9 @@ Rules:
 - Empty trades array if no action needed.
 - Include trailing_stops for any new positions (trail_pct as decimal, e.g. 0.07 = 7%).
 - Include memory_notes for observations that should persist across sessions.
+
+## Chat Mode
+When `--append-system-prompt` injects chat mode instructions, you are in an interactive conversation.
+In chat mode you do NOT output the JSON trading summary. Respond conversationally instead.
+You still have full MCP tool access. Use tools when the user asks about current portfolio state, prices, or news.
+You can execute trades on explicit user request — confirm intent before using execute_trade.

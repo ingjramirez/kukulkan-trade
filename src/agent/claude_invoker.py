@@ -20,6 +20,7 @@ import re
 import signal
 import subprocess
 import time
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -36,6 +37,20 @@ WORKSPACE = _project_root / "data" / "agent-workspace"
 
 # Valid session types for invoke()
 VALID_SESSION_TYPES = frozenset({"morning", "midday", "closing", "manual", "event", "sentinel-crisis"})
+
+# System prompt appended for interactive chat sessions (via --append-system-prompt).
+# Overrides the default JSON-output expectation so Claude responds conversationally.
+CHAT_SYSTEM_PROMPT = """\
+## Chat Mode
+You are now in direct interactive chat with the portfolio owner via the Kukulkan dashboard.
+
+- Respond conversationally. Do NOT output the trading JSON summary format.
+- Use MCP tools when you need live data (portfolio state, prices, news, signals).
+- You CAN execute trades if the user explicitly asks — confirm first, then use execute_trade.
+- Keep answers concise (under 400 words) unless the user asks for detail.
+- Reference today's context.md if asked about the current session.
+- When recommending a trade, explain your reasoning before executing.
+"""
 
 
 # ── Result types ─────────────────────────────────────────────────────────────
@@ -91,6 +106,18 @@ class InvokeResult:
             "turns": self.num_turns,
             "duration_ms": self.duration_ms,
         }
+
+
+@dataclass
+class ChatResult:
+    """Result of an interactive chat invocation."""
+
+    content: str = ""
+    session_id: str | None = None
+    tool_calls: list[dict] = field(default_factory=list)
+    num_turns: int = 0
+    duration_ms: int = 0
+    error: str | None = None
 
 
 # ── Process management ─────────────────────────────────────────────────────
@@ -478,6 +505,247 @@ class ClaudeInvoker:
             cmd.extend(["--resume", session_id])
 
         return cmd
+
+    # ── Chat methods ────────────────────────────────────────────────────────
+
+    def _build_chat_cmd(self, message: str, session_id: str | None) -> list[str]:
+        """Build CLI command for interactive chat (non-streaming)."""
+        cmd = [
+            "claude",
+            "-p",
+            message,
+            "--output-format",
+            "json",
+            "--mcp-config",
+            str(self._workspace / "mcp.json"),
+            "--allowedTools",
+            "mcp__kukulkan__*",
+            "--max-turns",
+            str(min(self._max_turns, 10)),
+            "--model",
+            self._model,
+            "--append-system-prompt",
+            CHAT_SYSTEM_PROMPT,
+        ]
+        if session_id:
+            cmd.extend(["--resume", session_id])
+        return cmd
+
+    def _build_chat_stream_cmd(self, message: str, session_id: str | None) -> list[str]:
+        """Build CLI command for streaming chat."""
+        cmd = [
+            "claude",
+            "-p",
+            message,
+            "--output-format",
+            "stream-json",
+            "--mcp-config",
+            str(self._workspace / "mcp.json"),
+            "--allowedTools",
+            "mcp__kukulkan__*",
+            "--max-turns",
+            str(min(self._max_turns, 10)),
+            "--model",
+            self._model,
+            "--append-system-prompt",
+            CHAT_SYSTEM_PROMPT,
+        ]
+        if session_id:
+            cmd.extend(["--resume", session_id])
+        return cmd
+
+    def _parse_stream_event(self, event: dict) -> dict | None:
+        """Convert a raw Claude Code stream-json line to an SSE event dict.
+
+        stream-json format (NDJSON):
+          {"type": "assistant", "message": {"role": "assistant", "content": [...]}}
+          {"type": "tool", "tool_use_id": "...", "content": "..."}
+          {"type": "result", "subtype": "success", "result": "...", "session_id": ..., ...}
+        """
+        event_type = event.get("type")
+
+        if event_type == "assistant":
+            message = event.get("message", {})
+            for block in message.get("content", []):
+                btype = block.get("type")
+                if btype == "text":
+                    text = block.get("text", "")
+                    if text:
+                        return {"type": "text", "text": text}
+                elif btype == "tool_use":
+                    return {
+                        "type": "tool_use",
+                        "id": block.get("id", ""),
+                        "name": block.get("name", ""),
+                        "input": block.get("input", {}),
+                    }
+
+        elif event_type == "tool":
+            return {
+                "type": "tool_result",
+                "tool_use_id": event.get("tool_use_id", ""),
+                "content": str(event.get("content", ""))[:500],
+            }
+
+        elif event_type == "result":
+            return {
+                "type": "done",
+                "session_id": event.get("session_id"),
+                "num_turns": event.get("num_turns", 0) or 0,
+                "duration_ms": event.get("duration_ms", 0) or 0,
+            }
+
+        return None
+
+    async def chat(self, message: str, today: date | None = None) -> ChatResult:
+        """Run an interactive chat session (non-streaming).
+
+        Resumes the day's trading session if one exists, giving the agent
+        full context of today's trading activity and MCP tool access.
+
+        Args:
+            message: User's chat message.
+            today: Date for session ID lookup (default: today).
+
+        Returns:
+            ChatResult with conversational text response and tool call log.
+        """
+        today = today or date.today()
+        session_id = self._get_daily_session_id(today)
+        self._write_mcp_config()
+
+        cmd = self._build_chat_cmd(message, session_id)
+        env = {**os.environ}
+        env.pop("ANTHROPIC_API_KEY", None)
+
+        results_path = self._workspace / "session-results.json"
+        if results_path.exists():
+            results_path.unlink()
+
+        log.info("chat_invoke_start", session_id=session_id, tenant_id=self._tenant_id)
+
+        try:
+            result = await asyncio.to_thread(
+                _run_with_kill,
+                cmd,
+                env,
+                self._timeout,
+                cwd=str(self._root_workspace),
+            )
+
+            if result.returncode != 0:
+                log.error("chat_invoke_failed", returncode=result.returncode, stderr=result.stderr[:300])
+                return ChatResult(error=f"Exit code {result.returncode}: {(result.stderr or '')[:200]}")
+
+            # Extract content from the JSON wrapper {"result": "...", "session_id": ..., ...}
+            content = result.stdout.strip()
+            new_session_id: str | None = None
+            num_turns = 0
+            duration_ms = 0
+            try:
+                data = json.loads(result.stdout)
+                content = data.get("result", content)
+                new_session_id = data.get("session_id")
+                num_turns = data.get("num_turns", 0) or 0
+                duration_ms = data.get("duration_ms", 0) or 0
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+            if new_session_id:
+                self._save_daily_session_id(today, new_session_id)
+
+            accumulated = self._read_session_results(results_path)
+            tool_calls = accumulated.get("tool_call_logs", [])
+
+            log.info("chat_invoke_complete", num_turns=num_turns, tools_used=len(tool_calls))
+
+            return ChatResult(
+                content=content,
+                session_id=new_session_id or session_id,
+                tool_calls=tool_calls,
+                num_turns=num_turns,
+                duration_ms=duration_ms,
+            )
+
+        except subprocess.TimeoutExpired:
+            log.error("chat_invoke_timeout", timeout=self._timeout)
+            return ChatResult(error="Chat timed out")
+        except Exception as e:
+            log.error("chat_invoke_exception", error=str(e))
+            return ChatResult(error=str(e))
+
+    async def chat_stream(self, message: str, today: date | None = None) -> AsyncGenerator[dict, None]:
+        """Stream a chat response as SSE event dicts (NDJSON from stream-json).
+
+        Yields event dicts with type:
+          {"type": "text", "text": "..."}
+          {"type": "tool_use", "id": "...", "name": "...", "input": {...}}
+          {"type": "tool_result", "tool_use_id": "...", "content": "..."}
+          {"type": "done", "session_id": "...", "num_turns": N, "duration_ms": N}
+          {"type": "error", "message": "..."}
+
+        Args:
+            message: User's chat message.
+            today: Date for session ID lookup (default: today).
+        """
+        today = today or date.today()
+        session_id = self._get_daily_session_id(today)
+        self._write_mcp_config()
+
+        cmd = self._build_chat_stream_cmd(message, session_id)
+        env = {**os.environ}
+        env.pop("ANTHROPIC_API_KEY", None)
+
+        results_path = self._workspace / "session-results.json"
+        if results_path.exists():
+            results_path.unlink()
+
+        log.info("chat_stream_start", session_id=session_id, tenant_id=self._tenant_id)
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+                cwd=str(self._root_workspace),
+            )
+        except Exception as e:
+            yield {"type": "error", "message": str(e)}
+            return
+
+        try:
+            assert proc.stdout is not None  # PIPE guarantees this
+            async for raw_line in proc.stdout:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                parsed = self._parse_stream_event(event)
+                if parsed is None:
+                    continue
+
+                # Persist the new session_id when we see the "done" event
+                if parsed.get("type") == "done" and parsed.get("session_id"):
+                    self._save_daily_session_id(today, parsed["session_id"])
+
+                yield parsed
+
+        except Exception as e:
+            log.error("chat_stream_error", error=str(e))
+            yield {"type": "error", "message": str(e)}
+        finally:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            await proc.wait()
+
+    # ── End chat methods ─────────────────────────────────────────────────────
 
     def _parse_response(self, stdout: str) -> dict:
         """Parse Claude Code JSON output into a trading response dict."""

@@ -4,6 +4,7 @@ from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 
+from src.agent.claude_invoker import WORKSPACE, ClaudeInvoker
 from src.api.auth import decode_access_token
 from src.storage.database import Database
 
@@ -52,3 +53,19 @@ async def get_authorized_tenant_id(
     if jwt_tenant is not None:
         return jwt_tenant
     return tenant_id
+
+
+def get_invoker(
+    tenant_id: str = Depends(get_authorized_tenant_id),
+) -> ClaudeInvoker:
+    """Return a ClaudeInvoker scoped to the caller's tenant.
+
+    Chat sessions use a 120s timeout and cap at 10 turns (vs 600s/25 for
+    scheduled trading sessions) to keep the UI responsive.
+    """
+    return ClaudeInvoker(
+        workspace=WORKSPACE,
+        timeout=120,
+        max_turns=10,
+        tenant_id=tenant_id,
+    )
