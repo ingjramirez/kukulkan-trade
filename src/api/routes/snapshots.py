@@ -1,6 +1,6 @@
 """GET /api/snapshots — daily and intraday portfolio snapshots."""
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
 
@@ -47,7 +47,7 @@ async def list_intraday_snapshots(
     db: Database = Depends(get_db),
 ) -> list[IntradaySnapshotResponse]:
     days = _PERIOD_DAYS[period]
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    since = datetime.utcnow() - timedelta(days=days)
     rows = await db.get_intraday_snapshots(
         tenant_id=tenant_id,
         portfolio=portfolio,

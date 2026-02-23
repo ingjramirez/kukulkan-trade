@@ -8,7 +8,7 @@ use yfinance extended prices instead of Alpaca live positions.
 """
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime
 
 import structlog
 
@@ -47,7 +47,7 @@ async def collect_intraday_snapshot(
     if live_prices is None:
         return 0
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     now = now.replace(second=0, microsecond=0)
 
     saved = 0
