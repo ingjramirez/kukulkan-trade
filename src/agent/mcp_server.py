@@ -43,6 +43,7 @@ _registry: ToolRegistry | None = None
 _action_state = None  # ActionState instance, set during init
 _db = None  # Database instance, closed on shutdown
 _tool_call_count: int = 0  # Total MCP tool calls in this session
+_results_path: Path | None = None  # Path for incremental session-results writes
 
 
 def _load_session_state(state_path: str) -> dict:
@@ -184,6 +185,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     except Exception as e:
         log.error("mcp_tool_error", tool=name, error=str(e))
         return [TextContent(type="text", text=f"Error executing {name}: {e}")]
+    finally:
+        # Write results after every tool call so they survive process kills
+        if _results_path:
+            _write_session_results(_results_path)
 
 
 def _write_session_results(results_path: Path) -> None:
@@ -210,10 +215,13 @@ async def main() -> None:
         log.error("session_state_not_found", path=state_path)
         sys.exit(1)
 
+    global _results_path
+
     state = _load_session_state(state_path)
     _registry = await _init_registry(state)
 
     results_path = Path(state_path).parent / "session-results.json"
+    _results_path = results_path
 
     try:
         async with stdio_server() as (read_stream, write_stream):

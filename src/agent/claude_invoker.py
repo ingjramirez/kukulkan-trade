@@ -49,7 +49,6 @@ class InvokeResult:
     session_id: str | None = None
     accumulated: dict = field(default_factory=dict)
     error: str | None = None
-    cost_usd: float = 0.0
     num_turns: int = 0
     duration_ms: int = 0
 
@@ -85,7 +84,6 @@ class InvokeResult:
             "source": "claude_code",
             "tools_used": self.tools_used,
             "turns": self.num_turns,
-            "cost_usd": self.cost_usd,
             "duration_ms": self.duration_ms,
         }
 
@@ -395,13 +393,13 @@ class ClaudeInvoker:
             # Parse CLI JSON output
             response = self._parse_response(result.stdout)
 
-            # Extract metadata (session_id, cost, turns, duration) from CLI wrapper
+            # Extract metadata (session_id, turns, duration) from CLI wrapper
             meta = self._extract_cli_metadata(result.stdout)
             new_session_id = meta.get("session_id")
             if new_session_id:
                 self._save_daily_session_id(today, new_session_id)
 
-            # Read accumulated ActionState from MCP server (with retry for grandchild flush)
+            # Read accumulated ActionState from MCP server (written after every tool call)
             accumulated = self._read_session_results(results_path)
 
             log.info(
@@ -409,7 +407,6 @@ class ClaudeInvoker:
                 session_type=session_type,
                 trades=len(response.get("trades", [])),
                 session_id=new_session_id,
-                cost_usd=meta.get("cost_usd", 0),
                 num_turns=meta.get("num_turns", 0),
                 tools_used=accumulated.get("tool_call_count", 0),
             )
@@ -418,7 +415,6 @@ class ClaudeInvoker:
                 response=response,
                 session_id=new_session_id or session_id,
                 accumulated=accumulated,
-                cost_usd=meta.get("cost_usd", 0),
                 num_turns=meta.get("num_turns", 0),
                 duration_ms=meta.get("duration_ms", 0),
             )
@@ -505,12 +501,11 @@ class ClaudeInvoker:
         return {"reasoning": text[:1000], "trades": []}
 
     def _extract_cli_metadata(self, stdout: str) -> dict:
-        """Extract metadata (cost, turns, duration, session_id) from Claude Code JSON wrapper."""
+        """Extract metadata (turns, duration, session_id) from Claude Code JSON wrapper."""
         try:
             data = json.loads(stdout)
             return {
                 "session_id": data.get("session_id"),
-                "cost_usd": data.get("cost_usd", 0) or 0,
                 "num_turns": data.get("num_turns", 0) or 0,
                 "duration_ms": data.get("duration_ms", 0) or 0,
             }

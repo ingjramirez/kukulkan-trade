@@ -217,7 +217,6 @@ class TestInvokeResult:
         r = InvokeResult(
             response={"posture": "neutral"},
             accumulated={"trailing_stop_requests": [], "declared_posture": None, "tool_call_count": 5},
-            cost_usd=0.12,
             num_turns=3,
             duration_ms=45000,
         )
@@ -227,7 +226,6 @@ class TestInvokeResult:
         assert summary["source"] == "claude_code"
         assert summary["tools_used"] == 5
         assert summary["turns"] == 3
-        assert summary["cost_usd"] == 0.12
         assert summary["duration_ms"] == 45000
 
     def test_tools_used_from_accumulated(self):
@@ -238,9 +236,8 @@ class TestInvokeResult:
         r = InvokeResult()
         assert r.tools_used == 0
 
-    def test_cost_and_turns_default_zero(self):
+    def test_turns_and_duration_default_zero(self):
         r = InvokeResult()
-        assert r.cost_usd == 0.0
         assert r.num_turns == 0
         assert r.duration_ms == 0
 
@@ -325,13 +322,11 @@ class TestClaudeInvoker:
         stdout = json.dumps({
             "result": "hello",
             "session_id": "abc-def",
-            "cost_usd": 0.05,
             "num_turns": 4,
             "duration_ms": 30000,
         })
         meta = invoker._extract_cli_metadata(stdout)
         assert meta["session_id"] == "abc-def"
-        assert meta["cost_usd"] == 0.05
         assert meta["num_turns"] == 4
         assert meta["duration_ms"] == 30000
 
@@ -340,7 +335,6 @@ class TestClaudeInvoker:
         stdout = json.dumps({"result": "hello", "session_id": "abc"})
         meta = invoker._extract_cli_metadata(stdout)
         assert meta["session_id"] == "abc"
-        assert meta["cost_usd"] == 0
         assert meta["num_turns"] == 0
         assert meta["duration_ms"] == 0
 
@@ -355,12 +349,10 @@ class TestClaudeInvoker:
         stdout = json.dumps({
             "result": "hello",
             "session_id": "s1",
-            "cost_usd": None,
             "num_turns": None,
             "duration_ms": None,
         })
         meta = invoker._extract_cli_metadata(stdout)
-        assert meta["cost_usd"] == 0
         assert meta["num_turns"] == 0
         assert meta["duration_ms"] == 0
 
@@ -461,7 +453,6 @@ class TestClaudeInvoker:
             {
                 "result": json.dumps({"regime_assessment": "bull", "trades": []}),
                 "session_id": "sess-new",
-                "cost_usd": 0.08,
                 "num_turns": 5,
                 "duration_ms": 25000,
             }
@@ -480,7 +471,6 @@ class TestClaudeInvoker:
         assert result.error is None
         assert result.session_id == "sess-new"
         assert result.response["regime_assessment"] == "bull"
-        assert result.cost_usd == 0.08
         assert result.num_turns == 5
         assert result.duration_ms == 25000
 

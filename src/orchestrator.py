@@ -1780,7 +1780,6 @@ class Orchestrator:
                 session_date=today,
                 session_label=session_type,
                 session_id=result.session_id,
-                cost_usd=result.cost_usd,
                 num_turns=result.num_turns,
                 tool_calls=result.tools_used,
                 duration_ms=result.duration_ms,

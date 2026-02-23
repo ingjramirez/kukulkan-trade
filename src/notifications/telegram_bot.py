@@ -680,8 +680,9 @@ def format_daily_brief(
         if agent_tool_summary:
             tools = agent_tool_summary.get("tools_used", 0)
             turns = agent_tool_summary.get("turns", 0)
-            cost = agent_tool_summary.get("cost_usd", 0)
-            lines.append(f"  🤖 Investigation: {tools} tools across {turns} turns | ${cost:.2f}")
+            dur = agent_tool_summary.get("duration_ms", 0)
+            dur_s = f" ({dur / 1000:.0f}s)" if dur else ""
+            lines.append(f"  🤖 Investigation: {tools} tools across {turns} turns{dur_s}")
             posture = agent_tool_summary.get("declared_posture")
             if posture:
                 lines.append(f"  🎯 Posture: {posture.capitalize()}")

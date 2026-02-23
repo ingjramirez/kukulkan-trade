@@ -1332,12 +1332,11 @@ class Database:
         session_date: date,
         session_label: str,
         session_id: str | None,
-        cost_usd: float,
         num_turns: int = 0,
         tool_calls: int = 0,
         duration_ms: int = 0,
     ) -> None:
-        """Save a single session's usage record (cost, turns, tool calls)."""
+        """Save a single session's usage record (turns, tool calls, duration)."""
         async with self.session() as s:
             s.add(
                 AgentBudgetLogRow(
@@ -1345,7 +1344,6 @@ class Database:
                     session_date=session_date,
                     session_label=session_label,
                     session_id=session_id,
-                    cost_usd=cost_usd,
                     num_turns=num_turns,
                     tool_calls=tool_calls,
                     duration_ms=duration_ms,
@@ -1358,17 +1356,13 @@ class Database:
         tenant_id: str,
         target_date: date,
     ) -> float:
-        """Get total spend for a tenant on a given date."""
-        from sqlalchemy import func
+        """Get total spend for a tenant on a given date.
 
-        async with self.session() as s:
-            result = await s.execute(
-                select(func.coalesce(func.sum(AgentBudgetLogRow.cost_usd), 0.0)).where(
-                    AgentBudgetLogRow.tenant_id == tenant_id,
-                    AgentBudgetLogRow.session_date == target_date,
-                )
-            )
-            return float(result.scalar_one())
+        Always returns 0.0 — cost tracking removed after switch to Claude Max
+        subscription (flat-rate, no per-token billing). Kept for API compatibility
+        with weekly_improvement pipeline which stores total_cost_usd in snapshots.
+        """
+        return 0.0
 
     # ── Improvement Snapshot CRUD ────────────────────────────────────
 

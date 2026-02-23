@@ -20,7 +20,7 @@ def _make_trade() -> TradeSchema:
 
 class TestAgentToolSummary:
     def test_includes_tool_summary_when_present(self) -> None:
-        tool_summary = {"tools_used": 5, "turns": 3, "cost_usd": 0.18}
+        tool_summary = {"tools_used": 5, "turns": 3, "duration_ms": 45000}
         msg = format_daily_brief(
             brief_date=date(2026, 2, 13),
             regime="BULL",
@@ -32,7 +32,7 @@ class TestAgentToolSummary:
             agent_tool_summary=tool_summary,
         )
         assert "Investigation: 5 tools across 3 turns" in msg
-        assert "$0.18" in msg
+        assert "(45s)" in msg
 
     def test_no_tool_summary_for_single_shot(self) -> None:
         msg = format_daily_brief(
@@ -48,7 +48,7 @@ class TestAgentToolSummary:
         assert "Investigation" not in msg
 
     def test_tool_summary_not_shown_when_portfolio_b_disabled(self) -> None:
-        tool_summary = {"tools_used": 3, "turns": 2, "cost_usd": 0.10}
+        tool_summary = {"tools_used": 3, "turns": 2, "duration_ms": 20000}
         msg = format_daily_brief(
             brief_date=date(2026, 2, 13),
             regime="BULL",
@@ -62,8 +62,8 @@ class TestAgentToolSummary:
         # Portfolio B section skipped entirely, so no tool summary
         assert "Investigation" not in msg
 
-    def test_tool_summary_cost_formatting(self) -> None:
-        tool_summary = {"tools_used": 12, "turns": 8, "cost_usd": 0.4523}
+    def test_tool_summary_duration_formatting(self) -> None:
+        tool_summary = {"tools_used": 12, "turns": 8, "duration_ms": 125000}
         msg = format_daily_brief(
             brief_date=date(2026, 2, 13),
             regime=None,
@@ -74,5 +74,5 @@ class TestAgentToolSummary:
             run_portfolio_b=True,
             agent_tool_summary=tool_summary,
         )
-        assert "$0.45" in msg
+        assert "(125s)" in msg
         assert "12 tools across 8 turns" in msg

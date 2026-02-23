@@ -298,7 +298,7 @@ Uses `asyncio.to_thread()` for sync Alpaca SDK calls. Must use `client.get_portf
 | `TrackRecordResponse` | total_trades, wins, losses, win_rate_pct, by_sector/conviction/regime/session |
 | `DecisionQualityResponse` | total_decisions, favorable_1d/3d/5d_pct |
 | `ToolCallLogResponse` | session_date, turn, tool_name, tool_input, success, influenced_decision |
-| `ConversationSessionResponse` | session_id, trigger_type, summary, token_count, cost_usd, session_status |
+| `ConversationSessionResponse` | session_id, trigger_type, summary, session_status |
 | `ConversationDetailResponse` | session_id, tenant_id, trigger_type, messages, created_at |
 | `PostureHistoryResponse` | session_date, posture, effective_posture, reason |
 | `PlaybookCellResponse` | regime, sector, total_trades, win_rate_pct, recommendation |
