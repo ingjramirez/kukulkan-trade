@@ -49,9 +49,9 @@ CREATE INDEX IF NOT EXISTS idx_trailing_stops_tenant_portfolio
 CREATE INDEX IF NOT EXISTS idx_watchlist_tenant
     ON watchlist (tenant_id);
 
--- earnings_calendar: lookup by ticker + date
+-- earnings_calendar: lookup by ticker + earnings_date
 CREATE INDEX IF NOT EXISTS idx_earnings_calendar_ticker_date
-    ON earnings_calendar (ticker, date DESC);
+    ON earnings_calendar (ticker, earnings_date DESC);
 
 -- agent_memory: lookup by tenant + key (upsert pattern)
 CREATE INDEX IF NOT EXISTS idx_agent_memory_tenant_key
