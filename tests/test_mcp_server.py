@@ -33,6 +33,7 @@ class TestMCPServerModule:
         mcp_mod._action_state = ActionState()
         mcp_mod._action_state.declared_posture = "aggressive"
         mcp_mod._action_state.trailing_stop_requests.append({"ticker": "NVDA", "trail_pct": 0.07})
+        mcp_mod._tool_call_count = 7
 
         results_path = tmp_path / "session-results.json"
         _write_session_results(results_path)
@@ -41,9 +42,11 @@ class TestMCPServerModule:
         data = json.loads(results_path.read_text())
         assert data["declared_posture"] == "aggressive"
         assert len(data["trailing_stop_requests"]) == 1
+        assert data["tool_call_count"] == 7
 
         # Clean up module state
         mcp_mod._action_state = None
+        mcp_mod._tool_call_count = 0
 
     def test_write_session_results_no_state(self, tmp_path: Path):
         import src.agent.mcp_server as mcp_mod
@@ -127,6 +130,41 @@ class TestMCPServerToolDispatch:
             assert "bad input" in result[0].text
         finally:
             mcp_mod._registry = None
+
+    @pytest.mark.asyncio
+    async def test_call_tool_increments_counter(self):
+        import src.agent.mcp_server as mcp_mod
+
+        mock_registry = MagicMock()
+        mock_registry.execute = AsyncMock(return_value={"ok": True})
+        mcp_mod._registry = mock_registry
+        mcp_mod._tool_call_count = 0
+
+        try:
+            await mcp_mod.call_tool("tool_a", {})
+            await mcp_mod.call_tool("tool_b", {})
+            await mcp_mod.call_tool("tool_c", {})
+            assert mcp_mod._tool_call_count == 3
+        finally:
+            mcp_mod._registry = None
+            mcp_mod._tool_call_count = 0
+
+    @pytest.mark.asyncio
+    async def test_call_tool_counter_increments_on_error(self):
+        """Counter should increment even when tool raises an error."""
+        import src.agent.mcp_server as mcp_mod
+
+        mock_registry = MagicMock()
+        mock_registry.execute = AsyncMock(side_effect=ValueError("bad"))
+        mcp_mod._registry = mock_registry
+        mcp_mod._tool_call_count = 0
+
+        try:
+            await mcp_mod.call_tool("failing_tool", {})
+            assert mcp_mod._tool_call_count == 1
+        finally:
+            mcp_mod._registry = None
+            mcp_mod._tool_call_count = 0
 
     @pytest.mark.asyncio
     async def test_call_tool_no_registry(self):

@@ -685,10 +685,6 @@ def format_daily_brief(
             posture = agent_tool_summary.get("declared_posture")
             if posture:
                 lines.append(f"  🎯 Posture: {posture.capitalize()}")
-            # Tiered model info
-            session_profile = agent_tool_summary.get("session_profile")
-            if session_profile:
-                lines.append(f"  ⚡ Profile: {session_profile.upper()}")
         lines.append("")
 
     # Inverse exposure section

@@ -245,21 +245,6 @@ class AgentMemoryRow(Base):
     expires_at = Column(DateTime, nullable=True)
 
 
-class WeeklyReportRow(Base):
-    """Weekly performance reports."""
-
-    __tablename__ = "weekly_reports"
-
-    id = Column(Integer, primary_key=True)
-    week_start = Column(Date, nullable=False)
-    week_end = Column(Date, nullable=False)
-    portfolio_a_return = Column(Float)
-    portfolio_b_return = Column(Float)
-    benchmark_return = Column(Float)  # SPY
-    report_text = Column(Text)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
-
-
 class TrailingStopRow(Base):
     """Active trailing stop for a position."""
 
@@ -432,7 +417,7 @@ class ConvictionCalibrationRow(Base):
 
 
 class AgentBudgetLogRow(Base):
-    """Per-session agent cost log for daily/monthly budget tracking."""
+    """Per-session agent usage log for tracking CLI cost and activity."""
 
     __tablename__ = "agent_budget_log"
 
@@ -446,7 +431,9 @@ class AgentBudgetLogRow(Base):
     cache_read_tokens = Column(Integer, nullable=False, default=0)
     cache_creation_tokens = Column(Integer, nullable=False, default=0)
     cost_usd = Column(Float, nullable=False, default=0.0)
-    session_profile = Column(String(20), nullable=True)
+    num_turns = Column(Integer, nullable=False, default=0)
+    tool_calls = Column(Integer, nullable=False, default=0)
+    duration_ms = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
@@ -509,9 +496,6 @@ class TenantRow(Base):
     dashboard_user = Column(String(100), nullable=True)
     dashboard_password_enc = Column(Text, nullable=True)  # Fernet-encrypted
 
-    # Claude API key (encrypted, nullable = use system default)
-    claude_api_key_enc = Column(Text, nullable=True)
-
     # Strategy
     strategy_mode = Column(String(20), nullable=False, default="conservative")
 
@@ -528,15 +512,6 @@ class TenantRow(Base):
 
     # Rebalance flag (set by API on toggle change, cleared by orchestrator)
     pending_rebalance = Column(Boolean, nullable=False, default=False)
-
-    # Agent loop (agentic mode for Portfolio B)
-    use_agent_loop = Column(Boolean, nullable=False, default=False)
-
-    # Persistent agent (conversation persistence for Portfolio B)
-    use_persistent_agent = Column(Boolean, nullable=False, default=False)
-
-    # Tiered model runner (Haiku scan → Sonnet investigate → Opus validate)
-    use_tiered_models = Column(Boolean, nullable=False, default=False)
 
     # Claude Code CLI (Max subscription — replaces AgentRunner + PersistentAgent)
     use_claude_code = Column(Boolean, nullable=False, default=False)

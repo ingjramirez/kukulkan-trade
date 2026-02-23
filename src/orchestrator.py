@@ -1773,6 +1773,21 @@ class Orchestrator:
         # ── 11. Build tool summary (same shape as persistent path) ───────
         tool_summary = result.tool_summary
 
+        # ── 12. Log session usage ────────────────────────────────────────
+        try:
+            await self._db.save_budget_log(
+                tenant_id=tenant_id,
+                session_date=today,
+                session_label=session_type,
+                session_id=result.session_id,
+                cost_usd=result.cost_usd,
+                num_turns=result.num_turns,
+                tool_calls=result.tools_used,
+                duration_ms=result.duration_ms,
+            )
+        except Exception as e:
+            log.warning("budget_log_save_failed", error=str(e))
+
         log.info(
             "portfolio_b_claude_code_complete",
             trades=len(trades),

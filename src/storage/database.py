@@ -1332,14 +1332,12 @@ class Database:
         session_date: date,
         session_label: str,
         session_id: str | None,
-        input_tokens: int,
-        output_tokens: int,
-        cache_read_tokens: int,
-        cache_creation_tokens: int,
         cost_usd: float,
-        session_profile: str | None = None,
+        num_turns: int = 0,
+        tool_calls: int = 0,
+        duration_ms: int = 0,
     ) -> None:
-        """Save a single session's cost record."""
+        """Save a single session's usage record (cost, turns, tool calls)."""
         async with self.session() as s:
             s.add(
                 AgentBudgetLogRow(
@@ -1347,12 +1345,10 @@ class Database:
                     session_date=session_date,
                     session_label=session_label,
                     session_id=session_id,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    cache_read_tokens=cache_read_tokens,
-                    cache_creation_tokens=cache_creation_tokens,
                     cost_usd=cost_usd,
-                    session_profile=session_profile,
+                    num_turns=num_turns,
+                    tool_calls=tool_calls,
+                    duration_ms=duration_ms,
                 )
             )
             await s.commit()
@@ -1370,25 +1366,6 @@ class Database:
                 select(func.coalesce(func.sum(AgentBudgetLogRow.cost_usd), 0.0)).where(
                     AgentBudgetLogRow.tenant_id == tenant_id,
                     AgentBudgetLogRow.session_date == target_date,
-                )
-            )
-            return float(result.scalar_one())
-
-    async def get_monthly_spend(
-        self,
-        tenant_id: str,
-        year: int,
-        month: int,
-    ) -> float:
-        """Get total spend for a tenant in a given month."""
-        from sqlalchemy import extract, func
-
-        async with self.session() as s:
-            result = await s.execute(
-                select(func.coalesce(func.sum(AgentBudgetLogRow.cost_usd), 0.0)).where(
-                    AgentBudgetLogRow.tenant_id == tenant_id,
-                    extract("year", AgentBudgetLogRow.session_date) == year,
-                    extract("month", AgentBudgetLogRow.session_date) == month,
                 )
             )
             return float(result.scalar_one())

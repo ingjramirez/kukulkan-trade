@@ -42,6 +42,7 @@ log = structlog.get_logger()
 _registry: ToolRegistry | None = None
 _action_state = None  # ActionState instance, set during init
 _db = None  # Database instance, closed on shutdown
+_tool_call_count: int = 0  # Total MCP tool calls in this session
 
 
 def _load_session_state(state_path: str) -> dict:
@@ -160,8 +161,12 @@ async def list_tools() -> list[Tool]:
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     """Dispatch a tool call to the existing handler."""
+    global _tool_call_count
+
     if _registry is None:
         return [TextContent(type="text", text="Error: MCP server not initialized")]
+
+    _tool_call_count += 1
 
     try:
         result = await _registry.execute(name, arguments)
@@ -187,6 +192,7 @@ def _write_session_results(results_path: Path) -> None:
         return
     try:
         accumulated = _action_state.get_accumulated_state()
+        accumulated["tool_call_count"] = _tool_call_count
         tmp = results_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(accumulated, default=str))
         tmp.rename(results_path)

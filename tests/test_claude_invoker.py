@@ -216,12 +216,33 @@ class TestInvokeResult:
     def test_tool_summary_shape(self):
         r = InvokeResult(
             response={"posture": "neutral"},
-            accumulated={"trailing_stop_requests": [], "declared_posture": None},
+            accumulated={"trailing_stop_requests": [], "declared_posture": None, "tool_call_count": 5},
+            cost_usd=0.12,
+            num_turns=3,
+            duration_ms=45000,
         )
         summary = r.tool_summary
         assert "trailing_stop_requests" in summary
         assert "declared_posture" in summary
         assert summary["source"] == "claude_code"
+        assert summary["tools_used"] == 5
+        assert summary["turns"] == 3
+        assert summary["cost_usd"] == 0.12
+        assert summary["duration_ms"] == 45000
+
+    def test_tools_used_from_accumulated(self):
+        r = InvokeResult(accumulated={"tool_call_count": 8})
+        assert r.tools_used == 8
+
+    def test_tools_used_defaults_zero(self):
+        r = InvokeResult()
+        assert r.tools_used == 0
+
+    def test_cost_and_turns_default_zero(self):
+        r = InvokeResult()
+        assert r.cost_usd == 0.0
+        assert r.num_turns == 0
+        assert r.duration_ms == 0
 
 
 # ── ClaudeInvoker tests ─────────────────────────────────────────────────────
@@ -299,14 +320,49 @@ class TestClaudeInvoker:
         result = invoker._extract_json_from_text(text)
         assert result == {"valid": True}
 
-    def test_extract_session_id(self, tmp_path: Path):
+    def test_extract_cli_metadata(self, tmp_path: Path):
         invoker = ClaudeInvoker(workspace=tmp_path)
-        stdout = json.dumps({"result": "hello", "session_id": "abc-def"})
-        assert invoker._extract_session_id(stdout) == "abc-def"
+        stdout = json.dumps({
+            "result": "hello",
+            "session_id": "abc-def",
+            "cost_usd": 0.05,
+            "num_turns": 4,
+            "duration_ms": 30000,
+        })
+        meta = invoker._extract_cli_metadata(stdout)
+        assert meta["session_id"] == "abc-def"
+        assert meta["cost_usd"] == 0.05
+        assert meta["num_turns"] == 4
+        assert meta["duration_ms"] == 30000
 
-    def test_extract_session_id_missing(self, tmp_path: Path):
+    def test_extract_cli_metadata_missing_fields(self, tmp_path: Path):
         invoker = ClaudeInvoker(workspace=tmp_path)
-        assert invoker._extract_session_id("not json") is None
+        stdout = json.dumps({"result": "hello", "session_id": "abc"})
+        meta = invoker._extract_cli_metadata(stdout)
+        assert meta["session_id"] == "abc"
+        assert meta["cost_usd"] == 0
+        assert meta["num_turns"] == 0
+        assert meta["duration_ms"] == 0
+
+    def test_extract_cli_metadata_invalid_json(self, tmp_path: Path):
+        invoker = ClaudeInvoker(workspace=tmp_path)
+        meta = invoker._extract_cli_metadata("not json")
+        assert meta == {}
+
+    def test_extract_cli_metadata_null_values(self, tmp_path: Path):
+        """Null values in CLI output should default to 0, not None."""
+        invoker = ClaudeInvoker(workspace=tmp_path)
+        stdout = json.dumps({
+            "result": "hello",
+            "session_id": "s1",
+            "cost_usd": None,
+            "num_turns": None,
+            "duration_ms": None,
+        })
+        meta = invoker._extract_cli_metadata(stdout)
+        assert meta["cost_usd"] == 0
+        assert meta["num_turns"] == 0
+        assert meta["duration_ms"] == 0
 
     def test_session_id_persistence(self, tmp_path: Path):
         invoker = ClaudeInvoker(workspace=tmp_path)
@@ -405,6 +461,9 @@ class TestClaudeInvoker:
             {
                 "result": json.dumps({"regime_assessment": "bull", "trades": []}),
                 "session_id": "sess-new",
+                "cost_usd": 0.08,
+                "num_turns": 5,
+                "duration_ms": 25000,
             }
         )
 
@@ -421,6 +480,9 @@ class TestClaudeInvoker:
         assert result.error is None
         assert result.session_id == "sess-new"
         assert result.response["regime_assessment"] == "bull"
+        assert result.cost_usd == 0.08
+        assert result.num_turns == 5
+        assert result.duration_ms == 25000
 
     @pytest.mark.asyncio
     async def test_invoke_subprocess_failure(self, tmp_path: Path):
