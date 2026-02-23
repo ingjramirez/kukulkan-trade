@@ -92,6 +92,7 @@ def test_build_chat_stream_cmd(invoker: ClaudeInvoker):
     assert "--output-format" in cmd
     idx = cmd.index("--output-format")
     assert cmd[idx + 1] == "stream-json"
+    assert "--verbose" in cmd
 
 
 def test_chat_cmd_caps_max_turns(tmp_path: Path):

@@ -563,13 +563,17 @@ class ClaudeInvoker:
         return cmd
 
     def _build_chat_stream_cmd(self, message: str, session_id: str | None) -> list[str]:
-        """Build CLI command for streaming chat."""
+        """Build CLI command for streaming chat.
+
+        Note: --output-format stream-json requires --verbose when used with -p.
+        """
         cmd = [
             "claude",
             "-p",
             message,
             "--output-format",
             "stream-json",
+            "--verbose",
             "--mcp-config",
             str(self._workspace / "mcp.json"),
             "--allowedTools",
@@ -588,10 +592,12 @@ class ClaudeInvoker:
     def _parse_stream_event(self, event: dict) -> dict | None:
         """Convert a raw Claude Code stream-json line to an SSE event dict.
 
-        stream-json format (NDJSON):
-          {"type": "assistant", "message": {"role": "assistant", "content": [...]}}
+        stream-json (--verbose) NDJSON format:
+          {"type": "system", "subtype": "init", "session_id": "...", ...}
+          {"type": "assistant", "message": {"content": [{"type": "text", "text": "..."}]}, "session_id": "..."}
           {"type": "tool", "tool_use_id": "...", "content": "..."}
-          {"type": "result", "subtype": "success", "result": "...", "session_id": ..., ...}
+          {"type": "result", "subtype": "success", "result": "...", "session_id": "...", ...}
+          {"type": "rate_limit_event", ...}  (ignored)
         """
         event_type = event.get("type")
 
@@ -626,6 +632,7 @@ class ClaudeInvoker:
                 "duration_ms": event.get("duration_ms", 0) or 0,
             }
 
+        # system, rate_limit_event, etc. — silently ignored
         return None
 
     async def chat(self, message: str, today: date | None = None) -> ChatResult:
