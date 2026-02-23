@@ -45,6 +45,8 @@ jobs:
             --exclude '.git' \
             --exclude 'data/*.db' \
             --exclude '__pycache__' \
+            --exclude '*.pyc' \
+            --exclude '.pytest_cache' \
             --exclude '.env' \
             --exclude '.idea' \
             --exclude '*.egg-info' \
@@ -61,6 +63,7 @@ jobs:
             cp /opt/kukulkan-trade/deploy/nginx/kukulkan.trade /etc/nginx/sites-available/ && \
             rm -f /etc/nginx/sites-available/app.kukulkan.trade && \
             rm -f /etc/nginx/sites-enabled/app.kukulkan.trade && \
+            ln -sf /etc/nginx/sites-available/kukulkan.trade /etc/nginx/sites-enabled/kukulkan.trade && \
             nginx -t && systemctl reload nginx"
 
       - name: Deploy systemd services
@@ -82,12 +85,20 @@ jobs:
           ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "\
             cd /opt/kukulkan-trade && \
             source .venv/bin/activate && \
-            DB_URL=\$(grep -oP '^DATABASE_URL=\\K.*' .env || echo 'data/kukulkan.db') && \
+            DB_URL=\$(grep '^DATABASE_URL=' .env | cut -d'=' -f2- | tr -d '\"' || echo 'data/kukulkan.db') && \
             python scripts/migrate.py --db \"\$DB_URL\""
 
       - name: Restart services
         run: |
           ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "\
-            systemctl enable kukulkan-api && \
+            systemctl enable kukulkan-bot kukulkan-api && \
             systemctl restart kukulkan-bot && \
             systemctl restart kukulkan-api"
+
+      - name: Health check
+        run: |
+          ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "\
+            sleep 5 && \
+            systemctl is-active --quiet kukulkan-bot || (echo 'kukulkan-bot failed to start' && exit 1) && \
+            systemctl is-active --quiet kukulkan-api || (echo 'kukulkan-api failed to start' && exit 1) && \
+            echo 'All services healthy'"
