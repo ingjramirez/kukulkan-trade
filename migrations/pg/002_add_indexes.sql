@@ -61,9 +61,9 @@ CREATE INDEX IF NOT EXISTS idx_agent_memory_tenant_key
 CREATE INDEX IF NOT EXISTS idx_momentum_rankings_date
     ON momentum_rankings (date DESC);
 
--- tool_call_logs: lookup by session_id
-CREATE INDEX IF NOT EXISTS idx_tool_call_logs_session
-    ON tool_call_logs (session_id);
+-- tool_call_logs: lookup by tenant + session_date
+CREATE INDEX IF NOT EXISTS idx_tool_call_logs_tenant_date
+    ON tool_call_logs (tenant_id, session_date DESC);
 
 -- sentinel_actions: lookup by tenant + created_at
 CREATE INDEX IF NOT EXISTS idx_sentinel_actions_tenant_created
