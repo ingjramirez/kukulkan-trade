@@ -23,6 +23,27 @@ def invoker(tmp_path: Path) -> ClaudeInvoker:
 # ── CHAT_SYSTEM_PROMPT ───────────────────────────────────────────────────────
 
 
+class TestEnsureSessionState:
+    def test_writes_minimal_state_when_missing(self, invoker: ClaudeInvoker, tmp_path: Path):
+        invoker._ensure_session_state()
+        state_file = invoker._workspace / "session-state.json"
+        assert state_file.exists()
+        data = json.loads(state_file.read_text())
+        assert data["tenant_id"] == "default"
+        assert data["closes"] == {}
+        assert data["current_prices"] == {}
+
+    def test_does_not_overwrite_existing_state(self, invoker: ClaudeInvoker, tmp_path: Path):
+        state_file = invoker._workspace / "session-state.json"
+        existing = {"tenant_id": "default", "closes": {"SPY": {"2026-01-01": 500.0}}, "current_prices": {"SPY": 510.0}}
+        state_file.write_text(json.dumps(existing))
+
+        invoker._ensure_session_state()
+
+        data = json.loads(state_file.read_text())
+        assert data["closes"] == {"SPY": {"2026-01-01": 500.0}}  # unchanged
+
+
 def test_chat_system_prompt_is_defined():
     assert CHAT_SYSTEM_PROMPT
     assert "chat mode" in CHAT_SYSTEM_PROMPT.lower()

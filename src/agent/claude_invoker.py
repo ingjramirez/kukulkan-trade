@@ -506,6 +506,37 @@ class ClaudeInvoker:
 
         return cmd
 
+    def _ensure_session_state(self) -> None:
+        """Write a minimal session-state.json if none exists.
+
+        Trading sessions write a full session-state.json with live market data.
+        Chat sessions that arrive before any trading session (e.g. first message
+        of the day) would cause the MCP server to exit(1) — stalling Claude Code
+        for 30+ seconds while it waits for MCP startup.
+
+        A minimal state lets the MCP server start so DB-backed tools
+        (portfolio, trades, watchlist, signals) work without live market data.
+        """
+        state_path = self._workspace / "session-state.json"
+        if state_path.exists():
+            return
+        minimal = {
+            "tenant_id": self._tenant_id,
+            "closes": {},
+            "closes_index": [],
+            "current_prices": {},
+            "held_tickers": [],
+            "vix": None,
+            "yield_curve": None,
+            "regime": None,
+            "news_context": "",
+            "fear_greed": None,
+        }
+        tmp = state_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(minimal))
+        tmp.rename(state_path)
+        log.info("chat_minimal_session_state_written", path=str(state_path))
+
     # ── Chat methods ────────────────────────────────────────────────────────
 
     def _build_chat_cmd(self, message: str, session_id: str | None) -> list[str]:
@@ -613,6 +644,7 @@ class ClaudeInvoker:
         today = today or date.today()
         session_id = self._get_daily_session_id(today)
         self._write_mcp_config()
+        self._ensure_session_state()
 
         cmd = self._build_chat_cmd(message, session_id)
         env = {**os.environ}
@@ -691,6 +723,7 @@ class ClaudeInvoker:
         today = today or date.today()
         session_id = self._get_daily_session_id(today)
         self._write_mcp_config()
+        self._ensure_session_state()
 
         cmd = self._build_chat_stream_cmd(message, session_id)
         env = {**os.environ}
