@@ -63,7 +63,9 @@ async def test_historical_news_default_query():
     """search_historical_news uses semantic default query (not generic 'recent developments')."""
     fetcher = _mock_news_fetcher()
     await _search_historical_news(fetcher, "XLK")
-    fetcher.search_relevant.assert_called_once_with("XLK earnings revenue guidance risk", n_results=5, ticker="XLK", days_back=30)
+    fetcher.search_relevant.assert_called_once_with(
+        "XLK earnings revenue guidance risk", n_results=5, ticker="XLK", days_back=30
+    )
 
 
 async def test_historical_news_empty():

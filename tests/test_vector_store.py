@@ -3,10 +3,8 @@
 Uses a mocked ChromaDB collection — no external service required.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from src.storage.vector_store import VectorStore
 
