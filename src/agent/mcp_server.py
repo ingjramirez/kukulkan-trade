@@ -43,6 +43,7 @@ _registry: ToolRegistry | None = None
 _action_state = None  # ActionState instance, set during init
 _db = None  # Database instance, closed on shutdown
 _tool_call_count: int = 0  # Total MCP tool calls in this session
+_tool_call_logs: list[dict] = []  # Per-call logs for DB persistence
 _results_path: Path | None = None  # Path for incremental session-results writes
 
 
@@ -179,11 +180,22 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         max_chars = int(os.environ.get("TOOL_RESULT_MAX_CHARS", "3000"))
         if len(text) > max_chars:
             text = text[:max_chars] + f"\n... (truncated, {len(text)} total chars)"
+        _tool_call_logs.append({
+            "turn": _tool_call_count,
+            "tool_name": name,
+            "tool_input": json.dumps(arguments, default=str)[:500],
+            "tool_output_preview": text[:500],
+            "success": True,
+        })
         return [TextContent(type="text", text=text)]
     except KeyError:
+        _tool_call_logs.append({
+            "turn": _tool_call_count, "tool_name": name, "success": False, "error": f"Unknown tool: {name}",
+        })
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as e:
         log.error("mcp_tool_error", tool=name, error=str(e))
+        _tool_call_logs.append({"turn": _tool_call_count, "tool_name": name, "success": False, "error": str(e)[:500]})
         return [TextContent(type="text", text=f"Error executing {name}: {e}")]
     finally:
         # Write results after every tool call so they survive process kills
@@ -198,6 +210,7 @@ def _write_session_results(results_path: Path) -> None:
     try:
         accumulated = _action_state.get_accumulated_state()
         accumulated["tool_call_count"] = _tool_call_count
+        accumulated["tool_call_logs"] = _tool_call_logs
         tmp = results_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(accumulated, default=str))
         tmp.rename(results_path)

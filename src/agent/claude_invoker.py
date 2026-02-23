@@ -77,6 +77,11 @@ class InvokeResult:
         return self.accumulated.get("tool_call_count", 0)
 
     @property
+    def tool_call_logs(self) -> list[dict]:
+        """Per-call tool logs from MCP session-results.json."""
+        return self.accumulated.get("tool_call_logs", [])
+
+    @property
     def tool_summary(self) -> dict:
         return {
             "trailing_stop_requests": self.trailing_stop_requests,

@@ -1789,6 +1789,17 @@ class Orchestrator:
         except Exception as e:
             log.warning("budget_log_save_failed", error=str(e))
 
+        try:
+            if result.tool_call_logs:
+                await self._db.save_tool_call_logs(
+                    logs=result.tool_call_logs,
+                    session_date=today,
+                    session_label=session_type,
+                    tenant_id=tenant_id,
+                )
+        except Exception as e:
+            log.warning("tool_call_logs_save_failed", error=str(e))
+
         log.info(
             "portfolio_b_claude_code_complete",
             trades=len(trades),
