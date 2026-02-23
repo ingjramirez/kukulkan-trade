@@ -773,9 +773,11 @@ class Orchestrator:
                     {
                         "ticker": a.tickers[0] if a.tickers else "",
                         "title": a.headline,
+                        "summary": a.summary,
                         "link": a.url,
                         "publisher": a.publisher,
                         "published": a.published_at,
+                        "region": a.region,
                     }
                     for a in raw_articles
                 ]

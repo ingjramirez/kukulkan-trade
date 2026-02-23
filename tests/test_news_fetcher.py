@@ -437,8 +437,8 @@ class TestGetHistoricalContext:
 
         assert context == ""
 
-    def test_published_at_in_metadata(self) -> None:
-        """Verifies store_articles() includes published_at in ChromaDB metadata."""
+    def test_published_at_in_metadata_date_only(self) -> None:
+        """store_articles() stores published_at as date-only ISO string for range filtering."""
         vs = _mock_vector_store()
         fetcher = NewsFetcher(vector_store=vs)
 
@@ -456,4 +456,71 @@ class TestGetHistoricalContext:
         call_args = vs.add_news.call_args
         metadata = call_args.kwargs.get("metadata") or call_args[1].get("metadata")
         assert "published_at" in metadata
-        assert metadata["published_at"] == "2026-02-10T14:30:00"
+        assert metadata["published_at"] == "2026-02-10"  # date-only for ChromaDB range filtering
+
+    def test_published_at_fallback_when_missing(self) -> None:
+        """store_articles() sets published_at to today when article has no timestamp."""
+        from datetime import date
+
+        vs = _mock_vector_store()
+        fetcher = NewsFetcher(vector_store=vs)
+
+        articles = [{"ticker": "MSFT", "title": "MSFT news", "link": "", "publisher": ""}]
+        fetcher.store_articles(articles)
+
+        call_args = vs.add_news.call_args
+        metadata = call_args.kwargs.get("metadata") or call_args[1].get("metadata")
+        assert metadata["published_at"] == date.today().isoformat()
+
+    def test_richer_embedding_with_summary(self) -> None:
+        """store_articles() embeds title + summary when summary is present."""
+        vs = _mock_vector_store()
+        fetcher = NewsFetcher(vector_store=vs)
+
+        articles = [
+            {
+                "ticker": "NVDA",
+                "title": "NVDA beats estimates",
+                "summary": "Revenue up 122% YoY driven by data center demand.",
+                "link": "",
+                "publisher": "Reuters",
+            },
+        ]
+        fetcher.store_articles(articles)
+
+        call_args = vs.add_news.call_args
+        text_arg = call_args.kwargs.get("text") or call_args[1].get("text")
+        assert "NVDA beats estimates" in text_arg
+        assert "Revenue up 122%" in text_arg
+
+    def test_embedding_falls_back_to_title_without_summary(self) -> None:
+        """store_articles() uses only the title when summary is absent."""
+        vs = _mock_vector_store()
+        fetcher = NewsFetcher(vector_store=vs)
+
+        articles = [{"ticker": "AAPL", "title": "AAPL up 2%", "link": "", "publisher": ""}]
+        fetcher.store_articles(articles)
+
+        call_args = vs.add_news.call_args
+        text_arg = call_args.kwargs.get("text") or call_args[1].get("text")
+        assert text_arg == "AAPL up 2%"
+
+    def test_region_stored_in_metadata(self) -> None:
+        """store_articles() includes region in metadata when present."""
+        vs = _mock_vector_store()
+        fetcher = NewsFetcher(vector_store=vs)
+
+        articles = [
+            {
+                "ticker": "TSM",
+                "title": "TSMC expands fab",
+                "link": "",
+                "publisher": "Nikkei",
+                "region": "asia",
+            },
+        ]
+        fetcher.store_articles(articles)
+
+        call_args = vs.add_news.call_args
+        metadata = call_args.kwargs.get("metadata") or call_args[1].get("metadata")
+        assert metadata.get("region") == "asia"

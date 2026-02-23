@@ -1076,6 +1076,17 @@ async def run_scheduled() -> None:
                         log.info("signal_cleanup_complete", tenant_id=tenant.id, deleted=sig_deleted)
                 except Exception as e:
                     log.warning("signal_cleanup_failed", tenant_id=tenant.id, error=str(e))
+            # Cleanup ChromaDB news older than 180 days (6-month retention)
+            try:
+                from config.settings import settings as _settings
+                from src.storage.vector_store import VectorStore
+
+                _vs = VectorStore(host=_settings.chroma.host, port=_settings.chroma.port)
+                chroma_deleted = _vs.cleanup_old(days=180)
+                if chroma_deleted:
+                    log.info("chromadb_news_cleanup_complete", deleted=chroma_deleted)
+            except Exception as e:
+                log.warning("chromadb_news_cleanup_failed", error=str(e))
         except Exception as e:
             log.error("intraday_cleanup_failed", error=str(e))
 

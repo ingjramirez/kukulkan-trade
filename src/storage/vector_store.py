@@ -3,6 +3,7 @@
 Connects to ChromaDB running in Docker on port 8000.
 """
 
+from datetime import datetime, timedelta
 from typing import Any
 
 import chromadb
@@ -63,18 +64,39 @@ class VectorStore:
         )
         log.debug("news_added", doc_id=doc_id)
 
-    def search_similar(self, query: str, n_results: int = 5, ticker: str | None = None) -> dict[str, Any]:
+    def search_similar(
+        self,
+        query: str,
+        n_results: int = 5,
+        ticker: str | None = None,
+        days_back: int | None = None,
+    ) -> dict[str, Any]:
         """Search for news similar to a query string.
 
         Args:
             query: Text to find similar articles for.
             n_results: Maximum number of results to return.
             ticker: Optional ticker filter.
+            days_back: Optional recency filter — only return articles published within this many days.
 
         Returns:
             ChromaDB query results dict with ids, documents, metadatas, distances.
         """
-        where_filter = {"ticker": ticker} if ticker else None
+        where_filter: dict | None = None
+        if ticker and days_back is not None:
+            cutoff = (datetime.utcnow() - timedelta(days=days_back)).date().isoformat()
+            where_filter = {
+                "$and": [
+                    {"ticker": {"$eq": ticker}},
+                    {"published_at": {"$gte": cutoff}},
+                ]
+            }
+        elif ticker:
+            where_filter = {"ticker": {"$eq": ticker}}
+        elif days_back is not None:
+            cutoff = (datetime.utcnow() - timedelta(days=days_back)).date().isoformat()
+            where_filter = {"published_at": {"$gte": cutoff}}
+
         results: dict[str, Any] = self.collection.query(
             query_texts=[query],
             n_results=n_results,
@@ -97,6 +119,29 @@ class VectorStore:
             limit=limit,
         )
         return results
+
+    def cleanup_old(self, days: int = 180) -> int:
+        """Delete articles older than ``days`` days.
+
+        Args:
+            days: Retention window. Articles with published_at older than this are deleted.
+
+        Returns:
+            Number of documents deleted.
+        """
+        cutoff = (datetime.utcnow() - timedelta(days=days)).date().isoformat()
+        results = self.collection.get(where={"published_at": {"$lt": cutoff}})
+        ids: list[str] = results.get("ids", [])
+        if not ids:
+            log.info("chromadb_cleanup_nothing_to_delete", cutoff=cutoff)
+            return 0
+
+        batch_size = 100
+        for i in range(0, len(ids), batch_size):
+            self.collection.delete(ids=ids[i : i + batch_size])
+
+        log.info("chromadb_cleanup_complete", deleted=len(ids), cutoff=cutoff)
+        return len(ids)
 
     def count(self) -> int:
         """Get total number of documents in the collection."""

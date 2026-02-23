@@ -113,6 +113,15 @@ Usage guidance:
 - F&G extremes (>80 or <20) are actionable: reduce risk at extreme greed, look for buys at extreme fear
 - Use search_news with region="asia" or region="china" to filter by region
 
+## Historical News (ChromaDB)
+ChromaDB stores up to 6 months of article embeddings. Use it to build context before opening positions.
+
+Before entering a new position or forming a thesis on a ticker:
+1. Call `search_historical_news` with a **specific semantic query** (e.g. `"NVDA earnings guidance AI chip demand"`, `"AAPL iPhone sales revenue growth"`)
+2. `days_back=30` (default) for recent trend; `days_back=90` for medium context; `days_back=180` for full 6-month memory
+3. **Do NOT** use generic queries like `"{ticker} recent developments"` — be specific about what you're looking for
+4. Combine with today's news from `search_news` to build a complete picture
+
 ## Tool Usage — Efficiency Rules
 You have 24 tools available via MCP. Use them efficiently:
 1. **Start with get_signal_rankings** — gives ranked buy/sell signals across the universe. This replaces scanning individual tickers.

@@ -56,14 +56,14 @@ async def test_historical_news_custom_query():
     fetcher = _mock_news_fetcher()
     result = await _search_historical_news(fetcher, "NVDA", query="AI chip supply shortage")
     assert result["query"] == "AI chip supply shortage"
-    fetcher.search_relevant.assert_called_once_with("AI chip supply shortage", n_results=5)
+    fetcher.search_relevant.assert_called_once_with("AI chip supply shortage", n_results=5, ticker="NVDA", days_back=30)
 
 
 async def test_historical_news_default_query():
-    """search_historical_news uses default ticker query."""
+    """search_historical_news uses semantic default query (not generic 'recent developments')."""
     fetcher = _mock_news_fetcher()
     await _search_historical_news(fetcher, "XLK")
-    fetcher.search_relevant.assert_called_once_with("XLK recent developments", n_results=5)
+    fetcher.search_relevant.assert_called_once_with("XLK earnings revenue guidance risk", n_results=5, ticker="XLK", days_back=30)
 
 
 async def test_historical_news_empty():
@@ -86,7 +86,9 @@ async def test_historical_news_n_results_clamping():
     """search_historical_news clamps n_results to 1-10."""
     fetcher = _mock_news_fetcher()
     await _search_historical_news(fetcher, "NVDA", n_results=50)
-    fetcher.search_relevant.assert_called_once_with("NVDA recent developments", n_results=10)
+    fetcher.search_relevant.assert_called_once_with(
+        "NVDA earnings revenue guidance risk", n_results=10, ticker="NVDA", days_back=30
+    )
 
 
 # ── get_portfolio_a_status ───────────────────────────────────────────────────

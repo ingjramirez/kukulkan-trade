@@ -97,21 +97,31 @@ class NewsFetcher:
 
         for article in articles:
             title = article["title"]
+            summary = article.get("summary", "")
             doc_id = _article_id(article)
 
-            # Store in ChromaDB
+            # Store in ChromaDB — embed title + summary for richer semantic matching
             try:
-                meta = {
+                embed_text = f"{title}. {summary}" if summary else title
+                meta: dict[str, Any] = {
                     "ticker": article["ticker"],
                     "publisher": article.get("publisher", ""),
                     "link": article.get("link", ""),
                 }
                 pub = article.get("published")
                 if pub is not None:
-                    meta["published_at"] = pub.isoformat() if hasattr(pub, "isoformat") else str(pub)
+                    # Date-only ISO string for range filtering ($gte/$lt comparisons)
+                    date_val = pub.date() if hasattr(pub, "date") else pub
+                    meta["published_at"] = date_val.isoformat() if hasattr(date_val, "isoformat") else str(date_val)
+                else:
+                    meta["published_at"] = datetime.utcnow().date().isoformat()
+                if article.get("region"):
+                    meta["region"] = article["region"]
+                if article.get("signal"):
+                    meta["signal"] = article["signal"]
                 self.vector_store.add_news(
                     doc_id=doc_id,
-                    text=title,
+                    text=embed_text,
                     metadata=meta,
                 )
             except Exception as e:
@@ -132,17 +142,25 @@ class NewsFetcher:
         log.info("news_stored", count=len(rows))
         return rows
 
-    def search_relevant(self, query: str, n_results: int = 10) -> list[dict[str, Any]]:
+    def search_relevant(
+        self,
+        query: str,
+        n_results: int = 10,
+        ticker: str | None = None,
+        days_back: int | None = None,
+    ) -> list[dict[str, Any]]:
         """Search ChromaDB for news relevant to a query.
 
         Args:
             query: Search query (e.g., market theme or ticker).
             n_results: Max results to return.
+            ticker: Optional ticker filter passed to ChromaDB where clause.
+            days_back: Optional recency filter in days.
 
         Returns:
-            List of dicts with title, ticker, distance.
+            List of dicts with title, ticker, published_at, distance.
         """
-        results = self.vector_store.search_similar(query, n_results=n_results)
+        results = self.vector_store.search_similar(query, n_results=n_results, ticker=ticker, days_back=days_back)
 
         articles = []
         if results and results.get("documents"):
@@ -156,6 +174,7 @@ class NewsFetcher:
                         "title": doc,
                         "ticker": meta.get("ticker", ""),
                         "publisher": meta.get("publisher", ""),
+                        "published_at": meta.get("published_at", ""),
                         "distance": dist,
                     }
                 )
@@ -297,8 +316,9 @@ class NewsFetcher:
         for ticker in held_tickers:
             try:
                 results = self.search_relevant(
-                    f"{ticker} recent developments",
+                    f"{ticker} earnings revenue guidance risk",
                     n_results=n_per_ticker,
+                    days_back=30,
                 )
                 for article in results:
                     title = article.get("title", "")

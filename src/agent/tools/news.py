@@ -72,23 +72,26 @@ async def _search_historical_news(
     ticker: str,
     query: str | None = None,
     n_results: int = 5,
+    days_back: int = 30,
 ) -> dict:
     """Search ChromaDB for historical news context about a ticker.
 
     Args:
         news_fetcher: NewsFetcher instance with vector store access.
         ticker: Ticker to search for.
-        query: Optional custom query (default: "{ticker} recent developments").
+        query: Custom semantic query — be specific (e.g. "NVDA earnings guidance AI chip demand").
         n_results: Number of results to return (1-10).
+        days_back: Recency window in days (default 30, use 180 for full 6-month memory).
 
     Returns:
         Dict with historical articles.
     """
     n_results = min(max(n_results, 1), 10)  # Clamp 1-10
-    search_query = query or f"{ticker} recent developments"
+    days_back = min(max(days_back, 1), 180)  # Clamp 1-180
+    search_query = query or f"{ticker} earnings revenue guidance risk"
 
     try:
-        results = news_fetcher.search_relevant(search_query, n_results=n_results)
+        results = news_fetcher.search_relevant(search_query, n_results=n_results, ticker=ticker, days_back=days_back)
     except (ValueError, KeyError, AttributeError, IOError) as e:
         log.warning("chromadb_search_failed", ticker=ticker, query=search_query, error=str(e))
         return {"ticker": ticker, "articles": [], "message": "ChromaDB search failed"}
@@ -267,7 +270,9 @@ def register_news_tools(
         registry.register(
             name="search_historical_news",
             description=(
-                "Search historical news in ChromaDB. Returns past articles relevant to a ticker for multi-day analysis."
+                "Search historical news in ChromaDB (up to 6 months). "
+                "Use specific semantic queries for best results — e.g. 'NVDA earnings guidance AI chip demand', "
+                "not generic ones like 'NVDA recent developments'."
             ),
             input_schema={
                 "type": "object",
@@ -275,11 +280,18 @@ def register_news_tools(
                     "ticker": {"type": "string", "description": "Ticker to search for"},
                     "query": {
                         "type": "string",
-                        "description": "Custom search query (optional, defaults to ticker developments)",
+                        "description": (
+                            "Specific semantic query (e.g. 'AAPL iPhone sales revenue guidance'). "
+                            "Required for best results."
+                        ),
                     },
                     "n_results": {
                         "type": "integer",
                         "description": "Number of results (1-10, default: 5)",
+                    },
+                    "days_back": {
+                        "type": "integer",
+                        "description": "Recency window in days (default: 30; use 90 or 180 for longer lookback)",
                     },
                 },
                 "required": ["ticker"],
