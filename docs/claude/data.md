@@ -222,9 +222,11 @@ class Database:
 
 - Docker container on port 8000
 - Collection: `news_articles`
-- Documents: article headline + summary
-- Metadata: ticker, source, published_at (ISO), signal
-- Used for: historical context retrieval per ticker (7-day lookback)
+- Documents: `"{title}. {summary}"` (falls back to title-only if no summary)
+- Metadata: ticker, source, published_at (date-only ISO `YYYY-MM-DD`), signal, region
+- `search_similar(query, n_results, ticker, days_back)` — date-range filtering via `$and`/`$gte` where clauses
+- `cleanup_old(days=180)` — batch-deletes articles older than 6 months (Sunday 7PM cleanup job)
+- Used for: historical context retrieval per ticker (default 30-day lookback, max 180)
 
 ## Universe (`config/universe.py`)
 
@@ -253,6 +255,7 @@ Applies tenant's `ticker_whitelist` (if set, replaces base), `ticker_additions`,
 
 ## Gotchas
 
+- PG columns are `TIMESTAMP WITHOUT TIME ZONE` — use `datetime.utcnow()`, NOT `datetime.now(timezone.utc)` (asyncpg rejects tz-aware)
 - SQLite returns naive datetimes -- when comparing with `datetime.now(timezone.utc)`, strip tzinfo first
 - `alpaca-py` `NewsSet.data` is `Dict[str, List[News]]` (key "news"), NOT a flat list
 - `TradingClient` has no `get_account_activities` -- use raw `client.get("/v2/account/activities", params)`

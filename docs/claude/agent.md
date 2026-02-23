@@ -34,9 +34,12 @@ Orchestrator → write_session_state() + write_context_file()
             → Claude Code spawns MCP server (reads session-state.json)
             → Claude reads context.md, calls MCP tools, returns JSON
             → Invoker reads JSON + session-results.json → returns InvokeResult
+            → Orchestrator saves budget_log + tool_call_logs to DB
 ```
 
-**No API key needed at runtime.** Anthropic SDK is dev-only (backtest).
+**MCP server tracks per-call logs** (tool_name, input, output_preview, success, error) in `session-results.json`. `InvokeResult.tool_call_logs` property exposes them. Orchestrator saves to `tool_call_logs` table after each session.
+
+**No API key needed at runtime.** Anthropic SDK is dev-only (backtest). Claude Pro subscription is sufficient (~40 Sonnet turns/day).
 
 ### ClaudeInvoker (`src/agent/claude_invoker.py`)
 
