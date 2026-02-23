@@ -305,6 +305,23 @@ class ClaudeInvoker:
         data = {"date": today.isoformat(), "session_id": session_id}
         self._session_id_file.write_text(json.dumps(data))
 
+    @staticmethod
+    def _database_url() -> str:
+        """Resolve database URL from settings (lazy import to avoid circular deps).
+
+        For SQLite URLs, ensures the path is absolute (relative to project root).
+        PostgreSQL URLs are passed through as-is.
+        """
+        from config.settings import settings
+
+        url = settings.database_url
+        if url.startswith("sqlite"):
+            # Convert relative SQLite path to absolute
+            path = url.split("///", 1)[-1]
+            if not Path(path).is_absolute():
+                url = f"sqlite+aiosqlite:///{_project_root / path}"
+        return url
+
     def _write_mcp_config(self) -> Path:
         """Generate mcp.json dynamically with resolved paths for this tenant workspace."""
         venv_python = _project_root / ".venv" / "bin" / "python"
@@ -317,7 +334,7 @@ class ClaudeInvoker:
                     "command": python_cmd,
                     "args": [str(_project_root / "src" / "agent" / "mcp_server.py")],
                     "env": {
-                        "DATABASE_URL": f"sqlite+aiosqlite:///{_project_root / 'data' / 'kukulkan.db'}",
+                        "DATABASE_URL": self._database_url(),
                         "KUKULKAN_SESSION_STATE": str(self._workspace / "session-state.json"),
                         "TOOL_RESULT_MAX_CHARS": "3000",
                     },

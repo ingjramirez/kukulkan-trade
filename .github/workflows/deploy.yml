@@ -88,7 +88,8 @@ jobs:
           ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "\
             cd /opt/kukulkan-trade && \
             source .venv/bin/activate && \
-            python scripts/migrate.py --db data/kukulkan.db"
+            DB_URL=\$(grep -oP '^DATABASE_URL=\\K.*' .env || echo 'data/kukulkan.db') && \
+            python scripts/migrate.py --db \"\$DB_URL\""
 
       - name: Restart services
         run: |

@@ -79,7 +79,8 @@ class Settings(BaseSettings):
     # Executor: "alpaca" or "paper"
     executor: str = "paper"
 
-    # Database
+    # Database — override with DATABASE_URL env var for PostgreSQL in production
+    # e.g. DATABASE_URL=postgresql+asyncpg://kukulkan:PASS@localhost:5432/kukulkan
     database_url: str = "sqlite+aiosqlite:///data/kukulkan.db"
 
     # Logging

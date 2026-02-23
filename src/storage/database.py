@@ -1,4 +1,4 @@
-"""SQLite database setup and CRUD operations."""
+"""Async database setup and CRUD operations (SQLite for dev/test, PostgreSQL for production)."""
 
 import json
 from datetime import date, datetime, timezone
@@ -41,24 +41,28 @@ log = structlog.get_logger()
 
 
 class Database:
-    """Async SQLite database manager."""
+    """Async database manager (SQLite for dev/test, PostgreSQL for production)."""
 
     def __init__(self, url: str = "sqlite+aiosqlite:///data/kukulkan.db") -> None:
         self._url = url
+        self._is_sqlite = url.startswith("sqlite")
         self._engine = create_async_engine(url, echo=False)
         self._session_factory = sessionmaker(self._engine, class_=AsyncSession, expire_on_commit=False)
 
         # Enable foreign key enforcement for SQLite connections
-        @event.listens_for(self._engine.sync_engine, "connect")
-        def _set_sqlite_fk(dbapi_connection, connection_record):  # noqa: ARG001
-            cursor = dbapi_connection.cursor()
-            cursor.execute("PRAGMA foreign_keys=ON")
-            cursor.close()
+        if self._is_sqlite:
+
+            @event.listens_for(self._engine.sync_engine, "connect")
+            def _set_sqlite_fk(dbapi_connection, connection_record):  # noqa: ARG001
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.close()
 
     async def init_db(self) -> None:
         """Create all tables if they don't exist."""
-        db_path = self._url.replace("sqlite+aiosqlite:///", "")
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        if self._is_sqlite:
+            db_path = self._url.replace("sqlite+aiosqlite:///", "")
+            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
         async with self._engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
