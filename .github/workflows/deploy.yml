@@ -55,12 +55,6 @@ jobs:
           ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "\
             chown -R kukulkan:kukulkan /opt/kukulkan-trade/"
 
-      - name: Deploy landing page
-        run: |
-          rsync -az \
-            deploy/landing/ \
-            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/var/www/kukulkan.trade/
-
       - name: Deploy nginx configs
         run: |
           ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "\
