@@ -236,3 +236,60 @@ class TestPortfolioAReason:
         )
         assert len(trades) > 0
         assert "Rebalancing to" in reason
+
+
+class TestBuildSyncWarning:
+    """Tests for Orchestrator._build_sync_warning static method."""
+
+    def test_none_input(self):
+        assert Orchestrator._build_sync_warning(None) is None
+
+    def test_clean_sync(self):
+        result = {"alpaca": [{"ticker": "SPY"}], "drift": [], "corrections": []}
+        assert Orchestrator._build_sync_warning(result) is None
+
+    def test_sync_failure(self):
+        result = {"alpaca": [], "drift": [], "corrections": [], "error": "Connection timed out"}
+        warning = Orchestrator._build_sync_warning(result)
+        assert "WARNING" in warning
+        assert "stale" in warning
+        assert "get_portfolio" in warning
+
+    def test_drift_corrected(self):
+        result = {
+            "alpaca": [],
+            "drift": [{"ticker": "SHY"}],
+            "corrections": [{"ticker": "SHY", "alpaca_qty": 0, "db_qty": 50}],
+        }
+        warning = Orchestrator._build_sync_warning(result)
+        assert "drift detected and corrected" in warning
+        assert "1 position(s)" in warning
+
+
+class TestBuildSyncMetadata:
+    """Tests for Orchestrator._build_sync_metadata static method."""
+
+    def test_none_input(self):
+        assert Orchestrator._build_sync_metadata(None) is None
+
+    def test_sync_failure(self):
+        result = {"alpaca": [], "drift": [], "corrections": [], "error": "Timeout"}
+        meta = Orchestrator._build_sync_metadata(result)
+        assert meta["success"] is False
+        assert meta["error"] == "Timeout"
+        assert meta["drift_corrections"] == 0
+
+    def test_clean_sync(self):
+        result = {"alpaca": [{"ticker": "SPY"}], "drift": [], "corrections": []}
+        meta = Orchestrator._build_sync_metadata(result)
+        assert meta["success"] is True
+        assert meta["drift_corrections"] == 0
+        assert "corrections" not in meta
+
+    def test_drift_corrected(self):
+        corrections = [{"ticker": "SHY", "alpaca_qty": 0, "db_qty": 50}]
+        result = {"alpaca": [], "drift": [{"ticker": "SHY"}], "corrections": corrections}
+        meta = Orchestrator._build_sync_metadata(result)
+        assert meta["success"] is True
+        assert meta["drift_corrections"] == 1
+        assert meta["corrections"] == corrections

@@ -177,6 +177,7 @@ def write_session_state(
     regime: str | None = None,
     news_context: str = "",
     fear_greed: dict | None = None,
+    sync_metadata: dict | None = None,
 ) -> Path:
     """Write session-state.json for MCP server tool initialization.
 
@@ -194,6 +195,7 @@ def write_session_state(
         "regime": regime,
         "news_context": news_context,
         "fear_greed": fear_greed,
+        "sync_metadata": sync_metadata,
     }
     out = workspace / "session-state.json"
     tmp = out.with_suffix(".tmp")
@@ -223,6 +225,7 @@ def write_context_file(
     pinned_context: str | None = None,
     trailing_stops_context: str | None = None,
     watchlist_context: str | None = None,
+    sync_warning: str | None = None,
 ) -> Path:
     """Write context.md for Claude Code to read as prompt context.
 
@@ -233,11 +236,19 @@ def write_context_file(
         f"# Trading Session: {session_type.title()}",
         f"**Date**: {today.isoformat()}  **Time**: {now.strftime('%H:%M')} CT",
         f"**Regime**: {regime or 'unknown'}",
-        "",
-        "## Macro",
-        f"- VIX: {vix or 'N/A'}",
-        f"- Yield Curve: {yield_curve:+.2f}%" if yield_curve is not None else "- Yield Curve: N/A",
     ]
+
+    if sync_warning:
+        lines.extend(["", f"> {sync_warning}"])
+
+    lines.extend(
+        [
+            "",
+            "## Macro",
+            f"- VIX: {vix or 'N/A'}",
+            f"- Yield Curve: {yield_curve:+.2f}%" if yield_curve is not None else "- Yield Curve: N/A",
+        ]
+    )
 
     if fear_greed:
         lines.append(f"- Fear & Greed: {fear_greed.get('value', 'N/A')} ({fear_greed.get('classification', '')})")

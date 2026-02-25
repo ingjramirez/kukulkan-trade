@@ -178,6 +178,99 @@ class TestWriteContextFile:
         content = out.read_text()
         assert "Yield Curve: N/A" in content
 
+    def test_sync_warning_failure(self, tmp_path: Path):
+        out = write_context_file(
+            workspace=tmp_path,
+            session_type="morning",
+            today=date(2024, 6, 15),
+            regime="bull",
+            vix=14.0,
+            yield_curve=0.2,
+            cash=50000.0,
+            total_value=100000.0,
+            positions=[],
+            sync_warning="**WARNING: Position data may be stale.** Broker sync failed.",
+        )
+        content = out.read_text()
+        assert "WARNING: Position data may be stale" in content
+        # Warning should appear before Portfolio section
+        assert content.index("WARNING") < content.index("## Portfolio")
+
+    def test_sync_warning_drift(self, tmp_path: Path):
+        out = write_context_file(
+            workspace=tmp_path,
+            session_type="morning",
+            today=date(2024, 6, 15),
+            regime="bull",
+            vix=14.0,
+            yield_curve=0.2,
+            cash=50000.0,
+            total_value=100000.0,
+            positions=[],
+            sync_warning="**Note:** Position drift detected and corrected during sync. 2 position(s) updated.",
+        )
+        content = out.read_text()
+        assert "drift detected and corrected" in content
+
+    def test_no_sync_warning(self, tmp_path: Path):
+        out = write_context_file(
+            workspace=tmp_path,
+            session_type="morning",
+            today=date(2024, 6, 15),
+            regime="bull",
+            vix=14.0,
+            yield_curve=0.2,
+            cash=50000.0,
+            total_value=100000.0,
+            positions=[],
+            sync_warning=None,
+        )
+        content = out.read_text()
+        assert "WARNING" not in content
+        assert "drift" not in content
+
+
+class TestWriteSessionStateSync:
+    def test_includes_sync_metadata_failure(self, tmp_path: Path):
+        out = write_session_state(
+            workspace=tmp_path,
+            tenant_id="default",
+            closes_dict={},
+            closes_index=[],
+            current_prices={},
+            held_tickers=[],
+            sync_metadata={"success": False, "error": "Connection timed out", "drift_corrections": 0},
+        )
+        data = json.loads(out.read_text())
+        assert data["sync_metadata"]["success"] is False
+        assert data["sync_metadata"]["error"] == "Connection timed out"
+
+    def test_includes_sync_metadata_success(self, tmp_path: Path):
+        out = write_session_state(
+            workspace=tmp_path,
+            tenant_id="default",
+            closes_dict={},
+            closes_index=[],
+            current_prices={},
+            held_tickers=[],
+            sync_metadata={"success": True, "drift_corrections": 2, "corrections": [{"ticker": "SHY"}]},
+        )
+        data = json.loads(out.read_text())
+        assert data["sync_metadata"]["success"] is True
+        assert data["sync_metadata"]["drift_corrections"] == 2
+
+    def test_sync_metadata_none_by_default(self, tmp_path: Path):
+        out = write_session_state(
+            workspace=tmp_path,
+            tenant_id="default",
+            closes_dict={},
+            closes_index=[],
+            current_prices={},
+            held_tickers=[],
+        )
+        data = json.loads(out.read_text())
+        assert data["sync_metadata"] is None
+
 
 # ── InvokeResult tests ───────────────────────────────────────────────────────
 

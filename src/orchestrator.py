@@ -71,6 +71,7 @@ class MarketContext:
     regime_result: Any = None
     allocations: TenantAllocations = field(default_factory=lambda: DEFAULT_ALLOCATIONS)
     halted_portfolios: set[str] = field(default_factory=set)
+    sync_result: dict | None = None
 
 
 @dataclass
@@ -521,6 +522,7 @@ class Orchestrator:
                     allocations=alloc,
                     portfolio_b_universe=portfolio_b_universe,
                     earnings_context=news_ctx.earnings_context or None,
+                    sync_result=mkt.sync_result,
                 )
                 summary["trades"]["B"] = len(trades_b)
                 summary["b_reasoning"] = b_reasoning
@@ -607,11 +609,13 @@ class Orchestrator:
         (caller should abort the pipeline).
         """
         # Step 1.1: Sync positions with broker (if supported)
+        sync_result: dict | None = None
         if hasattr(self._executor, "sync_positions"):
             try:
-                await self._executor.sync_positions()
+                sync_result = await self._executor.sync_positions()
             except Exception as e:
                 log.warning("position_sync_failed", error=str(e))
+                sync_result = {"alpaca": [], "drift": [], "corrections": [], "error": str(e)}
 
         # Step 1.2: Detect deposits
         try:
@@ -748,6 +752,7 @@ class Orchestrator:
             regime_result=regime_result,
             allocations=alloc,
             halted_portfolios=halted_portfolios,
+            sync_result=sync_result,
         )
 
     async def _build_news_context(
@@ -1241,6 +1246,47 @@ class Orchestrator:
 
         return executed
 
+    # ── Sync result helpers ────────────────────────────────────────────────────
+
+    @staticmethod
+    def _build_sync_warning(sync_result: dict | None) -> str | None:
+        """Build a context.md warning string from sync results."""
+        if sync_result is None:
+            return None
+        if "error" in sync_result:
+            return (
+                "**WARNING: Position data may be stale.** Broker sync failed — "
+                "positions below are from the DB cache.\n"
+                "Use MCP `get_portfolio` tool to verify live positions before making trade decisions."
+            )
+        corrections = sync_result.get("corrections", [])
+        if corrections:
+            return (
+                f"**Note:** Position drift detected and corrected during sync. "
+                f"{len(corrections)} position(s) updated."
+            )
+        return None
+
+    @staticmethod
+    def _build_sync_metadata(sync_result: dict | None) -> dict | None:
+        """Build sync metadata dict for session-state.json."""
+        if sync_result is None:
+            return None
+        if "error" in sync_result:
+            return {
+                "success": False,
+                "error": sync_result["error"],
+                "drift_corrections": 0,
+            }
+        corrections = sync_result.get("corrections", [])
+        meta: dict = {
+            "success": True,
+            "drift_corrections": len(corrections),
+        }
+        if corrections:
+            meta["corrections"] = corrections
+        return meta
+
     # ── Extracted helpers for _run_portfolio_b() ──────────────────────────────
 
     async def _build_portfolio_b_context(
@@ -1510,6 +1556,7 @@ class Orchestrator:
         allocations: TenantAllocations | None = None,
         portfolio_b_universe: list[str] | None = None,
         earnings_context: str | None = None,
+        sync_result: dict | None = None,
     ):
         """Run Portfolio B AI strategy via Claude Code CLI."""
         alloc = allocations or DEFAULT_ALLOCATIONS
@@ -1557,6 +1604,7 @@ class Orchestrator:
             decision_review_text=decision_review_text,
             track_record_text=track_record_text,
             pb_ctx=pb_ctx,
+            sync_result=sync_result,
         )
 
     async def _run_portfolio_b_claude_code(
@@ -1581,6 +1629,7 @@ class Orchestrator:
         decision_review_text: str | None,
         track_record_text: str | None,
         pb_ctx: PortfolioBContext,
+        sync_result: dict | None = None,
     ):
         """Run Portfolio B through Claude Code CLI (Max subscription).
 
@@ -1619,6 +1668,10 @@ class Orchestrator:
         invoker = ClaudeInvoker(tenant_id=tenant_id)
         workspace = invoker._workspace
 
+        # Build sync metadata for session state and context warning
+        sync_metadata = self._build_sync_metadata(sync_result)
+        sync_warning = self._build_sync_warning(sync_result)
+
         write_session_state(
             workspace=workspace,
             tenant_id=tenant_id,
@@ -1631,6 +1684,7 @@ class Orchestrator:
             regime=regime_str,
             news_context=news_context,
             fear_greed=fear_greed_data,
+            sync_metadata=sync_metadata,
         )
 
         # ── 2. Build pinned context (posture, playbook, calibration, benchmark) ──
@@ -1709,6 +1763,7 @@ class Orchestrator:
             pinned_context=pinned_context or None,
             trailing_stops_context=dynamic_ctx.trailing_context,
             watchlist_context=dynamic_ctx.watchlist_context,
+            sync_warning=sync_warning,
         )
 
         # ── 5. Invoke Claude Code CLI ────────────────────────────────────
