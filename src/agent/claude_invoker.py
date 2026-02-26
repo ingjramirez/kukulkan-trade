@@ -331,6 +331,7 @@ class ClaudeInvoker:
         self._model = model
         self._tenant_id = tenant_id
         self._session_id_file = self._workspace / ".session-id"
+        self._chat_session_id_file = self._workspace / ".chat-session-id"
 
     def _get_daily_session_id(self, today: date) -> str | None:
         """Read today's session ID from file (survives process restarts)."""
@@ -354,6 +355,26 @@ class ClaudeInvoker:
         if self._session_id_file.exists():
             self._session_id_file.unlink()
             log.info("chat_session_id_cleared", date=today.isoformat(), tenant_id=self._tenant_id)
+
+    def _get_chat_session_id(self) -> str | None:
+        """Read the persistent chat session ID (no date expiry)."""
+        if not self._chat_session_id_file.exists():
+            return None
+        try:
+            data = json.loads(self._chat_session_id_file.read_text())
+            return data.get("session_id")
+        except (json.JSONDecodeError, KeyError):
+            return None
+
+    def _save_chat_session_id(self, session_id: str) -> None:
+        """Persist chat session ID for continuous conversation."""
+        self._chat_session_id_file.write_text(json.dumps({"session_id": session_id}))
+
+    def _clear_chat_session_id(self) -> None:
+        """Remove stale chat session ID so the next message starts fresh."""
+        if self._chat_session_id_file.exists():
+            self._chat_session_id_file.unlink()
+            log.info("chat_session_id_cleared_persistent", tenant_id=self._tenant_id)
 
     @staticmethod
     def _database_url() -> str:
@@ -671,7 +692,7 @@ class ClaudeInvoker:
             ChatResult with conversational text response and tool call log.
         """
         today = today or date.today()
-        session_id = self._get_daily_session_id(today)
+        session_id = self._get_chat_session_id()
         self._write_mcp_config()
         self._ensure_session_state()
 
@@ -713,7 +734,7 @@ class ClaudeInvoker:
                 pass
 
             if new_session_id:
-                self._save_daily_session_id(today, new_session_id)
+                self._save_chat_session_id(new_session_id)
 
             accumulated = self._read_session_results(results_path)
             tool_calls = accumulated.get("tool_call_logs", [])
@@ -751,7 +772,7 @@ class ClaudeInvoker:
             today: Date for session ID lookup (default: today).
         """
         today = today or date.today()
-        session_id = self._get_daily_session_id(today)
+        session_id = self._get_chat_session_id()
         self._write_mcp_config()
         self._ensure_session_state()
 
@@ -794,11 +815,11 @@ class ClaudeInvoker:
 
                 # Persist the new session_id when we see the "done" event
                 if parsed.get("type") == "done" and parsed.get("session_id"):
-                    self._save_daily_session_id(today, parsed["session_id"])
+                    self._save_chat_session_id(parsed["session_id"])
 
                 # Clear stale session on resume errors so next message starts fresh
                 if parsed.get("type") == "error" and "No conversation found" in parsed.get("message", ""):
-                    self._clear_daily_session_id(today)
+                    self._clear_chat_session_id()
 
                 yield parsed
 

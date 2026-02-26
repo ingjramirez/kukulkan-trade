@@ -207,7 +207,7 @@ class TestChat:
         ):
             await invoker.chat("Hello", today=today)
 
-        assert invoker._get_daily_session_id(today) == "sess_saved"
+        assert invoker._get_chat_session_id() == "sess_saved"
 
     async def test_chat_error_on_nonzero_exit(self, invoker: ClaudeInvoker):
         with (
@@ -231,7 +231,7 @@ class TestChat:
 
     async def test_chat_resumes_existing_session(self, invoker: ClaudeInvoker):
         today = date(2026, 1, 15)
-        invoker._save_daily_session_id(today, "existing_sess")
+        invoker._save_chat_session_id("existing_sess")
 
         mock_run = MagicMock(return_value=subprocess.CompletedProcess([], 0, '{"result": "ok"}', ""))
         with (
@@ -304,7 +304,7 @@ class TestChatStream:
                 async for _ in invoker.chat_stream("Hi", today=today):
                     pass
 
-        assert invoker._get_daily_session_id(today) == "stream_sess"
+        assert invoker._get_chat_session_id() == "stream_sess"
 
     async def test_stream_skips_invalid_json(self, invoker: ClaudeInvoker):
         ndjson_lines = [b"not json\n", b'{"type": "result", "result": "ok"}\n']
