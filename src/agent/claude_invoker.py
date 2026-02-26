@@ -349,6 +349,12 @@ class ClaudeInvoker:
         data = {"date": today.isoformat(), "session_id": session_id}
         self._session_id_file.write_text(json.dumps(data))
 
+    def _clear_daily_session_id(self, today: date) -> None:
+        """Remove stale session ID so the next invocation starts fresh."""
+        if self._session_id_file.exists():
+            self._session_id_file.unlink()
+            log.info("chat_session_id_cleared", date=today.isoformat(), tenant_id=self._tenant_id)
+
     @staticmethod
     def _database_url() -> str:
         """Resolve database URL from settings (lazy import to avoid circular deps).
@@ -637,6 +643,10 @@ class ClaudeInvoker:
             }
 
         elif event_type == "result":
+            if event.get("is_error") or event.get("subtype") == "error_during_execution":
+                errors = event.get("errors", [])
+                msg = errors[0] if errors else "Agent error"
+                return {"type": "error", "message": msg}
             return {
                 "type": "done",
                 "session_id": event.get("session_id"),
@@ -785,6 +795,10 @@ class ClaudeInvoker:
                 # Persist the new session_id when we see the "done" event
                 if parsed.get("type") == "done" and parsed.get("session_id"):
                     self._save_daily_session_id(today, parsed["session_id"])
+
+                # Clear stale session on resume errors so next message starts fresh
+                if parsed.get("type") == "error" and "No conversation found" in parsed.get("message", ""):
+                    self._clear_daily_session_id(today)
 
                 yield parsed
 
