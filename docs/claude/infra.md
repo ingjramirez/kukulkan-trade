@@ -44,6 +44,7 @@ All run as `kukulkan` user with `WorkingDirectory=/opt/kukulkan-trade`.
 
 - `kukulkan.trade` -> Next.js :3000 (landing page)
 - `app.kukulkan.trade /api/auth/` -> Next.js :3000 (NextAuth)
+- `app.kukulkan.trade /api/chat/` -> Next.js :3000 (chat auth proxy, SSE streaming)
 - `app.kukulkan.trade /api/` -> FastAPI :8001
 - `app.kukulkan.trade` (everything else) -> Next.js :3000
 - Cloudflare Full SSL with self-signed origin cert (`/etc/nginx/ssl/kukulkan.crt`)

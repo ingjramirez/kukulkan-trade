@@ -67,9 +67,14 @@ def revoke_token(token: str) -> None  # adds JTI to _revoked_tokens
 ### Endpoints
 
 | Method | Path | Auth | Returns | Status |
-|--------|------|------|---------|--------|
+|-|-|-|-|-|
 | POST | `/api/auth/login` | None | `TokenResponse` | 200 |
 | POST | `/api/auth/logout` | Bearer | None | 204 |
+| POST | `/api/chat` | Bearer | `ChatResponse` | 200 |
+| POST | `/api/chat/stream` | Bearer | SSE stream | 200 |
+| GET | `/api/chat/history` | Bearer | `ChatHistoryResponse` | 200 |
+
+**Note:** Chat endpoints are proxied through Next.js (nginx `/api/chat/` → port 3000). See `docs/claude/chat.md`.
 
 ### Login Flow
 

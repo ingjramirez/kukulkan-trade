@@ -23,6 +23,7 @@ For markdown tables, use the minimum valid separator (`|-|-|` — one hyphen per
 ## Context Loading Rules
 Before modifying code, read the relevant context file first:
 - `src/agent/`, `src/analysis/` → read `docs/claude/agent.md`
+- `src/api/routes/chat.py`, chat SSE, MCP tools → read `docs/claude/chat.md`
 - `src/api/`, API schemas → read `docs/claude/api.md`
 - `src/orchestrator.py`, `src/main.py`, `src/execution/` → read `docs/claude/pipeline.md`
 - `src/storage/`, migrations → read `docs/claude/data.md`
@@ -32,10 +33,9 @@ Before modifying code, read the relevant context file first:
 - Debugging unexpected behavior → read `memory/gotchas.md`
 
 ## Mandatory: Update Project Memory
-After completing significant work, update `~/.claude/projects/-Users-jramirezolmos-Documents-personal-kukulkan-trade/memory/MEMORY.md`:
-- Update test count, phase number, current state
+After completing significant work, update `~/.claude/projects/-Users-jramirezolmos-Documents-personal-kukulkan-kukulkan-trade/memory/MEMORY.md`:
+- Update test count, current state
 - Add new gotchas to `memory/gotchas.md` (NOT MEMORY.md — keep it lean)
-- Add phase details to `memory/phases.md`
 - MEMORY.md should stay under 80 lines — it's an index, not an encyclopedia
 
 ## Code Style
@@ -57,7 +57,7 @@ After completing significant work, update `~/.claude/projects/-Users-jramirezolm
 - Services: `kukulkan-bot`, `kukulkan-api`, `kukulkan-fe` (systemd, runs as `kukulkan` user)
 
 ## Security
-- API is read-only (all GET except login/logout)
+- API is read-only except: login/logout (POST) and chat endpoints (POST /api/chat, POST /api/chat/stream)
 - JWT auth with 2-hour expiry, in-memory token revocation
 - Rate limiting: 60 req/min general, 5 req/min login
 - CORS restricted to `app.kukulkan.trade` + `localhost:3000`
