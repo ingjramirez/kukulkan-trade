@@ -576,6 +576,97 @@ class ClaudeInvoker:
         tmp.rename(state_path)
         log.info("chat_minimal_session_state_written", path=str(state_path))
 
+    async def _refresh_session_state_if_stale(self) -> None:
+        """Fetch live market data if session-state.json has empty closes.
+
+        Called before chat sessions to ensure MCP tools have market data
+        even when no trading session has run yet today.
+        """
+        state_path = self._workspace / "session-state.json"
+        if not state_path.exists():
+            return
+
+        try:
+            state = json.loads(state_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            return
+
+        # If closes already populated (by orchestrator), skip
+        if state.get("closes"):
+            return
+
+        log.info("chat_refreshing_stale_session_state", tenant_id=self._tenant_id)
+
+        try:
+            import pandas as pd
+
+            from config.universe import get_dynamic_universe
+            from src.data.market_data import MarketDataFetcher
+            from src.storage.database import Database
+
+            db_url = self._database_url()
+            db = Database(db_url)
+            await db.init_db()
+
+            try:
+                universe = await get_dynamic_universe(db)
+                mdm = MarketDataFetcher(db=db)
+                data = await mdm.fetch_universe(tickers=universe, period="6mo")
+
+                if not data:
+                    log.warning("chat_refresh_no_market_data")
+                    return
+
+                closes = pd.DataFrame({t: df["Close"] for t, df in data.items()})
+                closes = closes.sort_index()
+
+                current_prices = {
+                    t: float(closes[t].iloc[-1])
+                    for t in closes.columns
+                    if not pd.isna(closes[t].iloc[-1])
+                }
+
+                # Get held tickers from positions (both portfolios)
+                held_tickers: list[str] = []
+                try:
+                    for pf in ("A", "B"):
+                        positions = await db.get_positions(pf, tenant_id=self._tenant_id)
+                        held_tickers.extend(p.ticker for p in positions if p.quantity > 0)
+                    held_tickers = sorted(set(held_tickers))
+                except Exception:
+                    pass
+
+                # Get fear & greed
+                fear_greed_data: dict | None = None
+                try:
+                    fg_row = await db.get_latest_sentiment(self._tenant_id, "fear_greed_index")
+                    if fg_row:
+                        fear_greed_data = {"value": fg_row.value, "classification": fg_row.classification}
+                except Exception:
+                    pass
+
+                write_session_state(
+                    workspace=self._workspace,
+                    tenant_id=self._tenant_id,
+                    closes_dict={
+                        col: {str(k): float(v) for k, v in closes[col].dropna().items()}
+                        for col in closes.columns
+                    },
+                    closes_index=[str(idx) for idx in closes.index],
+                    current_prices=current_prices,
+                    held_tickers=held_tickers,
+                    fear_greed=fear_greed_data,
+                )
+                log.info(
+                    "chat_session_state_refreshed",
+                    tickers=len(data),
+                    tenant_id=self._tenant_id,
+                )
+            finally:
+                await db.close()
+        except Exception as e:
+            log.warning("chat_refresh_session_state_failed", error=str(e))
+
     # ── Chat methods ────────────────────────────────────────────────────────
 
     def _build_chat_cmd(self, message: str, session_id: str | None) -> list[str]:
@@ -695,6 +786,7 @@ class ClaudeInvoker:
         session_id = self._get_chat_session_id()
         self._write_mcp_config()
         self._ensure_session_state()
+        await self._refresh_session_state_if_stale()
 
         cmd = self._build_chat_cmd(message, session_id)
         env = {**os.environ}
@@ -775,6 +867,7 @@ class ClaudeInvoker:
         session_id = self._get_chat_session_id()
         self._write_mcp_config()
         self._ensure_session_state()
+        await self._refresh_session_state_if_stale()
 
         cmd = self._build_chat_stream_cmd(message, session_id)
         env = {**os.environ}
