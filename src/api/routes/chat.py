@@ -68,7 +68,7 @@ async def _process_chat_discoveries(accumulated: dict, db: Database, tenant_id: 
                 msg_id = await notifier.send_ticker_proposal(row, request_id)
                 if msg_id is not None:
                     choice = await notifier.wait_for_ticker_approval(
-                        request_id, timeout=120
+                        request_id, timeout_seconds=120
                     )
                     new_status = "approved" if choice == "approve" else "rejected"
                 else:

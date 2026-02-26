@@ -348,6 +348,52 @@ class TestProcessChatDiscoveriesUnit:
         await _process_chat_discoveries({"discovery_proposals": []}, db, "default")
         # No errors = pass
 
+    async def test_approval_uses_correct_kwarg_name(self, db):
+        """wait_for_ticker_approval must be called with timeout_seconds, not timeout."""
+        from src.api.routes.chat import _process_chat_discoveries
+        from src.notifications.telegram_bot import TelegramNotifier
+        from src.storage.models import DiscoveredTickerRow
+
+        await db.ensure_tenant("default")
+
+        today = date.today()
+        row = DiscoveredTickerRow(
+            ticker="SPY",
+            source="agent_tool",
+            rationale="fear bounce",
+            status="proposed",
+            tenant_id="default",
+            proposed_at=today,
+            expires_at=today + timedelta(days=7),
+        )
+        await db.save_discovered_ticker(row)
+
+        mock_notifier = AsyncMock(spec=TelegramNotifier)
+        mock_notifier._chat_id = "12345"
+        mock_notifier.send_ticker_proposal = AsyncMock(return_value=999)
+        mock_notifier.wait_for_ticker_approval = AsyncMock(
+            spec=TelegramNotifier.wait_for_ticker_approval,
+            return_value="approve",
+        )
+
+        mock_tenant = AsyncMock()
+        mock_tenant.id = "default"
+
+        with (
+            patch("src.notifications.telegram_factory.TelegramFactory.get_notifier", return_value=mock_notifier),
+            patch.object(db, "get_tenant", return_value=mock_tenant),
+        ):
+            await _process_chat_discoveries(
+                {"discovery_proposals": [{"ticker": "SPY", "reason": "fear bounce"}]},
+                db,
+                "default",
+            )
+
+        # With spec=True, passing timeout= instead of timeout_seconds= would raise TypeError
+        mock_notifier.wait_for_ticker_approval.assert_called_once()
+        updated = await db.get_discovered_ticker("SPY", tenant_id="default")
+        assert updated.status == "approved"
+
     async def test_no_telegram_leaves_as_proposed(self, db):
         """Without Telegram, tickers stay as 'proposed' for dashboard approval."""
         from src.api.routes.chat import _process_chat_discoveries
