@@ -48,6 +48,7 @@ jobs:
             --exclude '*.pyc' \
             --exclude '.pytest_cache' \
             --exclude '.env' \
+            --exclude 'data/agent-workspace/.claude' \
             --exclude '.idea' \
             --exclude '*.egg-info' \
             ./ ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/opt/kukulkan-trade/
