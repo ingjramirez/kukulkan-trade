@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.agent.sentinel import (
+    ALERT_DEDUP_RESET_HOURS,
     AlertLevel,
     SentinelAlert,
     SentinelResult,
@@ -18,6 +19,7 @@ from src.agent.sentinel import (
     _reset_sentinel_state,
     _sentinel_states,
     can_escalate,
+    clear_resolved_alerts,
     record_alert_sent,
     record_escalation,
     record_session_time,
@@ -692,28 +694,71 @@ class TestMultiTenantIsolation:
 
     def test_alert_throttle_isolated_per_tenant(self) -> None:
         """Alert throttle for tenant A should not suppress alerts for tenant B."""
-        record_alert_sent("AAPL", tenant_id="tenant-a")
+        record_alert_sent("AAPL", check_type="stop_proximity", level="warning", tenant_id="tenant-a")
 
-        assert should_send_alert("AAPL", tenant_id="tenant-a") is False
-        assert should_send_alert("AAPL", tenant_id="tenant-b") is True
-
-
-# ── Alert Throttling ─────────────────────────────────────────────────────────
+        assert should_send_alert("AAPL", check_type="stop_proximity", level="warning", tenant_id="tenant-a") is False
+        assert should_send_alert("AAPL", check_type="stop_proximity", level="warning", tenant_id="tenant-b") is True
 
 
-class TestAlertThrottling:
+# ── Alert Dedup ──────────────────────────────────────────────────────────────
+
+
+class TestAlertDedup:
     def test_first_alert_allowed(self) -> None:
-        assert should_send_alert("AAPL") is True
+        assert should_send_alert("AAPL", check_type="stop_proximity", level="warning") is True
 
     def test_repeat_alert_blocked(self) -> None:
-        record_alert_sent("AAPL")
-        assert should_send_alert("AAPL") is False
+        record_alert_sent("AAPL", check_type="stop_proximity", level="warning")
+        assert should_send_alert("AAPL", check_type="stop_proximity", level="warning") is False
 
     def test_different_ticker_allowed(self) -> None:
-        record_alert_sent("AAPL")
-        assert should_send_alert("MSFT") is True
+        record_alert_sent("AAPL", check_type="stop_proximity", level="warning")
+        assert should_send_alert("MSFT", check_type="stop_proximity", level="warning") is True
 
-    def test_alert_allowed_after_cooldown(self) -> None:
+    def test_different_check_type_allowed(self) -> None:
+        """Same ticker but different check_type should be treated independently."""
+        record_alert_sent("AAPL", check_type="stop_proximity", level="warning")
+        assert should_send_alert("AAPL", check_type="regime_shift", level="warning") is True
+
+    def test_escalation_allowed(self) -> None:
+        """WARNING → CRITICAL for same ticker+check should send."""
+        record_alert_sent("AAPL", check_type="stop_proximity", level="warning")
+        assert should_send_alert("AAPL", check_type="stop_proximity", level="critical") is True
+
+    def test_same_level_blocked(self) -> None:
+        """Same level re-send is suppressed."""
+        record_alert_sent("AAPL", check_type="stop_proximity", level="critical")
+        assert should_send_alert("AAPL", check_type="stop_proximity", level="critical") is False
+
+    def test_deescalation_blocked(self) -> None:
+        """CRITICAL → WARNING should be suppressed (not an escalation)."""
+        record_alert_sent("AAPL", check_type="stop_proximity", level="critical")
+        assert should_send_alert("AAPL", check_type="stop_proximity", level="warning") is False
+
+    def test_daily_reminder_after_24h(self) -> None:
+        """Same alert should re-send after 24h as daily reminder."""
         state = _get_state("default")
-        state["last_alert_by_ticker"]["AAPL"] = datetime.now(timezone.utc) - timedelta(hours=2)
+        state["sent_alerts"]["AAPL:stop_proximity"] = {
+            "level": "warning",
+            "sent_at": datetime.now(timezone.utc) - timedelta(hours=ALERT_DEDUP_RESET_HOURS + 1),
+        }
+        assert should_send_alert("AAPL", check_type="stop_proximity", level="warning") is True
+
+    def test_clear_resolved_alerts(self) -> None:
+        """Clearing resolved alerts allows them to fire again."""
+        record_alert_sent("AAPL", check_type="stop_proximity", level="warning")
+        record_alert_sent("MSFT", check_type="stop_proximity", level="warning")
+        assert should_send_alert("AAPL", check_type="stop_proximity", level="warning") is False
+
+        # AAPL condition resolved, MSFT still active
+        clear_resolved_alerts({"MSFT:stop_proximity"})
+
+        # AAPL should fire again, MSFT still suppressed
+        assert should_send_alert("AAPL", check_type="stop_proximity", level="warning") is True
+        assert should_send_alert("MSFT", check_type="stop_proximity", level="warning") is False
+
+    def test_backward_compat_ticker_only(self) -> None:
+        """Calling with just ticker (no check_type) still works."""
         assert should_send_alert("AAPL") is True
+        record_alert_sent("AAPL")
+        assert should_send_alert("AAPL") is False

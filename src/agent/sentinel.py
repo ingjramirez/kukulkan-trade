@@ -98,13 +98,15 @@ _DEFAULT_STATE: dict[str, Any] = {
     "escalations_today": 0,
     "last_escalation_date": None,
     "last_session_time": None,
-    "last_alert_by_ticker": {},  # ticker → datetime (for Telegram throttling)
+    "sent_alerts": {},  # "ticker:check_type" → {"level": str, "sent_at": datetime}
 }
 
 # Keyed by tenant_id → state dict
 _sentinel_states: dict[str, dict[str, Any]] = {}
 
-ALERT_THROTTLE_SECONDS = 3600  # Don't re-send same ticker alert within 1 hour
+ALERT_DEDUP_RESET_HOURS = 24  # Re-send same alert as daily reminder after 24h
+
+_LEVEL_ORDER: dict[str, int] = {"clear": 0, "warning": 1, "critical": 2}
 
 
 def _get_state(tenant_id: str = "default") -> dict[str, Any]:
@@ -173,20 +175,63 @@ def record_session_time(tenant_id: str = "default") -> None:
     _get_state(tenant_id)["last_session_time"] = datetime.now(timezone.utc)
 
 
-def should_send_alert(ticker: str, tenant_id: str = "default") -> bool:
-    """Check if a Telegram alert should be sent for this ticker (throttle dedup)."""
+def should_send_alert(
+    ticker: str, check_type: str = "", level: str = "", tenant_id: str = "default"
+) -> bool:
+    """Check if this alert should be sent (content-aware dedup).
+
+    Sends if:
+    - First time seeing this (ticker, check_type)
+    - Level escalated since last send (WARNING → CRITICAL)
+    - 24+ hours since last send (daily reminder)
+
+    Suppresses if:
+    - Same (ticker, check_type) already sent at same or higher level recently
+    """
     state = _get_state(tenant_id)
-    last_sent = state["last_alert_by_ticker"].get(ticker)
-    if last_sent is not None:
-        elapsed = (datetime.now(timezone.utc) - last_sent).total_seconds()
-        if elapsed < ALERT_THROTTLE_SECONDS:
-            return False
-    return True
+    key = f"{ticker}:{check_type}" if check_type else ticker
+    last = state["sent_alerts"].get(key)
+    if last is None:
+        return True
+
+    # Allow if level escalated
+    if level and last.get("level"):
+        if _LEVEL_ORDER.get(level, 0) > _LEVEL_ORDER.get(last["level"], 0):
+            return True
+
+    # Allow daily reminder
+    elapsed = (datetime.now(timezone.utc) - last["sent_at"]).total_seconds()
+    if elapsed >= ALERT_DEDUP_RESET_HOURS * 3600:
+        return True
+
+    return False
 
 
-def record_alert_sent(ticker: str, tenant_id: str = "default") -> None:
-    """Record that an alert was sent for this ticker."""
-    _get_state(tenant_id)["last_alert_by_ticker"][ticker] = datetime.now(timezone.utc)
+def record_alert_sent(
+    ticker: str, check_type: str = "", level: str = "", tenant_id: str = "default"
+) -> None:
+    """Record that an alert was sent for this ticker+check_type."""
+    state = _get_state(tenant_id)
+    key = f"{ticker}:{check_type}" if check_type else ticker
+    state["sent_alerts"][key] = {
+        "level": level,
+        "sent_at": datetime.now(timezone.utc),
+    }
+
+
+def clear_resolved_alerts(active_keys: set[str], tenant_id: str = "default") -> None:
+    """Remove dedup entries for conditions that have resolved.
+
+    active_keys: set of "ticker:check_type" strings from the current sentinel run.
+    Any previously-sent alert not in active_keys is cleared so that if the
+    condition reappears later, a new alert will fire.
+    """
+    state = _get_state(tenant_id)
+    resolved = [k for k in state["sent_alerts"] if k not in active_keys]
+    for k in resolved:
+        del state["sent_alerts"][k]
+    if resolved:
+        log.debug("sentinel_alerts_cleared", resolved=resolved, tenant_id=tenant_id)
 
 
 # ── Default price fetcher ────────────────────────────────────────────────────

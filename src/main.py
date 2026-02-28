@@ -329,32 +329,48 @@ async def run_scheduled() -> None:
                     except Exception as e:
                         log.warning("sentinel_sse_publish_failed", error=str(e))
 
-                # Send Telegram alert if warning or critical (with per-ticker throttle)
+                # Clear dedup entries for conditions that resolved
+                from src.agent.sentinel import clear_resolved_alerts, record_alert_sent, should_send_alert
+
+                active_alert_keys = {
+                    f"{a.ticker}:{a.check_type}"
+                    for a in result.alerts
+                    if a.level.value in ("warning", "critical")
+                }
+                clear_resolved_alerts(active_alert_keys, tenant_id=tid)
+
+                # Send Telegram alert if warning or critical (content-aware dedup)
                 if result.max_level.value in ("warning", "critical"):
                     try:
-                        from src.agent.sentinel import record_alert_sent, should_send_alert
-
                         tenant_notifier = notifier
                         if tenant:
                             try:
                                 tenant_notifier = TelegramFactory.get_notifier(tenant)
                             except Exception:
                                 pass
-                        # Filter to only alerts we haven't recently sent
-                        alert_dicts = [
-                            {
-                                "level": a.level.value,
-                                "check_type": a.check_type,
-                                "ticker": a.ticker,
-                                "message": a.message,
-                            }
+                        # Filter to only alerts we haven't recently sent (or that escalated)
+                        unsent = [
+                            a
                             for a in result.alerts
-                            if should_send_alert(a.ticker, tenant_id=tid)
+                            if should_send_alert(
+                                a.ticker, check_type=a.check_type, level=a.level.value, tenant_id=tid
+                            )
                         ]
-                        if alert_dicts:
+                        if unsent:
+                            alert_dicts = [
+                                {
+                                    "level": a.level.value,
+                                    "check_type": a.check_type,
+                                    "ticker": a.ticker,
+                                    "message": a.message,
+                                }
+                                for a in unsent
+                            ]
                             await tenant_notifier.send_sentinel_alert(alert_dicts, result.max_level.value)
-                            for a in alert_dicts:
-                                record_alert_sent(a["ticker"], tenant_id=tid)
+                            for a in unsent:
+                                record_alert_sent(
+                                    a.ticker, check_type=a.check_type, level=a.level.value, tenant_id=tid
+                                )
                     except Exception as e:
                         log.warning("sentinel_telegram_failed", tenant_id=tid, error=str(e))
 
@@ -464,10 +480,18 @@ async def run_scheduled() -> None:
                     except Exception:
                         pass
 
+                # Clear dedup entries for resolved conditions
+                from src.agent.sentinel import clear_resolved_alerts, record_alert_sent, should_send_alert
+
+                active_alert_keys = {
+                    f"{a.ticker}:{a.check_type}"
+                    for a in result.alerts
+                    if a.level.value in ("warning", "critical")
+                }
+                clear_resolved_alerts(active_alert_keys, tenant_id=tid)
+
                 # Queue actions instead of crisis session
                 if result.max_level.value in ("warning", "critical"):
-                    from src.agent.sentinel import record_alert_sent, should_send_alert
-
                     for a in result.alerts:
                         if a.level.value in ("warning", "critical"):
                             action_type = "sell" if a.level == AlertLevel.CRITICAL else "review"
@@ -483,7 +507,13 @@ async def run_scheduled() -> None:
                     # Send or queue Telegram alert
                     try:
                         tenant_notifier = TelegramFactory.get_notifier(tenant)
-                        unsent = [a for a in result.alerts if should_send_alert(a.ticker, tenant_id=tid)]
+                        unsent = [
+                            a
+                            for a in result.alerts
+                            if should_send_alert(
+                                a.ticker, check_type=a.check_type, level=a.level.value, tenant_id=tid
+                            )
+                        ]
                         if unsent:
                             phase_label = "PRE-MARKET" if phase_str == "premarket" else "AFTER HOURS"
                             alert_msg = f"{phase_label} Sentinel Alert\n\n"
@@ -500,7 +530,9 @@ async def run_scheduled() -> None:
                                 source=f"{phase_str}_sentinel",
                             )
                             for a in unsent:
-                                record_alert_sent(a.ticker, tenant_id=tid)
+                                record_alert_sent(
+                                    a.ticker, check_type=a.check_type, level=a.level.value, tenant_id=tid
+                                )
                     except Exception as e:
                         log.warning("extended_sentinel_telegram_failed", tenant_id=tid, error=str(e))
 
@@ -576,10 +608,18 @@ async def run_scheduled() -> None:
                     except Exception:
                         pass
 
+                # Clear dedup entries for resolved conditions
+                from src.agent.sentinel import clear_resolved_alerts, record_alert_sent, should_send_alert
+
+                active_alert_keys = {
+                    f"{a.ticker}:{a.check_type}"
+                    for a in result.alerts
+                    if a.level.value in ("warning", "critical")
+                }
+                clear_resolved_alerts(active_alert_keys, tenant_id=tid)
+
                 # Queue actions + Telegram for warnings/criticals
                 if result.max_level.value in ("warning", "critical"):
-                    from src.agent.sentinel import record_alert_sent, should_send_alert
-
                     for a in result.alerts:
                         if a.level.value in ("warning", "critical"):
                             action_type = "sell" if a.level == AlertLevel.CRITICAL else "review"
@@ -594,7 +634,13 @@ async def run_scheduled() -> None:
 
                     try:
                         tenant_notifier = TelegramFactory.get_notifier(tenant)
-                        unsent = [a for a in result.alerts if should_send_alert(a.ticker, tenant_id=tid)]
+                        unsent = [
+                            a
+                            for a in result.alerts
+                            if should_send_alert(
+                                a.ticker, check_type=a.check_type, level=a.level.value, tenant_id=tid
+                            )
+                        ]
                         if unsent:
                             alert_msg = "WEEKEND CRYPTO Sentinel Alert\n\n"
                             for a in unsent:
@@ -610,7 +656,9 @@ async def run_scheduled() -> None:
                                 source="weekend_crypto_sentinel",
                             )
                             for a in unsent:
-                                record_alert_sent(a.ticker, tenant_id=tid)
+                                record_alert_sent(
+                                    a.ticker, check_type=a.check_type, level=a.level.value, tenant_id=tid
+                                )
                     except Exception as e:
                         log.warning("crypto_sentinel_telegram_failed", tenant_id=tid, error=str(e))
 
