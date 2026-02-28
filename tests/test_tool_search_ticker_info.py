@@ -52,7 +52,8 @@ def _make_history(days: int = 60, start_price: float = 270.0) -> pd.DataFrame:
     import numpy as np
 
     dates = pd.bdate_range(end=date.today(), periods=days)
-    prices = start_price + np.cumsum(np.random.default_rng(42).normal(0.5, 2, days))
+    n = len(dates)
+    prices = start_price + np.cumsum(np.random.default_rng(42).normal(0.5, 2, n))
     return pd.DataFrame({"Close": prices}, index=dates)
 
 
