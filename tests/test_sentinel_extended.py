@@ -1,5 +1,6 @@
 """Tests for extended hours sentinel — phase-aware thresholds and queue-based escalation."""
 
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -27,6 +28,7 @@ def _make_trailing_stop(
     peak_price: float = 105.0,
     trail_pct: float = 0.05,
     portfolio: str = "B",
+    agent_adjusted_at: datetime | None = None,
 ) -> MagicMock:
     stop = MagicMock()
     stop.ticker = ticker
@@ -35,6 +37,7 @@ def _make_trailing_stop(
     stop.trail_pct = trail_pct
     stop.portfolio = portfolio
     stop.is_active = True
+    stop.agent_adjusted_at = agent_adjusted_at
     return stop
 
 
@@ -252,3 +255,88 @@ class TestMorningQueue:
         }
         assert alert_data["market_phase"] == "afterhours"
         assert alert_data["alerts"][0]["market_phase"] == "afterhours"
+
+
+class TestQueueDedup:
+    """save_sentinel_action should dedup by (tenant_id, ticker, action_type) when pending."""
+
+    async def test_dedup_skips_duplicate_pending(self) -> None:
+        """Second save for same ticker+action_type returns existing ID, no new row."""
+        from src.storage.database import Database
+
+        db = Database("sqlite+aiosqlite:///:memory:")
+        await db.init_db()
+
+        id1 = await db.save_sentinel_action(
+            tenant_id="default", action_type="review", ticker="SHY",
+            reason="SHY is 3.0% from stop", source="afterhours_sentinel", alert_level="warning",
+        )
+        id2 = await db.save_sentinel_action(
+            tenant_id="default", action_type="review", ticker="SHY",
+            reason="SHY is 3.0% from stop", source="afterhours_sentinel", alert_level="warning",
+        )
+        assert id1 == id2
+
+        pending = await db.get_pending_sentinel_actions("default")
+        assert len(pending) == 1
+
+    async def test_dedup_escalates_level(self) -> None:
+        """WARNING → CRITICAL for same ticker upgrades existing row."""
+        from src.storage.database import Database
+
+        db = Database("sqlite+aiosqlite:///:memory:")
+        await db.init_db()
+
+        id1 = await db.save_sentinel_action(
+            tenant_id="default", action_type="review", ticker="SHY",
+            reason="SHY is 2.8% from stop", source="afterhours_sentinel", alert_level="warning",
+        )
+        id2 = await db.save_sentinel_action(
+            tenant_id="default", action_type="sell", ticker="SHY",
+            reason="SHY is 1.5% from stop", source="afterhours_sentinel", alert_level="critical",
+        )
+        # Different action_type (review vs sell) → not deduped
+        assert id1 != id2
+
+        pending = await db.get_pending_sentinel_actions("default")
+        assert len(pending) == 2
+
+    async def test_dedup_escalates_same_action_type(self) -> None:
+        """Same action_type but higher alert_level → row upgraded, not duplicated."""
+        from src.storage.database import Database
+
+        db = Database("sqlite+aiosqlite:///:memory:")
+        await db.init_db()
+
+        await db.save_sentinel_action(
+            tenant_id="default", action_type="review", ticker="SHY",
+            reason="SHY is 2.8% from stop", source="afterhours_sentinel", alert_level="warning",
+        )
+        await db.save_sentinel_action(
+            tenant_id="default", action_type="review", ticker="SHY",
+            reason="SHY is 1.5% from stop", source="afterhours_sentinel", alert_level="critical",
+        )
+
+        pending = await db.get_pending_sentinel_actions("default")
+        assert len(pending) == 1
+        assert pending[0]["alert_level"] == "critical"
+        assert "1.5%" in pending[0]["reason"]
+
+    async def test_different_tickers_not_deduped(self) -> None:
+        """Different tickers create separate rows."""
+        from src.storage.database import Database
+
+        db = Database("sqlite+aiosqlite:///:memory:")
+        await db.init_db()
+
+        await db.save_sentinel_action(
+            tenant_id="default", action_type="review", ticker="SHY",
+            reason="SHY near stop", source="afterhours_sentinel", alert_level="warning",
+        )
+        await db.save_sentinel_action(
+            tenant_id="default", action_type="review", ticker="BIL",
+            reason="BIL near stop", source="afterhours_sentinel", alert_level="warning",
+        )
+
+        pending = await db.get_pending_sentinel_actions("default")
+        assert len(pending) == 2

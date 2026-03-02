@@ -44,6 +44,7 @@ def _make_trailing_stop(
     peak_price: float = 105.0,
     trail_pct: float = 0.05,
     portfolio: str = "B",
+    agent_adjusted_at: datetime | None = None,
 ) -> MagicMock:
     stop = MagicMock()
     stop.ticker = ticker
@@ -52,6 +53,7 @@ def _make_trailing_stop(
     stop.trail_pct = trail_pct
     stop.portfolio = portfolio
     stop.is_active = True
+    stop.agent_adjusted_at = agent_adjusted_at
     return stop
 
 
@@ -184,6 +186,80 @@ class TestStopProximity:
         runner = SentinelRunner(db=db, price_fetcher=prices)
         alerts = await runner.check_stop_proximity()
         assert len(alerts) == 0
+
+
+# ── Agent-Adjusted Grace Period ─────────────────────────────────────────────
+
+
+class TestAgentAdjustedGracePeriod:
+    """WARNING suppressed for bot-adjusted stops within grace window; CRITICAL always fires."""
+
+    async def test_warning_suppressed_for_agent_adjusted(self) -> None:
+        """Stop tightened by bot 1h ago → WARNING suppressed."""
+        adjusted = datetime.now(timezone.utc) - timedelta(hours=1)
+        stop = _make_trailing_stop(ticker="SHY", stop_price=97.5, agent_adjusted_at=adjusted)
+        db = _make_db(stops=[stop])
+
+        async def prices(tickers):
+            return {"SHY": 100.0}  # 2.5% — would be WARNING
+
+        runner = SentinelRunner(db=db, price_fetcher=prices)
+        alerts = await runner.check_stop_proximity()
+        assert len(alerts) == 0
+
+    async def test_critical_not_suppressed_for_agent_adjusted(self) -> None:
+        """Stop tightened by bot 1h ago → CRITICAL still fires."""
+        adjusted = datetime.now(timezone.utc) - timedelta(hours=1)
+        stop = _make_trailing_stop(ticker="SHY", stop_price=99.0, agent_adjusted_at=adjusted)
+        db = _make_db(stops=[stop])
+
+        async def prices(tickers):
+            return {"SHY": 100.0}  # 1% — CRITICAL
+
+        runner = SentinelRunner(db=db, price_fetcher=prices)
+        alerts = await runner.check_stop_proximity()
+        assert len(alerts) == 1
+        assert alerts[0].level == AlertLevel.CRITICAL
+
+    async def test_warning_fires_after_grace_period(self) -> None:
+        """Stop adjusted >18h ago → WARNING fires normally."""
+        adjusted = datetime.now(timezone.utc) - timedelta(hours=20)
+        stop = _make_trailing_stop(ticker="BIL", stop_price=97.5, agent_adjusted_at=adjusted)
+        db = _make_db(stops=[stop])
+
+        async def prices(tickers):
+            return {"BIL": 100.0}  # 2.5% — WARNING
+
+        runner = SentinelRunner(db=db, price_fetcher=prices)
+        alerts = await runner.check_stop_proximity()
+        assert len(alerts) == 1
+        assert alerts[0].level == AlertLevel.WARNING
+
+    async def test_warning_fires_when_not_agent_adjusted(self) -> None:
+        """Non-agent stop → WARNING fires as usual."""
+        stop = _make_trailing_stop(ticker="XLK", stop_price=97.5)
+        db = _make_db(stops=[stop])
+
+        async def prices(tickers):
+            return {"XLK": 100.0}
+
+        runner = SentinelRunner(db=db, price_fetcher=prices)
+        alerts = await runner.check_stop_proximity()
+        assert len(alerts) == 1
+        assert alerts[0].level == AlertLevel.WARNING
+
+    async def test_naive_datetime_handled(self) -> None:
+        """SQLite stores naive datetimes — grace check should still work."""
+        adjusted = datetime.utcnow() - timedelta(hours=1)  # naive, no tzinfo
+        stop = _make_trailing_stop(ticker="SHY", stop_price=97.5, agent_adjusted_at=adjusted)
+        db = _make_db(stops=[stop])
+
+        async def prices(tickers):
+            return {"SHY": 100.0}
+
+        runner = SentinelRunner(db=db, price_fetcher=prices)
+        alerts = await runner.check_stop_proximity()
+        assert len(alerts) == 0  # Still suppressed
 
 
 # ── Check 2: Regime Shift ───────────────────────────────────────────────────

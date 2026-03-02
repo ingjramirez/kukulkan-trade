@@ -683,6 +683,7 @@ class Database:
         ticker: str,
         entry_price: float,
         trail_pct: float,
+        agent_adjusted: bool = False,
     ) -> TrailingStopRow:
         """Create or replace a trailing stop for a position."""
         peak_price = entry_price
@@ -714,6 +715,7 @@ class Database:
                 is_active=True,
                 created_at=now,
                 updated_at=now,
+                agent_adjusted_at=now if agent_adjusted else None,
             )
             s.add(row)
             await s.commit()
@@ -789,6 +791,7 @@ class Database:
         portfolio: str,
         ticker: str,
         trail_pct: float,
+        agent_adjusted: bool = False,
     ) -> bool:
         """Update trail_pct on the active trailing stop for a tenant/portfolio/ticker.
 
@@ -808,9 +811,12 @@ class Database:
             ).scalar_one_or_none()
             if row is None:
                 return False
+            now = datetime.utcnow()
             row.trail_pct = trail_pct
             row.stop_price = round(row.peak_price * (1 - trail_pct), 2)
-            row.updated_at = datetime.utcnow()
+            row.updated_at = now
+            if agent_adjusted:
+                row.agent_adjusted_at = now
             await s.commit()
             return True
 
@@ -1597,6 +1603,8 @@ class Database:
 
     # ── Sentinel Actions ──────────────────────────────────────────────
 
+    _ALERT_LEVEL_ORDER: dict[str, int] = {"clear": 0, "warning": 1, "critical": 2}
+
     async def save_sentinel_action(
         self,
         tenant_id: str,
@@ -1607,8 +1615,32 @@ class Database:
         alert_level: str,
         status: str = "pending",
     ) -> int:
-        """Save a queued sentinel action. Returns the new row ID."""
+        """Save a queued sentinel action (deduped by tenant+ticker+action_type).
+
+        If a pending action already exists for the same (tenant_id, ticker, action_type),
+        returns its ID instead of creating a duplicate. Escalates alert_level if the new
+        alert is higher severity (e.g. WARNING → CRITICAL).
+        """
         async with self.session() as s:
+            existing = (
+                await s.execute(
+                    select(SentinelActionRow).where(
+                        SentinelActionRow.tenant_id == tenant_id,
+                        SentinelActionRow.ticker == ticker,
+                        SentinelActionRow.action_type == action_type,
+                        SentinelActionRow.status == "pending",
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing:
+                new_level = self._ALERT_LEVEL_ORDER.get(alert_level, 0)
+                old_level = self._ALERT_LEVEL_ORDER.get(existing.alert_level, 0)
+                if new_level > old_level:
+                    existing.alert_level = alert_level
+                    existing.reason = reason
+                    await s.commit()
+                return existing.id
+
             row = SentinelActionRow(
                 tenant_id=tenant_id,
                 action_type=action_type,

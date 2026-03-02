@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Callable, Coroutine
 
@@ -37,6 +37,8 @@ SPY_MOVE_CRITICAL_PCT = 3.0  # SPY intraday >3% → critical
 
 FILL_STALE_WARNING_MINUTES = 30  # Open order >30min → warning
 FILL_STALE_CRITICAL_MINUTES = 60  # Open order >60min → critical
+
+AGENT_ADJUST_GRACE_HOURS = 18  # Suppress WARNING for bot-adjusted stops (covers overnight + morning session)
 
 # Extended hours: wider thresholds (AH/PM moves are noisier, lower volume)
 EXTENDED_VIX_HIGH_THRESHOLD = 32.0
@@ -344,6 +346,18 @@ class SentinelRunner:
                 level = AlertLevel.WARNING
             else:
                 continue  # Far enough — no alert
+
+            # Suppress WARNING for bot-adjusted stops within grace period
+            # CRITICAL always fires — owner needs to know if price is breaching
+            if level == AlertLevel.WARNING:
+                adjusted_at = getattr(stop, "agent_adjusted_at", None)
+                if adjusted_at is not None:
+                    grace_cutoff = datetime.now(timezone.utc) - timedelta(hours=AGENT_ADJUST_GRACE_HOURS)
+                    # Handle naive datetimes (SQLite stores without tz)
+                    if adjusted_at.tzinfo is None:
+                        adjusted_at = adjusted_at.replace(tzinfo=timezone.utc)
+                    if adjusted_at > grace_cutoff:
+                        continue  # Bot tightened this intentionally, skip warning
 
             alerts.append(
                 SentinelAlert(

@@ -262,6 +262,7 @@ class TrailingStopRow(Base):
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    agent_adjusted_at = Column(DateTime, nullable=True)  # set when bot tightens stop
 
 
 class EarningsCalendarRow(Base):

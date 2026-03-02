@@ -1154,7 +1154,9 @@ class Orchestrator:
         # Step 7.1.1: Apply agent stop requests for existing positions (not newly bought)
         for ticker, trail_pct in agent_stop_requests.items():
             try:
-                updated = await self._db.update_trailing_stop_pct(tenant_id, "B", ticker, trail_pct)
+                updated = await self._db.update_trailing_stop_pct(
+                    tenant_id, "B", ticker, trail_pct, agent_adjusted=True
+                )
                 if updated:
                     log.info("agent_trailing_stop_updated", ticker=ticker, trail_pct=trail_pct)
                 else:
@@ -1168,6 +1170,7 @@ class Orchestrator:
                             ticker=ticker,
                             entry_price=pos.avg_price,
                             trail_pct=trail_pct,
+                            agent_adjusted=True,
                         )
                         log.info("agent_trailing_stop_created", ticker=ticker, trail_pct=trail_pct)
                     else:
