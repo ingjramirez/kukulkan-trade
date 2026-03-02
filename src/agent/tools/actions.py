@@ -290,10 +290,18 @@ async def _discover_ticker(
     if not reason:
         return {"success": False, "ticker": ticker, "status": "error", "message": "Reason is required"}
 
-    # Check if already in static universe
+    # Check if already in effective universe (base + tenant additions + discovered)
     from config.universe import FULL_UNIVERSE
 
-    if ticker in FULL_UNIVERSE:
+    already_in = ticker in FULL_UNIVERSE
+    if not already_in:
+        from src.storage.database import Database
+
+        if hasattr(ticker_discovery, "_db") and isinstance(ticker_discovery._db, Database):
+            from src.agent.tools.market import _is_in_tenant_universe
+
+            already_in = await _is_in_tenant_universe(ticker_discovery._db, tenant_id, ticker)
+    if already_in:
         return {
             "success": False,
             "ticker": ticker,

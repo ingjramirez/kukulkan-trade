@@ -343,6 +343,19 @@ async def _get_market_context(
 # ── 5. search_ticker_info (research a ticker outside the universe) ────────────
 
 
+async def _is_in_tenant_universe(db: Database, tenant_id: str, ticker: str) -> bool:
+    """Check if a ticker is in the tenant's effective universe (additions + discovered)."""
+    from src.utils.tenant_universe import get_tenant_universe
+
+    tenant = await db.get_tenant(tenant_id)
+    if tenant is None:
+        return False
+    approved = await db.get_approved_tickers(tenant_id)
+    discovered = [r.ticker for r in approved]
+    universe = get_tenant_universe(tenant, portfolio="B", discovered_tickers=discovered)
+    return ticker in universe
+
+
 def _yf_lookup(ticker: str) -> dict:
     """Synchronous yfinance lookup — called via asyncio.to_thread."""
     yf_ticker = yf.Ticker(ticker)
@@ -380,7 +393,10 @@ async def _search_ticker_info(
     if not ticker:
         return {"ticker": "", "valid": False, "error": "No ticker provided"}
 
+    # Resolve tenant's effective universe (base + additions + discovered)
     in_universe = ticker in FULL_UNIVERSE
+    if not in_universe and db is not None:
+        in_universe = await _is_in_tenant_universe(db, tenant_id, ticker)
 
     # Check discovery status in DB
     previously_discovered = False
