@@ -17,6 +17,16 @@ from src.agent.tools.actions import (
 from src.storage.database import Database
 
 
+# Helper to call _execute_trade in accumulation-only mode (no executor)
+async def _accumulate_trade(state, ticker, side, shares, reason="", conviction="medium"):
+    return await _execute_trade(state, None, None, None, "default", {}, ticker, side, shares, reason, conviction)
+
+
+# Helper to call _set_trailing_stop in accumulation-only mode (no db)
+async def _accumulate_stop(state, ticker, trail_pct, reason=""):
+    return await _set_trailing_stop(state, None, "default", {}, ticker, trail_pct, reason)
+
+
 @pytest.fixture
 def state():
     return ActionState()
@@ -35,7 +45,7 @@ async def db():
 
 async def test_execute_trade_basic(state: ActionState):
     """execute_trade accumulates a trade with correct format."""
-    result = await _execute_trade(state, "NVDA", "BUY", 50, reason="AI thesis", conviction="high")
+    result = await _accumulate_trade(state, "NVDA", "BUY", 50, reason="AI thesis", conviction="high")
     assert result["status"] == "submitted"
     assert result["ticker"] == "NVDA"
     assert result["side"] == "BUY"
@@ -50,40 +60,40 @@ async def test_execute_trade_basic(state: ActionState):
 
 async def test_execute_trade_sell(state: ActionState):
     """execute_trade handles SELL side."""
-    result = await _execute_trade(state, "XLK", "SELL", 100, reason="Take profit")
+    result = await _accumulate_trade(state, "XLK", "SELL", 100, reason="Take profit")
     assert result["side"] == "SELL"
     assert len(state.executed_trades) == 1
 
 
 async def test_execute_trade_case_insensitive(state: ActionState):
     """execute_trade normalizes ticker and side to uppercase."""
-    result = await _execute_trade(state, "nvda", "buy", 50)
+    result = await _accumulate_trade(state, "nvda", "buy", 50)
     assert result["ticker"] == "NVDA"
     assert result["side"] == "BUY"
 
 
 async def test_execute_trade_invalid_side(state: ActionState):
     """execute_trade rejects invalid side."""
-    result = await _execute_trade(state, "NVDA", "SHORT", 50)
+    result = await _accumulate_trade(state, "NVDA", "SHORT", 50)
     assert "error" in result
 
 
 async def test_execute_trade_zero_shares(state: ActionState):
     """execute_trade rejects zero shares."""
-    result = await _execute_trade(state, "NVDA", "BUY", 0)
+    result = await _accumulate_trade(state, "NVDA", "BUY", 0)
     assert "error" in result
 
 
 async def test_execute_trade_missing_ticker(state: ActionState):
     """execute_trade rejects empty ticker."""
-    result = await _execute_trade(state, "", "BUY", 50)
+    result = await _accumulate_trade(state, "", "BUY", 50)
     assert "error" in result
 
 
 async def test_execute_trade_multiple(state: ActionState):
     """execute_trade accumulates multiple trades."""
-    await _execute_trade(state, "NVDA", "BUY", 50)
-    await _execute_trade(state, "XLK", "SELL", 100)
+    await _accumulate_trade(state, "NVDA", "BUY", 50)
+    await _accumulate_trade(state, "XLK", "SELL", 100)
     assert len(state.executed_trades) == 2
     assert len(state.proposed_trades) == 2
 
@@ -93,7 +103,7 @@ async def test_execute_trade_multiple(state: ActionState):
 
 async def test_set_trailing_stop_basic(state: ActionState):
     """set_trailing_stop accumulates a stop request."""
-    result = await _set_trailing_stop(state, "NVDA", 0.07, reason="Standard 7% stop")
+    result = await _accumulate_stop(state, "NVDA", 0.07, reason="Standard 7% stop")
     assert result["status"] == "ok"
     assert result["ticker"] == "NVDA"
     assert result["trail_pct"] == 0.07
@@ -102,23 +112,23 @@ async def test_set_trailing_stop_basic(state: ActionState):
 
 async def test_set_trailing_stop_validation(state: ActionState):
     """set_trailing_stop rejects out-of-range trail_pct."""
-    result = await _set_trailing_stop(state, "NVDA", 0.01)
+    result = await _accumulate_stop(state, "NVDA", 0.01)
     assert "error" in result
 
-    result = await _set_trailing_stop(state, "NVDA", 0.50)
+    result = await _accumulate_stop(state, "NVDA", 0.50)
     assert "error" in result
 
 
 async def test_set_trailing_stop_missing_ticker(state: ActionState):
     """set_trailing_stop rejects empty ticker."""
-    result = await _set_trailing_stop(state, "", 0.07)
+    result = await _accumulate_stop(state, "", 0.07)
     assert "error" in result
 
 
 async def test_set_trailing_stop_multiple(state: ActionState):
     """set_trailing_stop accumulates multiple requests."""
-    await _set_trailing_stop(state, "NVDA", 0.07)
-    await _set_trailing_stop(state, "XLK", 0.05)
+    await _accumulate_stop(state, "NVDA", 0.07)
+    await _accumulate_stop(state, "XLK", 0.05)
     assert len(state.trailing_stop_requests) == 2
 
 
@@ -135,7 +145,7 @@ async def test_order_status_empty(state: ActionState, db: Database):
 
 async def test_order_status_with_session_trades(state: ActionState, db: Database):
     """get_order_status shows trades submitted this session."""
-    await _execute_trade(state, "NVDA", "BUY", 50)
+    await _accumulate_trade(state, "NVDA", "BUY", 50)
     result = await _get_order_status(state, db, "default")
     assert result["pending_this_session"] == 1
     assert result["session_trades"][0]["ticker"] == "NVDA"
@@ -153,8 +163,8 @@ async def test_order_status_with_fills(state: ActionState, db: Database):
 
 async def test_order_status_filter_by_ticker(state: ActionState, db: Database):
     """get_order_status filters by ticker when specified."""
-    await _execute_trade(state, "NVDA", "BUY", 50)
-    await _execute_trade(state, "XLK", "SELL", 100)
+    await _accumulate_trade(state, "NVDA", "BUY", 50)
+    await _accumulate_trade(state, "XLK", "SELL", 100)
 
     result = await _get_order_status(state, db, "default", ticker="NVDA")
     assert result["pending_this_session"] == 1
@@ -195,8 +205,8 @@ async def test_save_memory_note_delegates(state: ActionState):
 
 async def test_action_state_get_accumulated(state: ActionState):
     """get_accumulated_state includes all new fields."""
-    await _execute_trade(state, "NVDA", "BUY", 50)
-    await _set_trailing_stop(state, "NVDA", 0.07)
+    await _accumulate_trade(state, "NVDA", "BUY", 50)
+    await _accumulate_stop(state, "NVDA", 0.07)
 
     accumulated = state.get_accumulated_state()
     assert "executed_trades" in accumulated
@@ -207,8 +217,8 @@ async def test_action_state_get_accumulated(state: ActionState):
 
 async def test_action_state_reset(state: ActionState):
     """reset() clears all accumulated state including new fields."""
-    await _execute_trade(state, "NVDA", "BUY", 50)
-    await _set_trailing_stop(state, "NVDA", 0.07)
+    await _accumulate_trade(state, "NVDA", "BUY", 50)
+    await _accumulate_stop(state, "NVDA", 0.07)
     state.reset()
     assert len(state.executed_trades) == 0
     assert len(state.trailing_stop_requests) == 0

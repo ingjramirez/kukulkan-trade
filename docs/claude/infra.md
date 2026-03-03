@@ -26,7 +26,7 @@ Machine-readable context for Claude. Covers server, CI/CD, Docker, testing patte
 - IP: `128.140.102.191`
 - SSH: `ssh -i ~/.ssh/id_ed25519_personal root@128.140.102.191`
 - Path: `/opt/kukulkan-trade`
-- DB: `/opt/kukulkan-trade/data/kukulkan.db`
+- DB: PostgreSQL (`postgresql+asyncpg://kukulkan:...@localhost:5432/kukulkan`)
 - Env: `/opt/kukulkan-trade/.env`
 - User: `kukulkan` (services run as this user, not root)
 
@@ -141,7 +141,7 @@ async def client(db):
 
 ### Test Count
 
-1681 tests as of 2026-02-18.
+1835 tests as of 2026-03-03.
 
 ## Ruff Configuration
 
@@ -186,11 +186,13 @@ select = ["E", "F", "I", "W"]
 | 013 | 38 | Improvement loop tables (proposals, trend analysis) |
 | 014 | 42 | Extended hours: `intraday_snapshots` columns, `sentinel_actions` table, tenant quiet hours |
 
-### SQLite Constraints
+### Database Notes
 
-- No `ALTER COLUMN` -- must recreate table (CREATE new -> INSERT SELECT -> DROP old -> RENAME)
-- No concurrent writes -- single-writer mode
+- Production: PostgreSQL (asyncpg). Tests: in-memory SQLite (aiosqlite)
+- PG columns are `TIMESTAMP WITHOUT TIME ZONE` — use `datetime.utcnow()`, NOT `datetime.now(timezone.utc)`
+- SQLite has no `ALTER COLUMN` — migrations that alter columns must recreate tables
 - `create_all()` doesn't alter existing tables -- need migrations for schema changes
+- `psql` on server: `psql 'postgresql://kukulkan:PASS@localhost:5432/kukulkan'` (installed via postgresql-client)
 
 ## Utility Scripts (`scripts/`)
 

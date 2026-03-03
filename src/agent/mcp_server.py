@@ -125,6 +125,33 @@ async def _init_registry(state: dict) -> ToolRegistry:
     )
 
     # Action tools — store globally so we can persist results on exit
+    # Construct executor + risk manager for direct trade execution from chat
+    executor = None
+    risk_manager = None
+    try:
+        from src.analysis.risk_manager import RiskManager
+        from src.execution.paper_trader import PaperTrader
+
+        risk_manager = RiskManager()
+
+        tenant = await db.get_tenant(tenant_id)
+        if tenant and getattr(tenant, "credentials", None):
+            try:
+                from src.execution.alpaca_executor import AlpacaExecutor
+                from src.execution.client_factory import AlpacaClientFactory
+
+                client = AlpacaClientFactory.get_trading_client(tenant)
+                executor = AlpacaExecutor(db, client)
+                log.info("mcp_executor_initialized", type="alpaca", tenant_id=tenant_id)
+            except Exception as exc:
+                log.warning("mcp_alpaca_init_failed", error=str(exc), fallback="paper")
+                executor = PaperTrader(db)
+        else:
+            executor = PaperTrader(db)
+            log.info("mcp_executor_initialized", type="paper", tenant_id=tenant_id)
+    except Exception as exc:
+        log.warning("mcp_executor_init_failed", error=str(exc))
+
     global _action_state
     _action_state = ActionState()
     ticker_discovery = TickerDiscovery(db)
@@ -134,6 +161,9 @@ async def _init_registry(state: dict) -> ToolRegistry:
         db=db,
         tenant_id=tenant_id,
         ticker_discovery=ticker_discovery,
+        executor=executor,
+        risk_manager=risk_manager,
+        current_prices=current_prices,
     )
 
     log.info("mcp_tools_registered", count=len(registry.tool_names), tools=registry.tool_names)
@@ -180,18 +210,25 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         max_chars = int(os.environ.get("TOOL_RESULT_MAX_CHARS", "3000"))
         if len(text) > max_chars:
             text = text[:max_chars] + f"\n... (truncated, {len(text)} total chars)"
-        _tool_call_logs.append({
-            "turn": _tool_call_count,
-            "tool_name": name,
-            "tool_input": json.dumps(arguments, default=str)[:500],
-            "tool_output_preview": text[:500],
-            "success": True,
-        })
+        _tool_call_logs.append(
+            {
+                "turn": _tool_call_count,
+                "tool_name": name,
+                "tool_input": json.dumps(arguments, default=str)[:500],
+                "tool_output_preview": text[:500],
+                "success": True,
+            }
+        )
         return [TextContent(type="text", text=text)]
     except KeyError:
-        _tool_call_logs.append({
-            "turn": _tool_call_count, "tool_name": name, "success": False, "error": f"Unknown tool: {name}",
-        })
+        _tool_call_logs.append(
+            {
+                "turn": _tool_call_count,
+                "tool_name": name,
+                "success": False,
+                "error": f"Unknown tool: {name}",
+            }
+        )
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as e:
         log.error("mcp_tool_error", tool=name, error=str(e))

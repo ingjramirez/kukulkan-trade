@@ -3,15 +3,23 @@
 Phase 2 upgrade: 5 action tools (2 upgraded + 3 new).
 Uses an ActionState class (instantiated per run) to avoid module-level
 globals that would contaminate multi-tenant runs.
+
+When executor and risk_manager are provided (MCP server / chat context),
+execute_trade and set_trailing_stop execute directly instead of accumulating.
 """
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from functools import partial
 from typing import Any
 
+import structlog
+
 from src.agent.tools import ToolRegistry
+
+log = structlog.get_logger()
 
 
 @dataclass
@@ -49,11 +57,33 @@ class ActionState:
         self.declared_posture = None
 
 
-# ── 1. execute_trade (new — direct execution with risk check) ────────────────
+# ── Shared helper ─────────────────────────────────────────────────────────────
+
+
+async def _fetch_current_price(ticker: str) -> float | None:
+    """Fetch latest price via yfinance fast_info (thread-safe)."""
+    import yfinance as yf
+
+    def _get() -> float | None:
+        t = yf.Ticker(ticker)
+        return getattr(t.fast_info, "last_price", None) or getattr(t.fast_info, "previous_close", None)
+
+    try:
+        return await asyncio.to_thread(_get)
+    except Exception:
+        return None
+
+
+# ── 1. execute_trade — direct execution when executor available ──────────────
 
 
 async def _execute_trade(
     state: ActionState,
+    executor: Any | None,
+    risk_manager: Any | None,
+    db: Any | None,
+    tenant_id: str,
+    current_prices: dict[str, float],
     ticker: str,
     side: str,
     shares: float,
@@ -62,14 +92,9 @@ async def _execute_trade(
 ) -> dict:
     """Submit a trade for execution.
 
-    In the current implementation, this accumulates the trade for the orchestrator
-    to execute after the agent loop completes. The orchestrator handles:
-    1. RiskManager pre-trade checks
-    2. Telegram approval for >10% of portfolio
-    3. Alpaca execution + fill polling
-    4. Result is returned in the next session (or via Telegram)
-
-    Future: direct execution within the tool call with fill result.
+    When executor is provided (chat/MCP context), executes directly via
+    Alpaca or PaperTrader with risk checks. Otherwise accumulates for the
+    orchestrator to process post-agent-loop.
     """
     if not ticker or not side:
         return {"error": "ticker and side are required"}
@@ -81,56 +106,129 @@ async def _execute_trade(
     if shares <= 0:
         return {"error": "shares must be positive"}
 
-    trade = {
-        "ticker": ticker.upper(),
-        "side": side_upper,
-        "shares": float(shares),
-        "conviction": conviction,
-        "reason": reason[:200],
-    }
+    ticker_upper = ticker.upper()
 
-    state.executed_trades.append(trade)
-    # Also add to proposed_trades for backward compatibility with orchestrator merge
-    state.proposed_trades.append(
-        {
+    # ── Fallback: accumulate-only (orchestrator path) ─────────────────────
+    if executor is None:
+        trade = {
+            "ticker": ticker_upper,
+            "side": side_upper,
+            "shares": float(shares),
+            "conviction": conviction,
+            "reason": reason[:200],
+        }
+        state.executed_trades.append(trade)
+        state.proposed_trades.append(
+            {
+                "ticker": trade["ticker"],
+                "side": trade["side"],
+                "weight": 0.10,
+                "conviction": trade["conviction"],
+                "reason": trade["reason"],
+                "shares_requested": trade["shares"],
+            }
+        )
+        return {
+            "status": "submitted",
             "ticker": trade["ticker"],
             "side": trade["side"],
-            "weight": 0.10,  # Default weight — orchestrator computes actual from shares
-            "conviction": trade["conviction"],
-            "reason": trade["reason"],
-            "shares_requested": trade["shares"],
+            "shares": trade["shares"],
+            "message": f"Trade submitted: {trade['side']} {trade['shares']} {trade['ticker']}. "
+            f"Will execute after risk check and approval (if required).",
+            "trades_accumulated": len(state.executed_trades),
+        }
+
+    # ── Direct execution (chat/MCP path) ──────────────────────────────────
+    from src.storage.models import OrderSide, PortfolioName, TradeSchema
+
+    # 1. Resolve price
+    price = current_prices.get(ticker_upper)
+    if not price:
+        price = await _fetch_current_price(ticker_upper)
+    if not price:
+        return {"error": f"Cannot determine current price for {ticker_upper}"}
+
+    # 2. Build TradeSchema
+    trade_schema = TradeSchema(
+        portfolio=PortfolioName.B,
+        ticker=ticker_upper,
+        side=OrderSide(side_upper),
+        shares=float(shares),
+        price=price,
+        reason=reason[:200] if reason else f"Chat trade: {side_upper} {ticker_upper}",
+    )
+
+    # 3. Risk check
+    if risk_manager is not None and db is not None:
+        positions = await db.get_positions("B", tenant_id=tenant_id)
+        position_map = {p.ticker: float(p.shares) for p in positions}
+        portfolio = await db.get_portfolio("B", tenant_id=tenant_id)
+        portfolio_value = portfolio.total_value if portfolio else 0
+        cash = portfolio.cash if portfolio else 0
+
+        verdict = risk_manager.check_pre_trade([trade_schema], "B", position_map, current_prices, portfolio_value, cash)
+        if verdict.blocked:
+            blocked_reason = verdict.blocked[0][1]
+            return {"status": "blocked", "ticker": ticker_upper, "reason": blocked_reason}
+
+    # 4. Execute
+    try:
+        executed = await executor.execute_trades([trade_schema], tenant_id=tenant_id)
+    except Exception as exc:
+        log.error("chat_trade_execution_failed", ticker=ticker_upper, error=str(exc))
+        return {"status": "error", "ticker": ticker_upper, "message": f"Execution failed: {exc}"}
+
+    if not executed:
+        return {
+            "status": "rejected",
+            "ticker": ticker_upper,
+            "message": "Executor rejected the trade (insufficient cash or position).",
+        }
+
+    fill = executed[0]
+
+    # 5. Record in state for session-results.json
+    state.executed_trades.append(
+        {
+            "ticker": ticker_upper,
+            "side": side_upper,
+            "shares": float(fill.shares),
+            "price": float(fill.price),
+            "conviction": conviction,
+            "reason": reason[:200],
+            "status": "filled",
         }
     )
 
+    log.info("chat_trade_executed", ticker=ticker_upper, side=side_upper, shares=fill.shares, price=fill.price)
+
     return {
-        "status": "submitted",
-        "ticker": trade["ticker"],
-        "side": trade["side"],
-        "shares": trade["shares"],
-        "message": f"Trade submitted: {trade['side']} {trade['shares']} {trade['ticker']}. "
-        f"Will execute after risk check and approval (if required).",
-        "trades_accumulated": len(state.executed_trades),
+        "status": "filled",
+        "ticker": ticker_upper,
+        "side": side_upper,
+        "shares": float(fill.shares),
+        "price": round(float(fill.price), 2),
+        "total": round(float(fill.shares) * float(fill.price), 2),
+        "message": f"Trade executed: {side_upper} {fill.shares} {ticker_upper} @ ${fill.price:.2f}",
     }
 
 
-# ── 2. set_trailing_stop (new — explicit stop management) ───────────────────
+# ── 2. set_trailing_stop — direct DB write when db available ──────────────────
 
 
 async def _set_trailing_stop(
     state: ActionState,
+    db: Any | None,
+    tenant_id: str,
+    current_prices: dict[str, float],
     ticker: str,
     trail_pct: float,
     reason: str = "",
 ) -> dict:
     """Set or update a trailing stop for a position.
 
-    The stop is accumulated and applied by the orchestrator after the agent loop.
-
-    Args:
-        state: ActionState instance.
-        ticker: Ticker to set stop for.
-        trail_pct: Trailing stop percentage (0.03 to 0.20, e.g., 0.07 = 7%).
-        reason: Reason for the stop level.
+    When db is provided (chat/MCP context), creates the stop directly in the DB.
+    Otherwise accumulates for the orchestrator to apply post-agent-loop.
     """
     if not ticker:
         return {"error": "ticker is required"}
@@ -138,19 +236,64 @@ async def _set_trailing_stop(
     if trail_pct < 0.03 or trail_pct > 0.20:
         return {"error": f"trail_pct must be 0.03-0.20, got {trail_pct}"}
 
-    request = {
-        "ticker": ticker.upper(),
-        "trail_pct": trail_pct,
-        "reason": reason[:200],
-    }
-    state.trailing_stop_requests.append(request)
+    ticker_upper = ticker.upper()
+
+    # ── Fallback: accumulate-only (orchestrator path) ─────────────────────
+    if db is None:
+        request = {
+            "ticker": ticker_upper,
+            "trail_pct": trail_pct,
+            "reason": reason[:200],
+        }
+        state.trailing_stop_requests.append(request)
+        return {
+            "status": "ok",
+            "ticker": request["ticker"],
+            "trail_pct": trail_pct,
+            "message": f"Trailing stop set: {request['ticker']} at {trail_pct * 100:.0f}%",
+            "stops_accumulated": len(state.trailing_stop_requests),
+        }
+
+    # ── Direct creation (chat/MCP path) ───────────────────────────────────
+
+    # Validate position exists
+    positions = await db.get_positions("B", tenant_id=tenant_id)
+    pos = next((p for p in positions if p.ticker == ticker_upper), None)
+    if not pos:
+        return {"error": f"No position in {ticker_upper} to set trailing stop for"}
+
+    # Resolve price for peak
+    price = current_prices.get(ticker_upper)
+    if not price:
+        price = await _fetch_current_price(ticker_upper)
+    if not price:
+        price = float(pos.avg_price)  # Last resort: use avg entry
+
+    try:
+        await db.create_trailing_stop(
+            tenant_id=tenant_id,
+            portfolio="B",
+            ticker=ticker_upper,
+            entry_price=float(pos.avg_price),
+            trail_pct=trail_pct,
+        )
+    except Exception as exc:
+        log.error("chat_trailing_stop_failed", ticker=ticker_upper, error=str(exc))
+        return {"status": "error", "ticker": ticker_upper, "message": f"Failed to create trailing stop: {exc}"}
+
+    stop_price = round(price * (1 - trail_pct), 2)
+
+    # Record for session-results.json
+    state.trailing_stop_requests.append({"ticker": ticker_upper, "trail_pct": trail_pct, "reason": reason[:200]})
+
+    log.info("chat_trailing_stop_created", ticker=ticker_upper, trail_pct=trail_pct, stop_price=stop_price)
 
     return {
-        "status": "ok",
-        "ticker": request["ticker"],
+        "status": "created",
+        "ticker": ticker_upper,
         "trail_pct": trail_pct,
-        "message": f"Trailing stop set: {request['ticker']} at {trail_pct * 100:.0f}%",
-        "stops_accumulated": len(state.trailing_stop_requests),
+        "stop_price": stop_price,
+        "message": f"Trailing stop active: {ticker_upper} at {trail_pct * 100:.0f}% (stop=${stop_price})",
     }
 
 
@@ -460,16 +603,25 @@ def register_action_tools(
     db: Any | None = None,
     tenant_id: str = "default",
     ticker_discovery: Any | None = None,
+    executor: Any | None = None,
+    risk_manager: Any | None = None,
+    current_prices: dict[str, float] | None = None,
 ) -> None:
     """Register action tools with a per-run state container.
 
     Args:
         registry: ToolRegistry to register tools on.
         state: ActionState instance (created fresh per run).
-        db: Database instance (for order status lookups).
+        db: Database instance (for order status lookups and direct stop creation).
         tenant_id: Tenant UUID.
         ticker_discovery: TickerDiscovery instance (for discover_ticker tool).
+        executor: Trade executor (PaperTrader or AlpacaExecutor). When provided,
+            execute_trade runs directly instead of accumulating.
+        risk_manager: RiskManager instance. When provided, pre-trade risk checks
+            run before direct execution.
+        current_prices: Latest prices dict. Used for risk checks and price lookup.
     """
+    _prices = current_prices or {}
     # ── Phase 2 tools ────────────────────────────────────────────────────────
     registry.register(
         name="execute_trade",
@@ -488,7 +640,7 @@ def register_action_tools(
             },
             "required": ["ticker", "side", "shares"],
         },
-        handler=partial(_execute_trade, state),
+        handler=partial(_execute_trade, state, executor, risk_manager, db, tenant_id, _prices),
     )
 
     registry.register(
@@ -506,7 +658,7 @@ def register_action_tools(
             },
             "required": ["ticker", "trail_pct"],
         },
-        handler=partial(_set_trailing_stop, state),
+        handler=partial(_set_trailing_stop, state, db, tenant_id, _prices),
     )
 
     if db is not None:

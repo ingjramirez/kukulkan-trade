@@ -15,7 +15,7 @@ Machine-readable context for Claude. Covers market data, news pipeline, database
 | `src/data/alpaca_news.py` | AlpacaNewsFetcher: Benzinga-sourced headlines |
 | `src/data/finnhub_news.py` | FinnhubNewsFetcher: company + general news |
 | `src/data/earnings_calendar.py` | EarningsCalendar: yfinance earnings dates |
-| `src/storage/database.py` | Database class: async SQLite, all CRUD methods |
+| `src/storage/database.py` | Database class: async SQLAlchemy (PG prod, SQLite tests), all CRUD methods |
 | `src/storage/models.py` | 25 ORM models + Pydantic schemas |
 | `src/storage/vector_store.py` | ChromaDB client wrapper |
 | `config/universe.py` | 70 tickers, SECTOR_MAP, SECTOR_ETF_MAP, get_tenant_universe() |
@@ -134,7 +134,7 @@ class EarningsCalendar:
 
 ```python
 class Database:
-    def __init__(self, url: str = "sqlite+aiosqlite:///data/kukulkan.db") -> None
+    def __init__(self, url: str = "sqlite+aiosqlite:///data/kukulkan.db") -> None  # prod overrides via DATABASE_URL env
     async def init_db(self) -> None   # create_all tables
     async def close(self) -> None
     def session(self) -> AsyncSession  # context manager
