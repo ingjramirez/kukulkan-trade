@@ -112,13 +112,13 @@ class AlpacaExecutor:
         self._pending_orders.clear()
 
         for trade in sells + buys:
-            success = await self._execute_single(trade)
+            success = await self._execute_single(trade, tenant_id=tenant_id)
             if success:
                 executed.append(trade)
 
         # Reconcile timed-out orders that may have filled after timeout
         if self._pending_orders:
-            reconciled = await self._reconcile_pending_orders()
+            reconciled = await self._reconcile_pending_orders(tenant_id=tenant_id)
             executed.extend(reconciled)
 
         log.info(
@@ -167,11 +167,12 @@ class AlpacaExecutor:
         log.warning("alpaca_fill_timeout", order_id=order_id, timeout=self._fill_timeout)
         return {"status": "timeout", "filled_qty": 0.0, "filled_avg_price": None}
 
-    async def _execute_single(self, trade: TradeSchema) -> bool:
+    async def _execute_single(self, trade: TradeSchema, tenant_id: str = "default") -> bool:
         """Execute a single trade via Alpaca with fill verification.
 
         Args:
             trade: Validated trade signal.
+            tenant_id: Tenant UUID for DB state updates.
 
         Returns:
             True if executed successfully (filled or partially filled).
@@ -245,6 +246,7 @@ class AlpacaExecutor:
                 filled_shares=filled_qty,
                 fill_price=fill_price,
                 reason=trade.reason,
+                tenant_id=tenant_id,
             )
 
             return True
@@ -266,6 +268,7 @@ class AlpacaExecutor:
         filled_shares: float,
         fill_price: float,
         reason: str,
+        tenant_id: str = "default",
     ) -> None:
         """Update DB portfolio, positions, and trade log after a fill.
 
@@ -276,12 +279,13 @@ class AlpacaExecutor:
             filled_shares: Actual filled quantity.
             fill_price: Actual average fill price.
             reason: Trade reason string.
+            tenant_id: Tenant UUID for data isolation.
         """
-        portfolio = await self._db.get_portfolio(portfolio_name)
+        portfolio = await self._db.get_portfolio(portfolio_name, tenant_id=tenant_id)
         if portfolio is None:
             return
 
-        positions = await self._db.get_positions(portfolio_name)
+        positions = await self._db.get_positions(portfolio_name, tenant_id=tenant_id)
         position_map = {p.ticker: p for p in positions}
 
         if side == "BUY":
@@ -291,25 +295,27 @@ class AlpacaExecutor:
                 total_shares = existing.shares + filled_shares
                 total_cost = (existing.shares * existing.avg_price) + cost
                 new_avg = total_cost / total_shares
-                await self._db.upsert_position(portfolio_name, ticker, total_shares, new_avg)
+                await self._db.upsert_position(portfolio_name, ticker, total_shares, new_avg, tenant_id=tenant_id)
             else:
-                await self._db.upsert_position(portfolio_name, ticker, filled_shares, fill_price)
+                await self._db.upsert_position(portfolio_name, ticker, filled_shares, fill_price, tenant_id=tenant_id)
             await self._db.upsert_portfolio(
                 portfolio_name,
                 cash=portfolio.cash - cost,
                 total_value=portfolio.total_value,
+                tenant_id=tenant_id,
             )
         elif side == "SELL":
             existing = position_map.get(ticker)
             if existing is None:
                 return
             remaining = existing.shares - filled_shares
-            await self._db.upsert_position(portfolio_name, ticker, remaining, existing.avg_price)
+            await self._db.upsert_position(portfolio_name, ticker, remaining, existing.avg_price, tenant_id=tenant_id)
             proceeds = filled_shares * fill_price
             await self._db.upsert_portfolio(
                 portfolio_name,
                 cash=portfolio.cash + proceeds,
                 total_value=portfolio.total_value,
+                tenant_id=tenant_id,
             )
 
         # Log trade
@@ -320,10 +326,14 @@ class AlpacaExecutor:
             shares=filled_shares,
             price=fill_price,
             reason=reason,
+            tenant_id=tenant_id,
         )
 
-    async def _reconcile_pending_orders(self) -> list[TradeSchema]:
+    async def _reconcile_pending_orders(self, tenant_id: str = "default") -> list[TradeSchema]:
         """Check timed-out orders for late fills and log them to DB.
+
+        Args:
+            tenant_id: Tenant UUID for data isolation.
 
         Returns:
             List of trades that were reconciled (filled after timeout).
@@ -352,6 +362,7 @@ class AlpacaExecutor:
                         filled_shares=filled_qty,
                         fill_price=fill_price,
                         reason=trade.reason,
+                        tenant_id=tenant_id,
                     )
                     reconciled.append(trade)
                     log.info(
@@ -384,7 +395,7 @@ class AlpacaExecutor:
         )
         return reconciled
 
-    async def sync_positions(self) -> dict[str, list[dict]]:
+    async def sync_positions(self, tenant_id: str = "default") -> dict[str, list[dict]]:
         """Sync DB positions to match Alpaca's actual state.
 
         Alpaca is the source of truth. When drift is detected, DB is
@@ -392,6 +403,9 @@ class AlpacaExecutor:
         already owns them in the DB; unknown positions default to B.
 
         Also syncs portfolio cash from the Alpaca account balance.
+
+        Args:
+            tenant_id: Tenant UUID for data isolation.
 
         Returns:
             Dict with 'alpaca', 'drift', and 'corrections' keys.
@@ -421,7 +435,7 @@ class AlpacaExecutor:
         # Build DB position map: ticker -> (portfolio, shares, avg_price)
         db_positions: dict[str, dict] = {}
         for pname in ("A", "B"):
-            positions = await self._db.get_positions(pname)
+            positions = await self._db.get_positions(pname, tenant_id=tenant_id)
             for p in positions:
                 if p.ticker not in db_positions:
                     db_positions[p.ticker] = {
@@ -464,6 +478,7 @@ class AlpacaExecutor:
                 ticker,
                 alpaca_qty,
                 avg_price,
+                tenant_id=tenant_id,
             )
             corrections.append(
                 {

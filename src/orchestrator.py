@@ -612,7 +612,7 @@ class Orchestrator:
         sync_result: dict | None = None
         if hasattr(self._executor, "sync_positions"):
             try:
-                sync_result = await self._executor.sync_positions()
+                sync_result = await self._executor.sync_positions(tenant_id=tenant_id)
             except Exception as e:
                 log.warning("position_sync_failed", error=str(e))
                 sync_result = {"alpaca": [], "drift": [], "corrections": [], "error": str(e)}
@@ -2199,8 +2199,16 @@ class Orchestrator:
         if abs(drift) <= RECONCILE_THRESHOLD:
             return None
 
-        # Positive drift above deposit threshold — let _detect_deposits handle it
-        if drift > DEPOSIT_THRESHOLD:
+        # Drift magnitude above deposit threshold — too large for cash reconciliation.
+        # Positive: likely a deposit (handled by _detect_deposits).
+        # Negative: likely position value changes, not cash drift.
+        if abs(drift) > DEPOSIT_THRESHOLD:
+            log.warning(
+                "equity_drift_too_large",
+                drift=round(drift, 2),
+                threshold=DEPOSIT_THRESHOLD,
+                tenant_id=tenant_id,
+            )
             return None
 
         # Distribute drift proportionally across enabled portfolio cash

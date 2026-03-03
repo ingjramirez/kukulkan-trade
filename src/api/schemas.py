@@ -49,6 +49,8 @@ class PortfolioDetail(BaseModel):
     name: str
     cash: float
     total_value: float
+    initial_value: float | None = None
+    return_pct: float | None = None
     updated_at: UTCDatetime | None = None
     positions: list["PositionResponse"]
 

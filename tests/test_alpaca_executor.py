@@ -718,6 +718,85 @@ class TestAlpacaSyncPositionsFix:
         assert port_b.cash == 66_000.0
 
 
+class TestAlpacaExecutorTenantId:
+    """Tests that tenant_id propagates through execute → _update_portfolio_state."""
+
+    async def test_buy_updates_correct_tenant(self, db: Database, mock_client) -> None:
+        """BUY via execute_trades updates the specified tenant's portfolio."""
+        await db.ensure_tenant("t1")
+        executor = AlpacaExecutor(db, mock_client)
+        await executor.initialize_portfolios(tenant_id="t1")
+
+        trade = _make_trade(ticker="XLK", side=OrderSide.BUY, shares=10, price=200.0)
+        executed = await executor.execute_trades([trade], tenant_id="t1")
+
+        assert len(executed) == 1
+
+        # Tenant t1 should have the position
+        positions = await db.get_positions("A", tenant_id="t1")
+        assert len(positions) == 1
+        assert positions[0].ticker == "XLK"
+
+        # Default tenant should have no positions
+        default_positions = await db.get_positions("A")
+        assert len(default_positions) == 0
+
+    async def test_sell_updates_correct_tenant(self, db: Database, mock_client) -> None:
+        """SELL via execute_trades updates the specified tenant's portfolio."""
+        await db.ensure_tenant("t1")
+        executor = AlpacaExecutor(db, mock_client)
+        await executor.initialize_portfolios(tenant_id="t1")
+        await db.upsert_position("A", "XLK", 20, 200.0, tenant_id="t1")
+
+        mock_client.get_order_by_id.return_value = _mock_order(
+            filled_avg_price=210.0, status="filled", filled_qty=10,
+        )
+
+        trade = _make_trade(ticker="XLK", side=OrderSide.SELL, shares=10, price=210.0)
+        executed = await executor.execute_trades([trade], tenant_id="t1")
+
+        assert len(executed) == 1
+
+        # Tenant t1 should have reduced shares
+        positions = await db.get_positions("A", tenant_id="t1")
+        assert positions[0].shares == 10
+
+        # Cash should increase with proceeds
+        portfolio = await db.get_portfolio("A", tenant_id="t1")
+        assert portfolio.cash > 33_000.0
+
+    async def test_sync_positions_with_tenant_id(self, db: Database, mock_client) -> None:
+        """sync_positions uses the specified tenant's data."""
+        await db.ensure_tenant("t1")
+        executor = AlpacaExecutor(db, mock_client, fill_timeout=2, fill_poll_interval=0.01)
+        await executor.initialize_portfolios(tenant_id="t1")
+        await db.upsert_position("B", "XLE", 222, 53.0, tenant_id="t1")
+
+        # Alpaca shows 111 XLE
+        mock_pos = MagicMock()
+        mock_pos.symbol = "XLE"
+        mock_pos.qty = "111"
+        mock_pos.avg_entry_price = "54.0"
+        mock_client.get_all_positions.return_value = [mock_pos]
+
+        mock_account = MagicMock()
+        mock_account.cash = "9000.0"
+        mock_client.get_account.return_value = mock_account
+
+        result = await executor.sync_positions(tenant_id="t1")
+
+        assert len(result["corrections"]) == 1
+
+        # Tenant t1 position should be corrected
+        positions = await db.get_positions("B", tenant_id="t1")
+        xle = next(p for p in positions if p.ticker == "XLE")
+        assert xle.shares == 111
+
+        # Default tenant should be unaffected
+        default_positions = await db.get_positions("B")
+        assert len(default_positions) == 0
+
+
 class TestAlpacaExecutorInterface:
     async def test_same_interface_as_paper_trader(self) -> None:
         """AlpacaExecutor has the same 3 methods as PaperTrader."""

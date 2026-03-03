@@ -16,6 +16,7 @@ from src.storage.models import (
     MomentumRankingRow,
     PortfolioRow,
     PositionRow,
+    TenantRow,
     TradeRow,
 )
 
@@ -241,6 +242,27 @@ async def test_get_portfolio_detail(client):
     assert data["cash"] == 30000.0
     assert len(data["positions"]) == 1
     assert data["positions"][0]["ticker"] == "AAPL"
+
+
+async def test_get_portfolio_detail_with_initial_value(seeded_db, client):
+    """Portfolio detail includes initial_value and return_pct when tenant has initial_equity."""
+    async with seeded_db.session() as s:
+        await s.merge(
+            TenantRow(
+                id="default",
+                name="Test",
+                initial_equity=100000.0,
+                portfolio_a_pct=33.33,
+                portfolio_b_pct=66.67,
+            )
+        )
+        await s.commit()
+    r = await client.get("/api/portfolios/A")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["initial_value"] == 33330.0
+    # return_pct = (35000 - 33330) / 33330 * 100 ≈ 5.01%
+    assert abs(data["return_pct"] - 5.01) < 0.1
 
 
 async def test_get_portfolio_not_found(client):

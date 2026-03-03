@@ -149,10 +149,23 @@ async def get_portfolio(
     if not portfolio:
         raise HTTPException(status_code=404, detail="Portfolio not found")
     positions = await db.get_positions(name, tenant_id=tenant_id)
+
+    # Compute initial_value from tenant config
+    initial_value: float | None = None
+    return_pct: float | None = None
+    tenant = await db.get_tenant(tenant_id)
+    if tenant and tenant.initial_equity:
+        pct = tenant.portfolio_a_pct if name == "A" else tenant.portfolio_b_pct
+        initial_value = round(tenant.initial_equity * pct / 100, 2)
+        if initial_value > 0:
+            return_pct = round((portfolio.total_value - initial_value) / initial_value * 100, 2)
+
     return PortfolioDetail(
         name=portfolio.name,
         cash=portfolio.cash,
         total_value=portfolio.total_value,
+        initial_value=initial_value,
+        return_pct=return_pct,
         updated_at=portfolio.updated_at,
         positions=[
             PositionResponse(

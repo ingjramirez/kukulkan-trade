@@ -391,14 +391,15 @@ class TestReconcileEquity:
         assert abs(pb.total_value - 66030) < 0.01
         assert abs(pb.cash - 20030) < 0.01
 
-    async def test_reconcile_large_negative_drift(
+    async def test_reconcile_skips_large_negative_drift(
         self,
         orch: Orchestrator,
         db: Database,
     ) -> None:
-        """Large negative drift (tracked > Alpaca by $200) is corrected.
+        """Large negative drift (tracked > Alpaca by $200) is skipped.
 
-        Negative drift has no deposit threshold guard.
+        Drift magnitude above DEPOSIT_THRESHOLD ($50) is too large for
+        cash reconciliation — likely position value changes, not cash drift.
         """
         await db.upsert_portfolio("A", cash=10000, total_value=33000)
         await db.upsert_portfolio("B", cash=20000, total_value=66000)
@@ -409,7 +410,7 @@ class TestReconcileEquity:
             portfolio_b_pct=66.67,
         )
 
-        # Drift = -200
+        # Drift = -200 (above threshold)
         mock_client = MagicMock()
         mock_client.get_account.return_value = _make_alpaca_account(98800)
         orch._executor = MagicMock()
@@ -422,10 +423,46 @@ class TestReconcileEquity:
             allocations=alloc,
         )
 
+        assert drift is None
+
+        # Cash unchanged — no correction applied
+        pa = await db.get_portfolio("A")
+        pb = await db.get_portfolio("B")
+        assert pa.cash == 10000
+        assert pb.cash == 20000
+
+    async def test_reconcile_negative_within_range(
+        self,
+        orch: Orchestrator,
+        db: Database,
+    ) -> None:
+        """Negative drift within $10-$50 range is corrected."""
+        await db.upsert_portfolio("A", cash=10000, total_value=33000)
+        await db.upsert_portfolio("B", cash=20000, total_value=66000)
+
+        alloc = resolve_allocations(
+            initial_equity=99000,
+            portfolio_a_pct=33.33,
+            portfolio_b_pct=66.67,
+        )
+
+        # Drift = -25 (within range)
+        mock_client = MagicMock()
+        mock_client.get_account.return_value = _make_alpaca_account(98975)
+        orch._executor = MagicMock()
+        orch._executor._client = mock_client
+
+        drift = await orch._reconcile_equity(
+            "default",
+            run_portfolio_a=True,
+            run_portfolio_b=True,
+            allocations=alloc,
+        )
+
         assert drift is not None
-        assert abs(drift - (-200.0)) < 0.01
+        assert abs(drift - (-25.0)) < 0.01
 
         pa = await db.get_portfolio("A")
         pb = await db.get_portfolio("B")
-        total_adj = (pa.total_value - 33000) + (pb.total_value - 66000)
-        assert abs(total_adj - (-200.0)) < 0.01
+        assert pa.cash < 10000
+        assert pb.cash < 20000
