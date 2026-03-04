@@ -496,12 +496,43 @@ class AlpacaExecutor:
                 new_qty=alpaca_qty,
             )
 
-        # Log Alpaca cash for reference (but do NOT override portfolio cash —
-        # each portfolio tracks its own cash through trade execution)
+        # Sync cash from Alpaca when drift is detected.
+        # Position corrections change portfolio value without touching cash,
+        # creating a permanent leak. Use Alpaca as cash source of truth and
+        # redistribute proportionally across portfolios.
         try:
             account = self._client.get_account()
             alpaca_cash = float(account.cash)
             log.info("alpaca_cash_reference", total_cash=alpaca_cash)
+
+            if drift:
+                # Redistribute Alpaca cash proportionally across portfolios
+                port_a = await self._db.get_portfolio("A", tenant_id=tenant_id)
+                port_b = await self._db.get_portfolio("B", tenant_id=tenant_id)
+                if port_a and port_b:
+                    tracked_cash = port_a.cash + port_b.cash
+                    cash_diff = alpaca_cash - tracked_cash
+                    if abs(cash_diff) > 1.0:
+                        # Use tenant allocation percentages
+                        tenant = await self._db.get_tenant(tenant_id)
+                        a_pct = tenant.portfolio_a_pct / 100 if tenant else 0.3333
+                        b_pct = tenant.portfolio_b_pct / 100 if tenant else 0.6667
+                        new_a_cash = round(alpaca_cash * a_pct, 2)
+                        new_b_cash = round(alpaca_cash * b_pct, 2)
+                        await self._db.upsert_portfolio(
+                            "A", cash=new_a_cash, total_value=port_a.total_value, tenant_id=tenant_id,
+                        )
+                        await self._db.upsert_portfolio(
+                            "B", cash=new_b_cash, total_value=port_b.total_value, tenant_id=tenant_id,
+                        )
+                        log.info(
+                            "cash_synced_from_alpaca",
+                            alpaca_cash=alpaca_cash,
+                            tracked_cash=round(tracked_cash, 2),
+                            diff=round(cash_diff, 2),
+                            new_a_cash=new_a_cash,
+                            new_b_cash=new_b_cash,
+                        )
         except Exception as e:
             log.warning("alpaca_cash_read_failed", error=str(e))
 
