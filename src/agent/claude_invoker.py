@@ -334,16 +334,14 @@ class ClaudeInvoker:
         self._chat_session_id_file = self._workspace / ".chat-session-id"
 
     def _get_daily_session_id(self, today: date) -> str | None:
-        """Read today's session ID from file (survives process restarts)."""
+        """Read the persistent session ID (no date expiry — sessions live forever)."""
         if not self._session_id_file.exists():
             return None
         try:
             data = json.loads(self._session_id_file.read_text())
-            if data.get("date") == today.isoformat():
-                return data.get("session_id")
+            return data.get("session_id")
         except (json.JSONDecodeError, KeyError):
-            pass
-        return None
+            return None
 
     def _save_daily_session_id(self, today: date, session_id: str) -> None:
         """Persist session ID for --resume across invocations."""
@@ -351,10 +349,10 @@ class ClaudeInvoker:
         self._session_id_file.write_text(json.dumps(data))
 
     def _clear_daily_session_id(self, today: date) -> None:
-        """Remove stale session ID so the next invocation starts fresh."""
+        """Remove session ID so the next invocation starts fresh."""
         if self._session_id_file.exists():
             self._session_id_file.unlink()
-            log.info("chat_session_id_cleared", date=today.isoformat(), tenant_id=self._tenant_id)
+            log.info("session_id_cleared", tenant_id=self._tenant_id)
 
     def _get_chat_session_id(self) -> str | None:
         """Read the persistent chat session ID (no date expiry)."""
@@ -435,9 +433,10 @@ class ClaudeInvoker:
 
         today = today or date.today()
 
-        # Session strategy: morning starts new, midday/close resume
-        is_new = session_type == "morning" or self._get_daily_session_id(today) is None
-        session_id = None if is_new else self._get_daily_session_id(today)
+        # Always resume the existing session to preserve full conversation history.
+        # Only start new if no session exists yet.
+        session_id = self._get_daily_session_id(today)
+        is_new = session_id is None
 
         # Generate mcp.json with resolved paths for this tenant
         self._write_mcp_config()
@@ -480,6 +479,28 @@ class ClaudeInvoker:
 
             # Parse CLI JSON output
             response = self._parse_response(result.stdout)
+
+            # Detect "empty message" failures: Claude misread the prompt on resume
+            if session_id and self._is_empty_message_response(response):
+                log.warning(
+                    "claude_resume_empty_message_detected",
+                    session_id=session_id,
+                    session_type=session_type,
+                )
+                # Retry on the same session with a reinforced prompt
+                retry_cmd = self._build_retry_cmd(session_type, session_id)
+                if results_path.exists():
+                    results_path.unlink()
+                result = await asyncio.to_thread(
+                    _run_with_kill,
+                    retry_cmd,
+                    env,
+                    self._timeout,
+                    cwd=str(self._root_workspace),
+                )
+                if result.returncode == 0:
+                    response = self._parse_response(result.stdout)
+                    log.info("claude_resume_retry_succeeded", session_type=session_type)
 
             # Extract metadata (session_id, turns, duration) from CLI wrapper
             meta = self._extract_cli_metadata(result.stdout)
@@ -543,6 +564,56 @@ class ClaudeInvoker:
         if session_id:
             cmd.extend(["--resume", session_id])
 
+        return cmd
+
+    # ── Empty-message detection & retry ──────────────────────────────────
+
+    _EMPTY_MESSAGE_PATTERNS = (
+        "message came through empty",
+        "your message is empty",
+        "didn't receive a message",
+        "empty message",
+        "what do you need",
+        "how can i help",
+    )
+
+    def _is_empty_message_response(self, response: dict) -> bool:
+        """Detect when Claude misread the prompt as empty on resume."""
+        reasoning = (response.get("reasoning") or "").lower()
+        if not reasoning:
+            return False
+        # No trades + reasoning matches a confused/empty pattern
+        if response.get("trades"):
+            return False
+        return any(p in reasoning for p in self._EMPTY_MESSAGE_PATTERNS)
+
+    def _build_retry_cmd(self, session_type: str, session_id: str) -> list[str]:
+        """Build a retry command with a more explicit prompt after empty-message failure."""
+        prompt = (
+            f"[RETRY — previous prompt was not received] "
+            f"This is a {session_type} trading session. "
+            f"Read context.md in your workspace for the latest market data, portfolio positions, "
+            f"and regime analysis. Analyze the current state and return your trading decision "
+            f"as JSON matching the Output Format in CLAUDE.md."
+        )
+
+        cmd = [
+            "claude",
+            "-p",
+            prompt,
+            "--output-format",
+            "json",
+            "--mcp-config",
+            str(self._workspace / "mcp.json"),
+            "--allowedTools",
+            "mcp__kukulkan__*",
+            "--max-turns",
+            str(self._max_turns),
+            "--model",
+            self._model,
+            "--resume",
+            session_id,
+        ]
         return cmd
 
     def _ensure_session_state(self) -> None:

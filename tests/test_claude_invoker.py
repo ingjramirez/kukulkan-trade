@@ -460,8 +460,23 @@ class TestClaudeInvoker:
         invoker._save_daily_session_id(today, "sess-abc")
         assert invoker._get_daily_session_id(today) == "sess-abc"
 
-        # Different day returns None
-        assert invoker._get_daily_session_id(date(2024, 6, 16)) is None
+        # Sessions persist across dates (no date expiry)
+        assert invoker._get_daily_session_id(date(2024, 6, 16)) == "sess-abc"
+
+    def test_empty_message_detection(self, tmp_path: Path):
+        invoker = ClaudeInvoker(workspace=tmp_path)
+        # Confused response with no trades → detected
+        assert invoker._is_empty_message_response(
+            {"reasoning": "It looks like your message came through empty. What do you need?", "trades": []}
+        )
+        # Normal response with reasoning → not detected
+        assert not invoker._is_empty_message_response(
+            {"reasoning": "Holding positions, market is consolidating.", "trades": []}
+        )
+        # Response with trades → never flagged even if reasoning matches
+        assert not invoker._is_empty_message_response(
+            {"reasoning": "empty message but trading anyway", "trades": [{"ticker": "NVDA"}]}
+        )
 
     def test_read_session_results(self, tmp_path: Path):
         invoker = ClaudeInvoker(workspace=tmp_path)
