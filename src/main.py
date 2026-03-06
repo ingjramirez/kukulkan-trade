@@ -756,6 +756,29 @@ async def run_scheduled() -> None:
         name="Kukulkan Gap Risk Alert",
     )
 
+    # Market data cache: refresh OHLCV data every 10 min so signal engine has fresh data
+    from src.data.market_data import MarketDataFetcher
+
+    _market_fetcher = MarketDataFetcher(db)
+
+    async def market_data_cache_job():
+        from datetime import date as _date
+
+        today = _date.today()
+        if not is_market_open(today):
+            return
+        try:
+            await _market_fetcher.fetch_and_cache(period="6mo")
+        except Exception as e:
+            log.error("market_data_cache_failed", error=str(e))
+
+    scheduler.add_job(
+        market_data_cache_job,
+        CronTrigger(minute="1,*/10", hour="9-16", day_of_week="mon-fri", timezone="US/Eastern"),
+        id="market_data_cache",
+        name="Kukulkan Market Data Cache (10-min OHLCV refresh)",
+    )
+
     # Signal engine: rank all tickers every 10 min during market hours (zero API cost)
     # Hoisted outside job so _prev_ranks state persists across invocations
     from src.analysis.signal_engine import SignalEngine, signals_to_db_rows
@@ -780,6 +803,7 @@ async def run_scheduled() -> None:
                 try:
                     closes, volumes = await db.get_cached_closes_and_volumes()
                     if closes.empty:
+                        log.warning("signal_engine_no_market_data", tenant_id=tenant.id)
                         continue
                     signals = await engine.run(tenant.id, closes, volumes)
                     if signals:
@@ -813,9 +837,9 @@ async def run_scheduled() -> None:
 
     scheduler.add_job(
         signal_engine_job,
-        CronTrigger(minute="*/10", hour="9-16", day_of_week="mon-fri", timezone="US/Eastern"),
+        CronTrigger(minute="3,13,23,33,43,53", hour="9-16", day_of_week="mon-fri", timezone="US/Eastern"),
         id="signal_engine",
-        name="Kukulkan Signal Engine (10-min ticker ranking)",
+        name="Kukulkan Signal Engine (10-min ticker ranking, offset +3 min from cache)",
     )
 
     # Fear & Greed Index: fetch twice daily (9:30 AM + 4:30 PM ET)
