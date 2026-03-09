@@ -173,6 +173,7 @@ async def run_scheduled() -> None:
             ),
             id=f"pipeline_{label}",
             name=f"Kukulkan {session_name}",
+            misfire_grace_time=120,
         )
 
     # Intraday snapshots: every 15 min during market hours (Mon-Fri 9:30-16:00 ET)
@@ -430,6 +431,7 @@ async def run_scheduled() -> None:
         ),
         id="sentinel_checks",
         name="Kukulkan Sentinel Checks",
+        misfire_grace_time=120,
     )
 
     # Extended hours sentinel: pre-market (7:00-9:00 ET) and after-hours (16:30-19:30 ET)
