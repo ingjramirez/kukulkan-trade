@@ -345,6 +345,7 @@ class ClaudeInvoker:
 
     def _save_daily_session_id(self, today: date, session_id: str) -> None:
         """Persist session ID for --resume across invocations."""
+        self._workspace.mkdir(parents=True, exist_ok=True)
         data = {"date": today.isoformat(), "session_id": session_id}
         self._session_id_file.write_text(json.dumps(data))
 
