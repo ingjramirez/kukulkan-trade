@@ -1,7 +1,7 @@
 """Async database setup and CRUD operations (SQLite for dev/test, PostgreSQL for production)."""
 
 import json
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import structlog
@@ -141,7 +141,7 @@ class Database:
             if existing:
                 existing.cash = cash
                 existing.total_value = total_value
-                existing.updated_at = datetime.utcnow()
+                existing.updated_at = datetime.now(timezone.utc)
             else:
                 s.add(
                     PortfolioRow(
@@ -195,7 +195,7 @@ class Database:
             elif existing:
                 existing.shares = shares
                 existing.avg_price = avg_price
-                existing.updated_at = datetime.utcnow()
+                existing.updated_at = datetime.now(timezone.utc)
             elif shares > 0:
                 s.add(
                     PositionRow(
@@ -233,7 +233,7 @@ class Database:
                 if price is not None:
                     p.current_price = price
                     p.market_value = p.shares * price
-                    p.updated_at = datetime.utcnow()
+                    p.updated_at = datetime.now(timezone.utc)
             await s.commit()
 
     # ── Trade Log ────────────────────────────────────────────────────────
@@ -630,7 +630,7 @@ class Database:
             if existing:
                 existing.content = content
                 existing.expires_at = expires_at
-                existing.created_at = datetime.utcnow()
+                existing.created_at = datetime.now(timezone.utc)
             else:
                 s.add(
                     AgentMemoryRow(
@@ -649,7 +649,7 @@ class Database:
             result = await s.execute(
                 select(AgentMemoryRow).where(
                     AgentMemoryRow.expires_at.isnot(None),
-                    AgentMemoryRow.expires_at <= datetime.utcnow(),
+                    AgentMemoryRow.expires_at <= datetime.now(timezone.utc),
                 )
             )
             expired = list(result.scalars().all())
@@ -688,7 +688,7 @@ class Database:
         """Create or replace a trailing stop for a position."""
         peak_price = entry_price
         stop_price = peak_price * (1 - trail_pct)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         async with self.session() as s:
             # Delete existing stop for same tenant/portfolio/ticker (unique constraint)
             existing = (
@@ -757,7 +757,7 @@ class Database:
                 row.stop_price = stop_price
             if is_active is not None:
                 row.is_active = is_active
-            row.updated_at = datetime.utcnow()
+            row.updated_at = datetime.now(timezone.utc)
             await s.commit()
 
     async def deactivate_trailing_stop(self, stop_id: int) -> None:
@@ -782,7 +782,7 @@ class Database:
             )
             for row in result.scalars().all():
                 row.is_active = False
-                row.updated_at = datetime.utcnow()
+                row.updated_at = datetime.now(timezone.utc)
             await s.commit()
 
     async def update_trailing_stop_pct(
@@ -811,7 +811,7 @@ class Database:
             ).scalar_one_or_none()
             if row is None:
                 return False
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             row.trail_pct = trail_pct
             row.stop_price = round(row.peak_price * (1 - trail_pct), 2)
             row.updated_at = now
@@ -840,14 +840,14 @@ class Database:
             ).scalar_one_or_none()
             if existing:
                 existing.source = source
-                existing.fetched_at = datetime.utcnow()
+                existing.fetched_at = datetime.now(timezone.utc)
             else:
                 s.add(
                     EarningsCalendarRow(
                         ticker=ticker,
                         earnings_date=earnings_date,
                         source=source,
-                        fetched_at=datetime.utcnow(),
+                        fetched_at=datetime.now(timezone.utc),
                     )
                 )
             await s.commit()
@@ -1066,7 +1066,7 @@ class Database:
         """Delete intraday snapshots older than N days. Returns count deleted."""
         from datetime import timedelta
 
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         async with self.session() as s:
             result = await s.execute(
                 select(IntradaySnapshotRow).where(
@@ -1238,7 +1238,7 @@ class Database:
         """
         if not cells:
             return
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         async with self.session() as s:
             for cell in cells:
                 s.add(
@@ -1299,7 +1299,7 @@ class Database:
         """
         if not buckets:
             return
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         async with self.session() as s:
             for bucket in buckets:
                 s.add(
@@ -1501,7 +1501,7 @@ class Database:
         """Get recent changes for a specific parameter (for flip-flop detection)."""
         from datetime import timedelta
 
-        cutoff = datetime.utcnow() - timedelta(weeks=weeks)
+        cutoff = datetime.now(timezone.utc) - timedelta(weeks=weeks)
         async with self.session() as s:
             result = await s.execute(
                 select(ParameterChangelogRow)
@@ -1579,7 +1579,7 @@ class Database:
             for key, value in updates.items():
                 if hasattr(row, key) and value is not None:
                     setattr(row, key, value)
-            row.updated_at = datetime.utcnow()
+            row.updated_at = datetime.now(timezone.utc)
             await s.commit()
             await s.refresh(row)
         log.info("tenant_updated", tenant_id=tenant_id, fields=list(updates.keys()))
@@ -1596,7 +1596,7 @@ class Database:
             if row is None:
                 return False
             row.is_active = False
-            row.updated_at = datetime.utcnow()
+            row.updated_at = datetime.now(timezone.utc)
             await s.commit()
         log.info("tenant_deactivated", tenant_id=tenant_id)
         return True
@@ -1693,7 +1693,7 @@ class Database:
                 return False
             row.status = status
             row.resolved_by = resolved_by
-            row.resolved_at = datetime.utcnow()
+            row.resolved_at = datetime.now(timezone.utc)
             await s.commit()
             return True
 
@@ -1748,7 +1748,7 @@ class Database:
         """Delete signal data older than keep_hours. Returns rows deleted."""
         from datetime import timedelta
 
-        cutoff = datetime.utcnow() - timedelta(hours=keep_hours)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=keep_hours)
         async with self.session() as s:
             result = await s.execute(
                 delete(TickerSignalRow).where(
@@ -1809,7 +1809,7 @@ class Database:
                     value=value,
                     classification=classification,
                     sub_indicators=sub_indicators,
-                    fetched_at=datetime.utcnow(),
+                    fetched_at=datetime.now(timezone.utc),
                 )
             )
             await s.commit()
@@ -1861,7 +1861,7 @@ class Database:
                 role=role,
                 content=content,
                 tool_calls_json=tool_calls_json,
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
             )
             s.add(row)
             await s.flush()
@@ -1885,7 +1885,7 @@ class Database:
         Returns:
             List of ChatMessageRow ordered by created_at asc.
         """
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         async with self.session() as s:
             stmt = (
                 select(ChatMessageRow)

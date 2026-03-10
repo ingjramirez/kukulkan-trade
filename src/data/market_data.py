@@ -4,7 +4,7 @@ Provides OHLCV data for the full ticker universe with caching to SQLite.
 """
 
 import asyncio
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import pandas as pd
 import structlog
@@ -200,7 +200,7 @@ async def get_extended_hours_prices(tickers: list[str]) -> dict[str, float]:
     Uses yfinance fast_info with a 5-minute TTL cache to avoid
     excessive API calls during extended hours monitoring.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     results: dict[str, float] = {}
     tickers_to_fetch: list[str] = []
 
@@ -227,7 +227,7 @@ async def get_extended_hours_prices(tickers: list[str]) -> dict[str, float]:
             return prices
 
         fetched = await asyncio.to_thread(_fetch)
-        fetch_time = datetime.utcnow()
+        fetch_time = datetime.now(timezone.utc)
         for ticker, price in fetched.items():
             results[ticker] = price
             _price_cache[ticker] = (price, fetch_time)

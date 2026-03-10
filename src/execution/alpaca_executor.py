@@ -5,7 +5,7 @@ Same 3-method interface as PaperTrader.
 """
 
 import asyncio
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
 
 import structlog
@@ -191,7 +191,7 @@ class AlpacaExecutor:
                 qty=qty,
                 side=side,
                 time_in_force=tif,
-                client_order_id=f"kk-{portfolio_name}-{trade.ticker}-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+                client_order_id=f"kk-{portfolio_name}-{trade.ticker}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
             )
             order = self._client.submit_order(order_request)
 

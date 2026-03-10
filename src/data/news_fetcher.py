@@ -5,7 +5,7 @@ stores embeddings in ChromaDB, and logs to the news_log table.
 """
 
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import structlog
@@ -114,7 +114,7 @@ class NewsFetcher:
                     date_val = pub.date() if hasattr(pub, "date") else pub
                     meta["published_at"] = date_val.isoformat() if hasattr(date_val, "isoformat") else str(date_val)
                 else:
-                    meta["published_at"] = datetime.utcnow().date().isoformat()
+                    meta["published_at"] = datetime.now(timezone.utc).date().isoformat()
                 if article.get("region"):
                     meta["region"] = article["region"]
                 if article.get("signal"):

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pandas as pd
 import structlog
@@ -63,7 +63,7 @@ class TickerSignal:
     bollinger_pct_b: float
     volume_ratio: float
     alerts: list[str] = field(default_factory=list)
-    scored_at: datetime = field(default_factory=lambda: datetime.utcnow())
+    scored_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class SignalEngine:
@@ -141,7 +141,7 @@ class SignalEngine:
         # Rank velocity
         prev_ranks = self._prev_ranks.get(tenant_id, {})
         prev_time = self._prev_run_time.get(tenant_id)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         hours_elapsed = 1.0
         if prev_time:
             elapsed = (now - prev_time).total_seconds() / 3600
@@ -481,7 +481,7 @@ def db_rows_to_signals(rows: list[TickerSignalRow]) -> list[TickerSignal]:
             bollinger_pct_b=r.bollinger_pct_b or 0.5,
             volume_ratio=r.volume_ratio or 1.0,
             alerts=json.loads(r.alerts) if r.alerts else [],
-            scored_at=r.scored_at if r.scored_at else datetime.utcnow(),
+            scored_at=r.scored_at if r.scored_at else datetime.now(timezone.utc),
         )
         for r in rows
     ]

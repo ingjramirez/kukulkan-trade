@@ -4,7 +4,7 @@ Provides tiered memory (short-term, weekly summaries, agent notes)
 that fits within ~1,600 tokens of context per agent call.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import structlog
 
@@ -176,7 +176,7 @@ class AgentMemoryManager:
             return
 
         # Build the week key
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         week_key = f"week_{now.strftime('%Y-%W')}"
 
         # Combine short-term memories into context
