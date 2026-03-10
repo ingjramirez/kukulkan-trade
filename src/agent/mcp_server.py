@@ -135,7 +135,7 @@ async def _init_registry(state: dict) -> ToolRegistry:
         risk_manager = RiskManager()
 
         tenant = await db.get_tenant(tenant_id)
-        if tenant and getattr(tenant, "credentials", None):
+        if tenant and tenant.alpaca_api_key_enc:
             try:
                 from src.execution.alpaca_executor import AlpacaExecutor
                 from src.execution.client_factory import AlpacaClientFactory

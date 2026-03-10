@@ -1624,12 +1624,15 @@ class Database:
         async with self.session() as s:
             existing = (
                 await s.execute(
-                    select(SentinelActionRow).where(
+                    select(SentinelActionRow)
+                    .where(
                         SentinelActionRow.tenant_id == tenant_id,
                         SentinelActionRow.ticker == ticker,
                         SentinelActionRow.action_type == action_type,
                         SentinelActionRow.status == "pending",
                     )
+                    .order_by(SentinelActionRow.created_at.desc())
+                    .limit(1)
                 )
             ).scalar_one_or_none()
             if existing:
