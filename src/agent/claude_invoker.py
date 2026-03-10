@@ -542,10 +542,12 @@ class ClaudeInvoker:
         """Build the claude CLI command."""
         prompt = (
             f"Session type: {session_type}. "
-            "Read context.md for current market state, then analyze and trade. "
-            "IMPORTANT: Your 'reasoning' field must describe your CURRENT market assessment and "
-            "why you are holding, buying, or selling — never just say 'already handled' or 'session complete'. "
-            "Each session gets fresh market data; provide a fresh analysis. "
+            "context.md has been UPDATED with fresh market data since your last turn. "
+            "Re-read context.md NOW, then provide your trading decision. "
+            "Your 'reasoning' MUST be 3-5 sentences describing: current prices, regime, "
+            "what changed since last session, and why you are holding/buying/selling. "
+            "NEVER say 'already incorporated', 'session complete', or 'no changes needed' "
+            "as your entire reasoning — that is a bug. Even if holding, explain WHY based on current data. "
             "Return your final analysis as JSON matching the Output Format in CLAUDE.md."
         )
 
@@ -599,7 +601,8 @@ class ClaudeInvoker:
             f"Read context.md in your workspace for the latest market data, portfolio positions, "
             f"and regime analysis. Analyze the current state and return your trading decision "
             f"as JSON matching the Output Format in CLAUDE.md. "
-            f"Your 'reasoning' must describe your current market assessment — never say 'already handled'."
+            f"Your 'reasoning' MUST be 3-5 sentences with current prices and market assessment. "
+            f"NEVER say 'already handled' or 'session complete' — that is a bug."
         )
 
         cmd = [

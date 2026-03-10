@@ -564,22 +564,27 @@ class Orchestrator:
             summary,
         )
 
-        # Step 9: Send Telegram notifications
-        log.info("step_9_sending_notifications")
-        await self._send_notifications(
-            today=today,
-            proposed_trades=all_trades,
-            executed_trades=executed,
-            summary=summary,
-            session=session,
-            regime_result=mkt.regime_result,
-            tenant_id=tenant_id,
-            strategy_mode=active_strategy,
-            allocations=alloc,
-            run_portfolio_a=run_portfolio_a,
-            run_portfolio_b=run_portfolio_b,
-            trailing_stop_alerts=mkt.trailing_stop_alerts,
-        )
+        # Step 9: Send Telegram notifications (skip for sentinel-crisis with no trades)
+        is_crisis = "sentinel" in session.lower() or "crisis" in session.lower()
+        has_trades = bool(all_trades) or bool(executed)
+        if is_crisis and not has_trades:
+            log.info("step_9_skipping_notifications_sentinel_no_trades", session=session)
+        else:
+            log.info("step_9_sending_notifications")
+            await self._send_notifications(
+                today=today,
+                proposed_trades=all_trades,
+                executed_trades=executed,
+                summary=summary,
+                session=session,
+                regime_result=mkt.regime_result,
+                tenant_id=tenant_id,
+                strategy_mode=active_strategy,
+                allocations=alloc,
+                run_portfolio_a=run_portfolio_a,
+                run_portfolio_b=run_portfolio_b,
+                trailing_stop_alerts=mkt.trailing_stop_alerts,
+            )
 
         log.info(
             "daily_pipeline_complete",

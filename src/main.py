@@ -424,8 +424,8 @@ async def run_scheduled() -> None:
     scheduler.add_job(
         sentinel_check_job,
         CronTrigger(
-            minute="*/30",
-            hour="10-15",
+            minute="0",
+            hour="11,13,15",
             day_of_week="mon-fri",
             timezone="US/Eastern",
         ),
@@ -544,19 +544,19 @@ async def run_scheduled() -> None:
 
     from src.agent.sentinel import AlertLevel
 
-    # Pre-market sentinel: every 30 min, 7:00-9:00 ET (offset to avoid snapshot collision at :00/:15/:30/:45)
+    # Pre-market sentinel: 7:30 and 8:30 ET (two checks before open)
     scheduler.add_job(
         extended_sentinel_job,
-        CronTrigger(minute="15,45", hour="7-9", day_of_week="mon-fri", timezone="US/Eastern"),
+        CronTrigger(minute="30", hour="7,8", day_of_week="mon-fri", timezone="US/Eastern"),
         args=["premarket"],
         id="sentinel_premarket",
         name="Kukulkan Pre-Market Sentinel",
     )
 
-    # After-hours sentinel: every 30 min, 16:00-19:00 ET (offset to avoid snapshot collision)
+    # After-hours sentinel: 16:30 and 18:30 ET (two checks after close)
     scheduler.add_job(
         extended_sentinel_job,
-        CronTrigger(minute="15,45", hour="16-19", day_of_week="mon-fri", timezone="US/Eastern"),
+        CronTrigger(minute="30", hour="16,18", day_of_week="mon-fri", timezone="US/Eastern"),
         args=["afterhours"],
         id="sentinel_afterhours",
         name="Kukulkan After-Hours Sentinel",
