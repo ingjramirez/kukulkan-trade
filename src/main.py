@@ -1106,7 +1106,7 @@ async def run_scheduled() -> None:
         CronTrigger(
             hour=20,
             minute=0,
-            timezone="US/Eastern",
+            timezone="America/Mexico_City",
         ),
         id="meta_agent_loop",
         name="Kukulkan Meta-Agent (Daily)",
