@@ -186,6 +186,29 @@ class AlpacaExecutor:
             qty = round(trade.shares, 8) if crypto else int(trade.shares)
             tif = TimeInForce.GTC if crypto else TimeInForce.DAY
 
+            # Guard: on SELL, verify Alpaca has enough shares to prevent accidental shorts
+            if side == AlpacaSide.SELL:
+                try:
+                    pos = self._client.get_open_position(alpaca_symbol)
+                    alpaca_qty = float(pos.qty)
+                    if alpaca_qty <= 0:
+                        log.warning("sell_blocked_no_position", ticker=trade.ticker, alpaca_qty=alpaca_qty)
+                        return False
+                    if qty > alpaca_qty:
+                        log.warning(
+                            "sell_clamped_to_actual",
+                            ticker=trade.ticker,
+                            requested=qty,
+                            actual=alpaca_qty,
+                        )
+                        qty = round(alpaca_qty, 8) if crypto else int(alpaca_qty)
+                        if qty <= 0:
+                            return False
+                except Exception:
+                    # No position found on Alpaca — block the sell
+                    log.warning("sell_blocked_position_not_found", ticker=trade.ticker)
+                    return False
+
             order_request = MarketOrderRequest(
                 symbol=alpaca_symbol,
                 qty=qty,
