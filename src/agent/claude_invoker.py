@@ -482,13 +482,16 @@ class ClaudeInvoker:
             response = self._parse_response(result.stdout)
 
             # Detect "empty message" failures: Claude misread the prompt on resume
+            needs_retry = False
             if session_id and self._is_empty_message_response(response):
-                log.warning(
-                    "claude_resume_empty_message_detected",
-                    session_id=session_id,
-                    session_type=session_type,
-                )
-                # Retry on the same session with a reinforced prompt
+                log.warning("claude_resume_empty_message_detected", session_id=session_id, session_type=session_type)
+                needs_retry = True
+            elif session_id and self._is_lazy_response(response):
+                log.warning("claude_lazy_response_detected", session_id=session_id, session_type=session_type,
+                            reasoning=(response.get("reasoning") or "")[:200])
+                needs_retry = True
+
+            if needs_retry:
                 retry_cmd = self._build_retry_cmd(session_type, session_id)
                 if results_path.exists():
                     results_path.unlink()
@@ -583,6 +586,19 @@ class ClaudeInvoker:
         "how can i help",
     )
 
+    _LAZY_RESPONSE_PATTERNS = (
+        "already incorporated",
+        "already handled",
+        "already analyzed",
+        "already reviewed",
+        "session complete",
+        "no changes needed",
+        "no action needed",
+        "no updates needed",
+        "nothing to update",
+        "no new information",
+    )
+
     def _is_empty_message_response(self, response: dict) -> bool:
         """Detect when Claude misread the prompt as empty on resume."""
         reasoning = (response.get("reasoning") or "").lower()
@@ -593,16 +609,30 @@ class ClaudeInvoker:
             return False
         return any(p in reasoning for p in self._EMPTY_MESSAGE_PATTERNS)
 
+    def _is_lazy_response(self, response: dict) -> bool:
+        """Detect when Claude shortcuts with 'already incorporated' instead of analyzing."""
+        reasoning = (response.get("reasoning") or "").lower()
+        if not reasoning:
+            return False
+        if response.get("trades"):
+            return False
+        # Short reasoning + lazy pattern = agent didn't actually analyze
+        if len(reasoning) < 150:
+            return any(p in reasoning for p in self._LAZY_RESPONSE_PATTERNS)
+        return False
+
     def _build_retry_cmd(self, session_type: str, session_id: str) -> list[str]:
-        """Build a retry command with a more explicit prompt after empty-message failure."""
+        """Build a retry command with a more explicit prompt after empty/lazy response."""
         prompt = (
-            f"[RETRY — previous prompt was not received] "
-            f"This is a {session_type} trading session. "
-            f"Read context.md in your workspace for the latest market data, portfolio positions, "
-            f"and regime analysis. Analyze the current state and return your trading decision "
-            f"as JSON matching the Output Format in CLAUDE.md. "
-            f"Your 'reasoning' MUST be 3-5 sentences with current prices and market assessment. "
-            f"NEVER say 'already handled' or 'session complete' — that is a bug."
+            f"[RETRY — your previous response was rejected as insufficient] "
+            f"This is a NEW {session_type} trading session with FRESH market data. "
+            f"context.md has been REWRITTEN with updated prices, positions, and regime data. "
+            f"You MUST re-read context.md NOW — do not rely on memory from previous turns. "
+            f"Then provide a complete trading analysis as JSON matching the Output Format in CLAUDE.md. "
+            f"Your 'reasoning' MUST be 3-5 sentences covering: current prices, regime assessment, "
+            f"what changed since your last session, and your rationale for holding/buying/selling. "
+            f"Saying 'already incorporated', 'session complete', or 'no changes' is a BUG that "
+            f"will cause this retry loop to repeat. Actually analyze the fresh data."
         )
 
         cmd = [
