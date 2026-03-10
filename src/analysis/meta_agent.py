@@ -410,6 +410,7 @@ class MetaAgentRunner:
             str(self._max_turns),
             "--model",
             self._model,
+            "--dangerously-skip-permissions",
         ]
         if session_id:
             cmd.extend(["--resume", session_id])
