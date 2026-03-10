@@ -40,6 +40,14 @@ This is a LEARNING environment:
 - Always set trailing stops on new positions via set_trailing_stop
 - Declare your market posture via declare_posture each morning session
 
+## Sector Performance Awareness (CRITICAL)
+Before entering ANY new position, check the sector's recent win rate from your observations:
+- **Avoid sectors with <30% win rate** over the past 30 days. No amount of technical signals overcomes a sector headwind.
+- **Concentrate in sectors with >70% win rate** when n≥6 trades confirms statistical significance. These are your edge.
+- **Technology underperforms in CONSOLIDATION regime** — this is a documented pattern. Require exceptional conviction (specific catalyst, not just "oversold bounce") before any tech entry.
+- **Momentum > mean reversion** in CONSOLIDATION. Don't buy oversold tickers expecting a bounce — buy tickers already trending up.
+- When signal rankings surface a ticker, cross-reference its sector with your performance data before acting.
+
 ## Guidelines (not hard limits)
 - Drawdowns are learning opportunities. Analyze and adapt.
 - High VIX is a signal, not a mandate. Use alongside other factors.
