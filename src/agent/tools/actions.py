@@ -171,6 +171,18 @@ async def _execute_trade(
             blocked_reason = verdict.blocked[0][1]
             return {"status": "blocked", "ticker": ticker_upper, "reason": blocked_reason}
 
+    # 3b. Cash guard for BUYs — prevent spending more than Portfolio B's allocated cash
+    if side_upper == "BUY" and db is not None:
+        portfolio_b = await db.get_portfolio("B", tenant_id=tenant_id)
+        b_cash = portfolio_b.cash if portfolio_b else 0
+        estimated_cost = float(shares) * price
+        if estimated_cost > b_cash:
+            return {
+                "status": "blocked",
+                "ticker": ticker_upper,
+                "reason": f"Insufficient Portfolio B cash: need ${estimated_cost:,.0f}, have ${b_cash:,.0f}",
+            }
+
     # 4. Execute
     try:
         executed = await executor.execute_trades([trade_schema], tenant_id=tenant_id)
