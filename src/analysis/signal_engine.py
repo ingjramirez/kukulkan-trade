@@ -28,13 +28,13 @@ log = structlog.get_logger()
 # ── Signal weights (must sum to 1.0) ─────────────────────────────────────────
 
 SIGNAL_WEIGHTS: dict[str, float] = {
-    "momentum_20d": 0.20,
-    "momentum_63d": 0.15,
-    "rsi_position": 0.15,
+    "momentum_20d": 0.25,
+    "momentum_63d": 0.20,
+    "rsi_position": 0.10,
     "macd_histogram": 0.10,
-    "sma_trend": 0.15,
-    "bollinger_pct_b": 0.10,
-    "volume_surge": 0.15,
+    "sma_trend": 0.20,
+    "bollinger_pct_b": 0.05,
+    "volume_surge": 0.10,
 }
 
 # Alert thresholds
@@ -235,15 +235,16 @@ class SignalEngine:
 
     @staticmethod
     def _compute_rsi_score(closes: pd.DataFrame, tickers: list[str]) -> pd.Series:
-        """RSI distance from 50 — extremes score higher (both oversold and overbought).
+        """RSI momentum score — higher RSI = stronger momentum = higher score.
 
-        Intentionally non-directional: used for attention routing, not buy/sell signals.
-        RSI 30 and RSI 70 score equally because both deserve investigation.
+        Directional: routes attention toward tickers with price momentum rather
+        than oversold falling knives. RSI 70 scores high, RSI 30 scores low.
+        Clamped to [0, 1] range with RSI 30 → 0.0 and RSI 70 → 1.0.
         """
         scores: dict[str, float] = {}
         for t in tickers:
             rsi_val = _raw_rsi(closes, t)
-            scores[t] = abs(rsi_val - 50) / 50  # 0-1
+            scores[t] = max(0.0, min(1.0, (rsi_val - 30) / 40))
         return pd.Series(scores)
 
     @staticmethod
