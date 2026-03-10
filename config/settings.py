@@ -122,7 +122,7 @@ class Settings(BaseSettings):
     meta_agent_repo_path: str = "/opt/kukulkan-improve"
     meta_agent_max_turns: int = 25
     meta_agent_timeout_s: int = 900
-    meta_agent_model: str = "opus"
+    meta_agent_model: str = "sonnet"
 
     # Pipeline tuning
     inter_tenant_delay: float = 2.0  # seconds between tenant runs (avoids Alpaca rate limits)

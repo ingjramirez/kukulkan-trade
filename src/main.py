@@ -1104,13 +1104,12 @@ async def run_scheduled() -> None:
     scheduler.add_job(
         meta_agent_loop,
         CronTrigger(
-            day_of_week="sun,wed",
             hour=20,
             minute=0,
             timezone="US/Eastern",
         ),
         id="meta_agent_loop",
-        name="Kukulkan Meta-Agent",
+        name="Kukulkan Meta-Agent (Daily)",
         misfire_grace_time=3600,
     )
 
