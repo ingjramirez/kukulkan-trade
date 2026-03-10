@@ -117,6 +117,13 @@ class Settings(BaseSettings):
     sentinel_max_escalations_per_day: int = 2  # Max crisis sessions triggered per day
     sentinel_escalation_cooldown_s: int = 1800  # Seconds after a scheduled session before escalation is allowed
 
+    # Meta-Agent (self-improving code agent)
+    meta_agent_enabled: bool = False
+    meta_agent_repo_path: str = "/opt/kukulkan-improve"
+    meta_agent_max_turns: int = 25
+    meta_agent_timeout_s: int = 900
+    meta_agent_model: str = "opus"
+
     # Pipeline tuning
     inter_tenant_delay: float = 2.0  # seconds between tenant runs (avoids Alpaca rate limits)
 

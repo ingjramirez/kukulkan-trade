@@ -1056,6 +1056,64 @@ async def run_scheduled() -> None:
         name="Kukulkan Weekly Self-Improvement",
     )
 
+    # Meta-agent: code self-improvement (Sunday + Wednesday 8 PM ET)
+    async def meta_agent_loop():
+        if not settings.meta_agent_enabled:
+            return
+        try:
+            from pathlib import Path
+
+            from src.analysis.meta_agent import MetaAgentRunner
+
+            repo_path = Path(settings.meta_agent_repo_path)
+            if not repo_path.exists():
+                log.warning("meta_agent_repo_not_found", path=str(repo_path))
+                return
+
+            tenants = await db.get_active_tenants()
+            targets = tenants if tenants else [None]
+
+            for tenant in targets:
+                if tenant and not Orchestrator.tenant_fully_configured(tenant):
+                    continue
+                tid = tenant.id if tenant else "default"
+                notifier_instance = None
+                if tenant:
+                    try:
+                        from src.notifications.telegram_factory import TelegramFactory
+
+                        notifier_instance = TelegramFactory.get_notifier(tenant)
+                    except Exception:
+                        pass
+
+                runner = MetaAgentRunner(
+                    db=db,
+                    tenant_id=tid,
+                    repo_path=repo_path,
+                    max_turns=settings.meta_agent_max_turns,
+                    timeout_s=settings.meta_agent_timeout_s,
+                    model=settings.meta_agent_model,
+                )
+                result = await runner.run(notifier=notifier_instance)
+                log.info("meta_agent_tenant_done", tenant_id=tid, status=result.status, prs=len(result.prs_opened))
+
+            log.info("meta_agent_loop_complete")
+        except Exception as e:
+            log.error("meta_agent_loop_failed", error=str(e))
+
+    scheduler.add_job(
+        meta_agent_loop,
+        CronTrigger(
+            day_of_week="sun,wed",
+            hour=20,
+            minute=0,
+            timezone="US/Eastern",
+        ),
+        id="meta_agent_loop",
+        name="Kukulkan Meta-Agent",
+        misfire_grace_time=3600,
+    )
+
     # Weekly playbook + calibration generation (Sunday 5 PM ET)
     async def weekly_playbook_calibration():
         try:
