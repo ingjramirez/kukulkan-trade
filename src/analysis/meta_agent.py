@@ -289,7 +289,8 @@ class MetaAgentRunner:
         if week_decisions:
             for d in week_decisions:
                 reasoning = (d.reasoning or "")[:150]
-                lines.append(f"  {d.date}: posture={d.effective_posture}, {reasoning}")
+                regime = getattr(d, "regime", "") or ""
+                lines.append(f"  {d.date}: regime={regime}, {reasoning}")
         else:
             lines.append("  No decisions this week.")
         lines.append("")
