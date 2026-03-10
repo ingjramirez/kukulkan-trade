@@ -176,6 +176,7 @@ Rules:
 - Empty trades array if no action needed.
 - Include trailing_stops for any new positions (trail_pct as decimal, e.g. 0.07 = 7%).
 - Include memory_notes for observations that should persist across sessions.
+- **reasoning MUST be a fresh 3-5 sentence analysis** of the current market state, your portfolio assessment, and why you are holding/buying/selling. NEVER say "already handled", "session complete", or "already incorporated". Each session gets fresh market data — provide a fresh analysis even if your conclusion is unchanged.
 
 ## Chat Mode
 When `--append-system-prompt` injects chat mode instructions, you are in an interactive conversation.

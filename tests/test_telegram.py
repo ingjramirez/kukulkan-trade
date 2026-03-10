@@ -214,12 +214,12 @@ class TestFormatDailyBrief:
         assert "Proposed Trades (1)" in msg
         assert "No Trades Today" not in msg
 
-    def test_portfolio_a_disabled_skips_section(self) -> None:
-        """When run_portfolio_a=False, Portfolio A section is skipped."""
+    def test_portfolio_a_disabled_still_shows_value(self) -> None:
+        """When run_portfolio_a=False, Portfolio A still shows with its value for accurate combined."""
         msg = format_daily_brief(
             brief_date=date(2026, 2, 5),
             regime="BULL",
-            portfolio_a={"total_value": 33000, "daily_return_pct": 1.0},
+            portfolio_a={"total_value": 33000, "daily_return_pct": 1.0, "top_ticker": "GDX"},
             portfolio_b={
                 "total_value": 66000,
                 "daily_return_pct": -0.2,
@@ -229,13 +229,15 @@ class TestFormatDailyBrief:
             run_portfolio_a=False,
             run_portfolio_b=True,
         )
-        assert "Portfolio A" not in msg
+        assert "Portfolio A" in msg
         assert "Portfolio B" in msg
-        # Combined should only include B
-        assert "$66,000" in msg
+        # Combined should include both portfolios
+        assert "$99,000" in msg
+        # No Trades section should show A as not evaluated
+        assert "Not evaluated this session" in msg
 
-    def test_portfolio_b_disabled_skips_section(self) -> None:
-        """When run_portfolio_b=False, Portfolio B section is skipped."""
+    def test_portfolio_b_disabled_still_shows_value(self) -> None:
+        """When run_portfolio_b=False, Portfolio B still shows with its value for accurate combined."""
         msg = format_daily_brief(
             brief_date=date(2026, 2, 5),
             regime="BULL",
@@ -254,9 +256,9 @@ class TestFormatDailyBrief:
             run_portfolio_b=False,
         )
         assert "Portfolio A" in msg
-        assert "Portfolio B" not in msg
-        # Combined should only include A
-        assert "$33,000" in msg
+        assert "Portfolio B" in msg
+        # Combined should include both portfolios
+        assert "$99,000" in msg
 
 
 # ── Trade Confirmation Formatting ────────────────────────────────────────────

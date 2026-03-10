@@ -2785,14 +2785,9 @@ class Orchestrator:
         alloc = allocations or DEFAULT_ALLOCATIONS
         active_strategy = strategy_mode or settings.agent.strategy_mode
         try:
-            # Build portfolio summaries from snapshots (only enabled portfolios)
+            # Build portfolio summaries from snapshots (always both portfolios for display)
             portfolio_summaries = {}
-            notify_portfolios = _active_portfolio_names(
-                run_portfolio_a,
-                run_portfolio_b,
-                tenant_id,
-            )
-            for name in notify_portfolios:
+            for name in ["A", "B"]:
                 portfolio = await self._db.get_portfolio(name, tenant_id=tenant_id)
                 snapshots = await self._db.get_snapshots(name, tenant_id=tenant_id)
                 today_snap = next((s for s in snapshots if s.date == today), None)

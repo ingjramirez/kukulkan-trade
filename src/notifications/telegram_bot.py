@@ -653,21 +653,23 @@ def format_daily_brief(
         "",
     ]
 
-    # Portfolio A (only if enabled)
-    if run_portfolio_a:
+    # Portfolio A (always shown; mark if not evaluated this session)
+    a_val = portfolio_a.get("total_value", 0)
+    if a_val > 0 or run_portfolio_a:
         a_ret = portfolio_a.get("daily_return_pct")
         a_ret_str = f"{a_ret:+.2f}%" if a_ret is not None else "N/A"
         lines.extend(
             [
                 "<b>Portfolio A</b> (Momentum)",
-                f"  Value: ${portfolio_a.get('total_value', 0):,.0f} ({a_ret_str})",
+                f"  Value: ${a_val:,.0f} ({a_ret_str})",
                 f"  Holding: {portfolio_a.get('top_ticker', 'cash')}",
                 "",
             ]
         )
 
-    # Portfolio B (only if enabled)
-    if run_portfolio_b:
+    # Portfolio B (always shown if it has value)
+    b_val = portfolio_b.get("total_value", 0)
+    if b_val > 0 or run_portfolio_b:
         b_ret = portfolio_b.get("daily_return_pct")
         b_ret_str = f"{b_ret:+.2f}%" if b_ret is not None else "N/A"
         lines.extend(
@@ -706,12 +708,8 @@ def format_daily_brief(
             lines.append(f"  {icon} {_escape_html(alert['message'])}")
         lines.append("")
 
-    # Total (only sum active portfolios)
-    total = 0.0
-    if run_portfolio_a:
-        total += portfolio_a.get("total_value", 0)
-    if run_portfolio_b:
-        total += portfolio_b.get("total_value", 0)
+    # Total (always sum both portfolios for accurate combined view)
+    total = portfolio_a.get("total_value", 0) + portfolio_b.get("total_value", 0)
     initial = 100_000.0  # Alpaca paper account starting balance
     total_ret = ((total - initial) / initial) * 100 if initial > 0 else 0
     lines.extend(
@@ -732,10 +730,14 @@ def format_daily_brief(
         a_reason = portfolio_a.get("reason", "")
         b_reason = portfolio_b.get("reasoning", "")
         lines.append("<b>No Trades Today</b>")
-        if a_reason:
+        if run_portfolio_a and a_reason:
             lines.append(f"  A: {_escape_html(a_reason)}")
-        if b_reason:
+        elif not run_portfolio_a:
+            lines.append("  A: Not evaluated this session")
+        if run_portfolio_b and b_reason:
             lines.append(f"  B: {_escape_html(b_reason[:100])}")
+        elif not run_portfolio_b:
+            lines.append("  B: Not evaluated this session")
         lines.append("")
 
     # Trailing stop alerts (before proposed trades)

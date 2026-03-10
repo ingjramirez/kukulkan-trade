@@ -543,6 +543,9 @@ class ClaudeInvoker:
         prompt = (
             f"Session type: {session_type}. "
             "Read context.md for current market state, then analyze and trade. "
+            "IMPORTANT: Your 'reasoning' field must describe your CURRENT market assessment and "
+            "why you are holding, buying, or selling — never just say 'already handled' or 'session complete'. "
+            "Each session gets fresh market data; provide a fresh analysis. "
             "Return your final analysis as JSON matching the Output Format in CLAUDE.md."
         )
 
@@ -595,7 +598,8 @@ class ClaudeInvoker:
             f"This is a {session_type} trading session. "
             f"Read context.md in your workspace for the latest market data, portfolio positions, "
             f"and regime analysis. Analyze the current state and return your trading decision "
-            f"as JSON matching the Output Format in CLAUDE.md."
+            f"as JSON matching the Output Format in CLAUDE.md. "
+            f"Your 'reasoning' must describe your current market assessment — never say 'already handled'."
         )
 
         cmd = [

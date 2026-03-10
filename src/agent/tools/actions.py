@@ -187,7 +187,18 @@ async def _execute_trade(
 
     fill = executed[0]
 
-    # 5. Record in state for session-results.json
+    # 5. Update current_price/market_value so the frontend shows correct data immediately
+    if db is not None:
+        try:
+            await db.update_position_prices(
+                "B",
+                {ticker_upper: float(fill.price)},
+                tenant_id=tenant_id,
+            )
+        except Exception as exc:
+            log.warning("chat_trade_price_update_failed", ticker=ticker_upper, error=str(exc))
+
+    # 6. Record in state for session-results.json
     state.executed_trades.append(
         {
             "ticker": ticker_upper,

@@ -173,8 +173,8 @@ async def get_portfolio(
                 ticker=p.ticker,
                 shares=p.shares,
                 avg_price=p.avg_price,
-                current_price=p.current_price,
-                market_value=p.market_value,
+                current_price=p.current_price or p.avg_price,
+                market_value=p.market_value or (p.shares * p.avg_price),
             )
             for p in positions
         ],
@@ -194,8 +194,8 @@ async def get_positions(
             ticker=p.ticker,
             shares=p.shares,
             avg_price=p.avg_price,
-            current_price=p.current_price,
-            market_value=p.market_value,
+            current_price=p.current_price or p.avg_price,
+            market_value=p.market_value or (p.shares * p.avg_price),
         )
         for p in positions
     ]
