@@ -72,6 +72,11 @@ class InvokeResult:
         return self.response.get("trades", [])
 
     @property
+    def mcp_executed_trades(self) -> list[dict]:
+        """Trades that were directly filled via MCP execute_trade tool."""
+        return [t for t in self.accumulated.get("executed_trades", []) if t.get("status") == "filled"]
+
+    @property
     def reasoning(self) -> str:
         return self.response.get("reasoning", "")
 
@@ -105,6 +110,7 @@ class InvokeResult:
             "tools_used": self.tools_used,
             "turns": self.num_turns,
             "duration_ms": self.duration_ms,
+            "mcp_executed_trades": self.mcp_executed_trades,
         }
 
 
@@ -481,9 +487,23 @@ class ClaudeInvoker:
             # Parse CLI JSON output
             response = self._parse_response(result.stdout)
 
-            # Detect "empty message" failures: Claude misread the prompt on resume
+            # Read MCP results BEFORE retry decision — tools may have executed real trades
+            pre_retry_accumulated = self._read_session_results(results_path)
+            mcp_executed = [
+                t for t in pre_retry_accumulated.get("executed_trades", [])
+                if t.get("status") == "filled"
+            ]
+
+            # Detect "empty message" or lazy responses — but NOT if real trades were executed
             needs_retry = False
-            if session_id and self._is_empty_message_response(response):
+            if mcp_executed:
+                log.info(
+                    "claude_skip_retry_mcp_trades_filled",
+                    mcp_trades=len(mcp_executed),
+                    tickers=[t["ticker"] for t in mcp_executed],
+                    session_type=session_type,
+                )
+            elif session_id and self._is_empty_message_response(response):
                 log.warning("claude_resume_empty_message_detected", session_id=session_id, session_type=session_type)
                 needs_retry = True
             elif session_id and self._is_lazy_response(response):
@@ -513,7 +533,11 @@ class ClaudeInvoker:
                 self._save_daily_session_id(today, new_session_id)
 
             # Read accumulated ActionState from MCP server (written after every tool call)
-            accumulated = self._read_session_results(results_path)
+            # If we skipped retry, pre_retry_accumulated already consumed the file
+            if needs_retry:
+                accumulated = self._read_session_results(results_path)
+            else:
+                accumulated = pre_retry_accumulated
 
             log.info(
                 "claude_invoke_complete",

@@ -564,6 +564,42 @@ class Orchestrator:
             summary,
         )
 
+        # Step 8.6: Merge MCP-executed trades (already filled by agent via MCP tools)
+        # These bypassed the orchestrator's proposal→approval→execution pipeline
+        if b_tool_summary and isinstance(b_tool_summary, dict):
+            mcp_fills = b_tool_summary.get("mcp_executed_trades", [])
+            if mcp_fills:
+                from src.storage.models import OrderSide, PortfolioName, TradeSchema
+
+                for mcp_trade in mcp_fills:
+                    trade_schema = TradeSchema(
+                        portfolio=PortfolioName.B,
+                        ticker=mcp_trade["ticker"],
+                        side=OrderSide(mcp_trade["side"]),
+                        shares=float(mcp_trade["shares"]),
+                        price=float(mcp_trade["price"]),
+                        reason=f"AI (MCP): {mcp_trade.get('reason', '')[:150]}",
+                    )
+                    # Only add if not already in executed (avoid double-counting)
+                    already_counted = any(
+                        t.ticker == trade_schema.ticker and t.side == trade_schema.side
+                        for t in executed
+                        if isinstance(t, TradeSchema)
+                    )
+                    if not already_counted:
+                        executed.append(trade_schema)
+                        all_trades.append(trade_schema)
+                        log.info(
+                            "mcp_executed_trade_merged",
+                            ticker=mcp_trade["ticker"],
+                            side=mcp_trade["side"],
+                            shares=mcp_trade["shares"],
+                            price=mcp_trade["price"],
+                        )
+                summary["trades_executed"] = len(
+                    [t for t in executed if isinstance(t, TradeSchema)]
+                )
+
         # Step 9: Send Telegram notifications (skip for sentinel-crisis with no trades)
         is_crisis = "sentinel" in session.lower() or "crisis" in session.lower()
         has_trades = bool(all_trades) or bool(executed)
@@ -1782,6 +1818,28 @@ class Orchestrator:
             return [], f"Claude Code session failed: {result.error}", None
 
         response = result.response
+
+        # ── 5b. Patch response with MCP-executed trades ──────────────────
+        # If the agent executed trades via MCP tools but didn't list them in JSON,
+        # merge them into response.trades so the decision record reflects reality.
+        mcp_fills = result.mcp_executed_trades
+        if mcp_fills and not response.get("trades"):
+            response["trades"] = [
+                {
+                    "ticker": t["ticker"],
+                    "side": t["side"],
+                    "weight": round(float(t["shares"]) * float(t["price"]) / total_value, 4) if total_value else 0,
+                    "conviction": t.get("conviction", "high"),
+                    "reason": t.get("reason", "Executed via MCP tool"),
+                    "_mcp_filled": True,  # marker: already executed
+                }
+                for t in mcp_fills
+            ]
+            log.info(
+                "response_patched_with_mcp_trades",
+                count=len(mcp_fills),
+                tickers=[t["ticker"] for t in mcp_fills],
+            )
 
         # ── 6. Convert trades to TradeSchema ─────────────────────────────
         position_map = pb_ctx.position_map

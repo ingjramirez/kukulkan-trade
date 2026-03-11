@@ -334,6 +334,33 @@ class TestInvokeResult:
         assert r.num_turns == 0
         assert r.duration_ms == 0
 
+    def test_mcp_executed_trades_filters_filled(self):
+        r = InvokeResult(
+            accumulated={
+                "executed_trades": [
+                    {"ticker": "GLD", "side": "SELL", "shares": 6, "price": 476.3, "status": "filled"},
+                    {"ticker": "XLK", "side": "BUY", "shares": 10, "status": "submitted"},
+                ]
+            }
+        )
+        assert len(r.mcp_executed_trades) == 1
+        assert r.mcp_executed_trades[0]["ticker"] == "GLD"
+
+    def test_mcp_executed_trades_empty_by_default(self):
+        r = InvokeResult()
+        assert r.mcp_executed_trades == []
+
+    def test_tool_summary_includes_mcp_executed_trades(self):
+        r = InvokeResult(
+            accumulated={
+                "executed_trades": [
+                    {"ticker": "GLD", "side": "SELL", "shares": 6, "price": 476.3, "status": "filled"},
+                ]
+            }
+        )
+        assert len(r.tool_summary["mcp_executed_trades"]) == 1
+        assert r.tool_summary["mcp_executed_trades"][0]["ticker"] == "GLD"
+
 
 # ── ClaudeInvoker tests ─────────────────────────────────────────────────────
 
@@ -642,6 +669,49 @@ class TestClaudeInvoker:
         assert "--resume" in call_args
         idx = call_args.index("--resume")
         assert call_args[idx + 1] == "morning-sess-id"
+
+    @pytest.mark.asyncio
+    async def test_invoke_skips_retry_when_mcp_trades_filled(self, tmp_path: Path):
+        """When agent executes trades via MCP but gives lazy JSON, should NOT retry."""
+        invoker = ClaudeInvoker(workspace=tmp_path)
+        today = date(2024, 6, 15)
+
+        # Simulate morning session existing (so resume triggers lazy detection)
+        invoker._save_daily_session_id(today, "morning-sess")
+
+        # Agent response is lazy (short reasoning, no JSON trades)
+        cli_output = json.dumps(
+            {
+                "result": json.dumps({
+                    "reasoning": "Already incorporated — session complete.",
+                    "trades": [],
+                }),
+                "session_id": "morning-sess",
+            }
+        )
+
+        results_path = invoker._workspace / "session-results.json"
+
+        def fake_run(*args, **kwargs):
+            """Simulate MCP server writing session-results.json during CLI run."""
+            results_path.write_text(json.dumps({
+                "executed_trades": [
+                    {"ticker": "GLD", "side": "SELL", "shares": 6, "price": 476.3, "status": "filled"}
+                ],
+                "tool_call_count": 5,
+            }))
+            return subprocess.CompletedProcess(
+                args=["claude"], returncode=0, stdout=cli_output, stderr="",
+            )
+
+        with patch("src.agent.claude_invoker._run_with_kill", side_effect=fake_run) as mock_run:
+            result = await invoker.invoke("midday", today=today)
+
+        # Should NOT have retried (only 1 call, not 2)
+        assert mock_run.call_count == 1
+        # MCP-executed trades should be in accumulated
+        assert len(result.mcp_executed_trades) == 1
+        assert result.mcp_executed_trades[0]["ticker"] == "GLD"
 
     @pytest.mark.asyncio
     async def test_invoke_env_strips_api_key(self, tmp_path: Path):
