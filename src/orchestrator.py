@@ -1331,6 +1331,53 @@ class Orchestrator:
             meta["corrections"] = corrections
         return meta
 
+    # ── MCP reasoning helpers ────────────────────────────────────────────────
+
+    _LAZY_PATTERNS = (
+        "already incorporated", "already handled", "already analyzed",
+        "already processed", "already reviewed", "session complete",
+        "no changes needed", "no action needed", "stale notification",
+        "nothing to update", "no new information",
+    )
+
+    @classmethod
+    def _is_lazy_reasoning(cls, reasoning: str) -> bool:
+        """Check if reasoning is a lazy/placeholder response."""
+        if not reasoning or len(reasoning) < 150:
+            lower = reasoning.lower()
+            return any(p in lower for p in cls._LAZY_PATTERNS) or len(reasoning) < 30
+        return False
+
+    @staticmethod
+    def _build_reasoning_from_mcp(
+        result,
+        mcp_fills: list[dict],
+    ) -> str:
+        """Synthesize reasoning from MCP tool call logs when JSON reasoning is lazy."""
+        parts: list[str] = []
+
+        # Summarize what the agent investigated
+        tool_logs = result.tool_call_logs
+        tools_called = [log["tool_name"] for log in tool_logs if log.get("success")]
+        if tools_called:
+            unique_tools = list(dict.fromkeys(tools_called))  # preserve order, dedup
+            parts.append(f"Investigated via {len(tools_called)} tool calls ({', '.join(unique_tools[:6])}).")
+
+        # Summarize trades executed
+        for fill in mcp_fills:
+            reason = fill.get("reason", "")
+            parts.append(
+                f"{fill['side']} {fill['shares']} {fill['ticker']} @ ${fill['price']:.2f}"
+                + (f" — {reason[:120]}" if reason else "")
+            )
+
+        # Posture
+        posture = result.posture
+        if posture:
+            parts.append(f"Posture: {posture}.")
+
+        return " ".join(parts) if parts else "Session completed with MCP tool activity."
+
     # ── Extracted helpers for _run_portfolio_b() ──────────────────────────────
 
     async def _build_portfolio_b_context(
@@ -1818,30 +1865,21 @@ class Orchestrator:
             return [], f"Claude Code session failed: {result.error}", None
 
         response = result.response
-
-        # ── 5b. Patch response with MCP-executed trades ──────────────────
-        # If the agent executed trades via MCP tools but didn't list them in JSON,
-        # merge them into response.trades so the decision record reflects reality.
         mcp_fills = result.mcp_executed_trades
-        if mcp_fills and not response.get("trades"):
-            response["trades"] = [
-                {
-                    "ticker": t["ticker"],
-                    "side": t["side"],
-                    "weight": round(float(t["shares"]) * float(t["price"]) / total_value, 4) if total_value else 0,
-                    "conviction": t.get("conviction", "high"),
-                    "reason": t.get("reason", "Executed via MCP tool"),
-                    "_mcp_filled": True,  # marker: already executed
-                }
-                for t in mcp_fills
-            ]
-            log.info(
-                "response_patched_with_mcp_trades",
-                count=len(mcp_fills),
-                tickers=[t["ticker"] for t in mcp_fills],
-            )
+
+        # ── 5b. Build authoritative reasoning ────────────────────────────
+        # MCP ActionState is source of truth. If the JSON reasoning is lazy
+        # but the agent did real work (tool calls), synthesize a summary.
+        reasoning = response.get("reasoning", "")
+        if mcp_fills and self._is_lazy_reasoning(reasoning):
+            reasoning = self._build_reasoning_from_mcp(result, mcp_fills)
+            response["reasoning"] = reasoning
+            log.info("reasoning_rebuilt_from_mcp", trades=len(mcp_fills))
 
         # ── 6. Convert trades to TradeSchema ─────────────────────────────
+        # Primary: JSON response trades (weight-based proposals from the agent).
+        # MCP-executed trades are handled separately in Step 8.6 — they're already
+        # filled and must NOT go through the proposal→approval→execution pipeline.
         position_map = pb_ctx.position_map
         dynamic_tickers = await self._ticker_discovery.get_active_tickers(tenant_id=tenant_id)
         trades = self._strategy_b.agent_response_to_trades(
@@ -1854,11 +1892,27 @@ class Orchestrator:
         )
 
         # ── 7. Save decision ─────────────────────────────────────────────
+        # Include MCP-executed trades in the decision record alongside proposals
+        decision_trades = list(trades)
+        if mcp_fills:
+            from src.storage.models import OrderSide, PortfolioName, TradeSchema
+
+            for mcp_t in mcp_fills:
+                decision_trades.append(
+                    TradeSchema(
+                        portfolio=PortfolioName.B,
+                        ticker=mcp_t["ticker"],
+                        side=OrderSide(mcp_t["side"]),
+                        shares=float(mcp_t["shares"]),
+                        price=float(mcp_t["price"]),
+                        reason=f"AI (MCP): {mcp_t.get('reason', '')[:150]}",
+                    )
+                )
         await self._strategy_b.save_decision(
             self._db,
             today,
             response,
-            trades,
+            decision_trades,
             tenant_id=tenant_id,
             regime=regime_str,
             session_label=session,
@@ -1866,6 +1920,12 @@ class Orchestrator:
 
         # ── 8. Save agent memory ─────────────────────────────────────────
         try:
+            # Merge memory notes from both JSON response and MCP ActionState
+            memory_notes = response.get("memory_notes", [])
+            mcp_notes = result.accumulated.get("memory_notes", [])
+            if mcp_notes and not memory_notes:
+                memory_notes = mcp_notes
+
             await self._memory_manager.save_short_term(
                 self._db,
                 today.isoformat(),
@@ -1874,7 +1934,7 @@ class Orchestrator:
             )
             await self._memory_manager.save_agent_notes(
                 self._db,
-                response.get("memory_notes", []),
+                memory_notes,
                 tenant_id=tenant_id,
             )
         except Exception as e:
