@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import structlog
 import yfinance as yf
@@ -127,7 +127,7 @@ class OutcomeTracker:
                     exit_price = None
 
             pnl_pct = ((current - entry_price) / entry_price) * 100 if entry_price > 0 else 0.0
-            hold_days = (date.today() - trade_date).days
+            hold_days = (datetime.now(timezone.utc).date() - trade_date).days
 
             # Sector benchmark
             sector = SECTOR_MAP.get(ticker, "Unknown")

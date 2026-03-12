@@ -2334,27 +2334,28 @@ class Orchestrator:
             )
             return None
 
-        # Distribute drift proportionally across enabled portfolio cash
-        if len(enabled) == 2:
-            total_pct = allocations.portfolio_a_pct + allocations.portfolio_b_pct
-            splits = {
-                "A": allocations.portfolio_a_pct / total_pct,
-                "B": allocations.portfolio_b_pct / total_pct,
-            }
-        else:
-            splits = {enabled[0]: 1.0}
+        # Distribute small drift by each portfolio's current total_value ratio.
+        # This preserves ownership — NOT by allocation % which steals between portfolios.
+        portfolios = {}
+        for pname in enabled:
+            p = await self._db.get_portfolio(pname, tenant_id=tenant_id)
+            if p:
+                portfolios[pname] = p
 
-        for pname, share in splits.items():
-            portfolio = await self._db.get_portfolio(pname, tenant_id=tenant_id)
-            if portfolio:
-                new_cash = portfolio.cash + drift * share
-                new_total = portfolio.total_value + drift * share
-                await self._db.upsert_portfolio(
-                    pname,
-                    cash=new_cash,
-                    total_value=new_total,
-                    tenant_id=tenant_id,
-                )
+        total_value = sum(p.total_value for p in portfolios.values())
+        if total_value <= 0:
+            return None
+
+        for pname, portfolio in portfolios.items():
+            share = portfolio.total_value / total_value
+            new_cash = portfolio.cash + drift * share
+            new_total = portfolio.total_value + drift * share
+            await self._db.upsert_portfolio(
+                pname,
+                cash=new_cash,
+                total_value=new_total,
+                tenant_id=tenant_id,
+            )
 
         log.info(
             "equity_reconciled",

@@ -459,8 +459,8 @@ class TestGetHistoricalContext:
         assert metadata["published_at"] == "2026-02-10"  # date-only for ChromaDB range filtering
 
     def test_published_at_fallback_when_missing(self) -> None:
-        """store_articles() sets published_at to today when article has no timestamp."""
-        from datetime import date
+        """store_articles() sets published_at to today (UTC) when article has no timestamp."""
+        from datetime import datetime, timezone
 
         vs = _mock_vector_store()
         fetcher = NewsFetcher(vector_store=vs)
@@ -470,7 +470,7 @@ class TestGetHistoricalContext:
 
         call_args = vs.add_news.call_args
         metadata = call_args.kwargs.get("metadata") or call_args[1].get("metadata")
-        assert metadata["published_at"] == date.today().isoformat()
+        assert metadata["published_at"] == datetime.now(timezone.utc).date().isoformat()
 
     def test_richer_embedding_with_summary(self) -> None:
         """store_articles() embeds title + summary when summary is present."""

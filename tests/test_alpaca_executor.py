@@ -792,11 +792,11 @@ class TestAlpacaExecutorTenantId:
         xle = next(p for p in positions if p.ticker == "XLE")
         assert xle.shares == 111
 
-        # Cash should be synced from Alpaca (9000 total, split 33/67)
+        # Cash should NOT be redistributed by position sync — each portfolio keeps its own
         port_a = await db.get_portfolio("A", tenant_id="t1")
         port_b = await db.get_portfolio("B", tenant_id="t1")
-        assert abs(port_a.cash - 2999.7) < 1  # 9000 * 0.3333
-        assert abs(port_b.cash - 6000.3) < 1  # 9000 * 0.6667
+        assert port_a.cash == 33_000.0  # unchanged
+        assert port_b.cash == 66_000.0  # unchanged
 
         # Default tenant should be unaffected
         default_positions = await db.get_positions("B")

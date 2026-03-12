@@ -87,7 +87,8 @@ async def test_buy_trade_with_open_position(db, mock_yf_prices):
     """A BUY trade with an open position uses current price for P&L."""
     await _seed_buy_trade(db, "XLK", price=100.0, days_ago=5)
     await _seed_position(db, "XLK", shares=10, avg_price=100.0)
-    trade_date = date.today() - timedelta(days=5)
+    # Must match _seed_buy_trade which uses datetime.now(timezone.utc)
+    trade_date = (datetime.now(timezone.utc) - timedelta(days=5)).date()
     await _seed_decision(db, trade_date, "XLK", "high")
 
     # Mock yfinance: current XLK=110, SPY=450
@@ -115,7 +116,8 @@ async def test_pnl_calculation(db):
     """Verify P&L math with known entry and current prices."""
     await _seed_buy_trade(db, "AAPL", price=150.0, days_ago=7)
     await _seed_position(db, "AAPL", shares=10, avg_price=150.0)
-    trade_date = date.today() - timedelta(days=7)
+    # Must match _seed_buy_trade which uses datetime.now(timezone.utc)
+    trade_date = (datetime.now(timezone.utc) - timedelta(days=7)).date()
     await _seed_decision(db, trade_date, "AAPL", "medium")
 
     tracker = OutcomeTracker(db)
@@ -151,7 +153,8 @@ async def test_alpha_calculation(db):
     """Verify alpha vs SPY calculation."""
     await _seed_buy_trade(db, "XLE", price=80.0, days_ago=5)
     await _seed_position(db, "XLE", shares=10, avg_price=80.0)
-    trade_date = date.today() - timedelta(days=5)
+    # Must match _seed_buy_trade which uses datetime.now(timezone.utc)
+    trade_date = (datetime.now(timezone.utc) - timedelta(days=5)).date()
     await _seed_decision(db, trade_date, "XLE")
 
     tracker = OutcomeTracker(db)
@@ -172,7 +175,8 @@ async def test_alpha_calculation(db):
 @pytest.mark.asyncio
 async def test_conviction_extraction_from_decisions(db):
     """Verify conviction is extracted from proposed_trades in agent_decisions."""
-    trade_date = date.today() - timedelta(days=3)
+    # Must match _seed_buy_trade which uses datetime.now(timezone.utc)
+    trade_date = (datetime.now(timezone.utc) - timedelta(days=3)).date()
     await _seed_buy_trade(db, "NVDA", price=500.0, days_ago=3)
     await _seed_position(db, "NVDA", shares=5, avg_price=500.0)
     await _seed_decision(db, trade_date, "NVDA", "high")
