@@ -1337,45 +1337,95 @@ class Orchestrator:
         "already incorporated", "already handled", "already analyzed",
         "already processed", "already reviewed", "session complete",
         "no changes needed", "no action needed", "stale notification",
-        "nothing to update", "no new information",
+        "nothing to update", "no new information", "context.md",
+        "delayed agent returned", "morning tasks executed",
     )
 
     @classmethod
     def _is_lazy_reasoning(cls, reasoning: str) -> bool:
         """Check if reasoning is a lazy/placeholder response."""
-        if not reasoning or len(reasoning) < 150:
-            lower = reasoning.lower()
-            return any(p in lower for p in cls._LAZY_PATTERNS) or len(reasoning) < 30
-        return False
+        if not reasoning or len(reasoning) < 30:
+            return True
+        lower = reasoning.lower()
+        return any(p in lower for p in cls._LAZY_PATTERNS)
 
     @staticmethod
-    def _build_reasoning_from_mcp(
-        result,
-        mcp_fills: list[dict],
-    ) -> str:
-        """Synthesize reasoning from MCP tool call logs when JSON reasoning is lazy."""
-        parts: list[str] = []
+    async def _humanize_reasoning(result, mcp_fills: list[dict]) -> str:
+        """Ask Claude to write a concise market-analyst brief from tool logs."""
+        from src.agent.claude_invoker import claude_cli_call
 
-        # Summarize what the agent investigated
+        # Build context from tool call logs
+        tool_logs = result.tool_call_logs
+        tool_summaries: list[str] = []
+        for tlog in tool_logs:
+            name = tlog.get("tool_name", "unknown")
+            output = tlog.get("output_preview", "")
+            if output:
+                tool_summaries.append(f"- {name}: {output[:300]}")
+            else:
+                tool_summaries.append(f"- {name}: (no output)")
+
+        # Build trade summary
+        trade_lines: list[str] = []
+        for fill in mcp_fills:
+            trade_lines.append(
+                f"- {fill['side']} {fill['shares']} {fill['ticker']} @ ${fill['price']:.2f}"
+                + (f" — {fill.get('reason', '')[:120]}" if fill.get("reason") else "")
+            )
+
+        # Proposed trades from JSON response
+        proposed = result.response.get("trades", [])
+        for t in proposed:
+            trade_lines.append(
+                f"- PROPOSED {t.get('side', '?')} {t.get('ticker', '?')} "
+                f"weight={t.get('weight', '?')} conviction={t.get('conviction', '?')}"
+                + (f" — {t.get('reason', '')[:120]}" if t.get("reason") else "")
+            )
+
+        posture = result.posture or "not declared"
+
+        prompt = (
+            "You are a trading bot's market analyst. Based on the tool activity below, "
+            "write a 1-3 sentence brief explaining what the AI agent analyzed and decided. "
+            "Be specific about market conditions, tickers examined, and rationale for any trades. "
+            "Write as a concise market note, not a summary of tool calls.\n\n"
+            f"Posture: {posture}\n\n"
+            f"Tools called ({len(tool_logs)}):\n" + "\n".join(tool_summaries[-15:]) + "\n\n"
+        )
+        if trade_lines:
+            prompt += "Trades:\n" + "\n".join(trade_lines) + "\n\n"
+        else:
+            prompt += "No trades were executed or proposed.\n\n"
+        prompt += "Write the brief (max 3 sentences):"
+
+        try:
+            brief = await claude_cli_call(prompt, model="claude-haiku-4-5-20251001", timeout=30)
+            if brief and len(brief.strip()) > 20:
+                return brief.strip()[:500]
+        except Exception as e:
+            log.warning("humanize_reasoning_failed", error=str(e))
+
+        # Fallback to mechanical summary
+        return Orchestrator._build_mechanical_summary(result, mcp_fills)
+
+    @staticmethod
+    def _build_mechanical_summary(result, mcp_fills: list[dict]) -> str:
+        """Fallback: mechanical summary from tool logs when humanize fails."""
+        parts: list[str] = []
         tool_logs = result.tool_call_logs
         tools_called = [log["tool_name"] for log in tool_logs if log.get("success")]
         if tools_called:
-            unique_tools = list(dict.fromkeys(tools_called))  # preserve order, dedup
+            unique_tools = list(dict.fromkeys(tools_called))
             parts.append(f"Investigated via {len(tools_called)} tool calls ({', '.join(unique_tools[:6])}).")
-
-        # Summarize trades executed
         for fill in mcp_fills:
             reason = fill.get("reason", "")
             parts.append(
                 f"{fill['side']} {fill['shares']} {fill['ticker']} @ ${fill['price']:.2f}"
                 + (f" — {reason[:120]}" if reason else "")
             )
-
-        # Posture
         posture = result.posture
         if posture:
             parts.append(f"Posture: {posture}.")
-
         return " ".join(parts) if parts else "Session completed with MCP tool activity."
 
     # ── Extracted helpers for _run_portfolio_b() ──────────────────────────────
@@ -1869,12 +1919,13 @@ class Orchestrator:
 
         # ── 5b. Build authoritative reasoning ────────────────────────────
         # MCP ActionState is source of truth. If the JSON reasoning is lazy
-        # but the agent did real work (tool calls), synthesize a summary.
+        # (references stale context, says "already processed", etc.), ask
+        # Claude to write a proper market-analyst brief from the tool logs.
         reasoning = response.get("reasoning", "")
-        if mcp_fills and self._is_lazy_reasoning(reasoning):
-            reasoning = self._build_reasoning_from_mcp(result, mcp_fills)
+        if self._is_lazy_reasoning(reasoning):
+            reasoning = await self._humanize_reasoning(result, mcp_fills)
             response["reasoning"] = reasoning
-            log.info("reasoning_rebuilt_from_mcp", trades=len(mcp_fills))
+            log.info("reasoning_humanized", original_len=len(response.get("reasoning", "")), new_len=len(reasoning))
 
         # ── 6. Convert trades to TradeSchema ─────────────────────────────
         # Primary: JSON response trades (weight-based proposals from the agent).
