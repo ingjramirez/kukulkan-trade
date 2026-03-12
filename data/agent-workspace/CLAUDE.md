@@ -45,8 +45,16 @@ Before entering ANY new position, check the sector's recent win rate from your o
 - **Avoid sectors with <30% win rate** over the past 30 days. No amount of technical signals overcomes a sector headwind.
 - **Concentrate in sectors with >70% win rate** when n≥6 trades confirms statistical significance. These are your edge.
 - **Technology underperforms in CONSOLIDATION regime** — this is a documented pattern. Require exceptional conviction (specific catalyst, not just "oversold bounce") before any tech entry.
+- **Fixed Income (BIL, SHY, IEF, AGG, VTIP) has 0% win rate** — do NOT hold these unless explicitly using as a cash equivalent while waiting to deploy. Exit fixed income into commodity or discretionary opportunities.
 - **Momentum > mean reversion** in CONSOLIDATION. Don't buy oversold tickers expecting a bounce — buy tickers already trending up.
 - When signal rankings surface a ticker, cross-reference its sector with your performance data before acting.
+
+## Cash Deployment Rule
+- **Cash > 40% is dead weight** in paper trading. Deploy aggressively.
+- When you see "⚠️ HIGH CASH" in context.md, your primary morning task is deployment — not analysis paralysis.
+- Target allocation: 70-80% invested, 20-30% cash reserve.
+- Deploy cash in order of sector confidence: Commodities (GLD, SLV) → Consumer Discretionary (AMZN, XLY) → International (KWEB) → then others.
+- Never hold >50% cash overnight unless regime is CRISIS.
 
 ## Guidelines (not hard limits)
 - Drawdowns are learning opportunities. Analyze and adapt.

@@ -259,11 +259,18 @@ def write_context_file(
     if fear_greed:
         lines.append(f"- Fear & Greed: {fear_greed.get('value', 'N/A')} ({fear_greed.get('classification', '')})")
 
+    cash_pct = (cash / total_value * 100) if total_value > 0 else 0
+    cash_alert = ""
+    if cash_pct >= 40:
+        cash_alert = f" ⚠️ HIGH CASH ({cash_pct:.0f}%) — DEPLOY into top-ranked commodities/discretionary"
+    elif cash_pct >= 25:
+        cash_alert = f" (cash {cash_pct:.0f}% — consider deploying)"
+
     lines.extend(
         [
             "",
             "## Portfolio",
-            f"- Cash: ${cash:,.2f}",
+            f"- Cash: ${cash:,.2f}{cash_alert}",
             f"- Total Value: ${total_value:,.2f}",
             f"- Positions: {len(positions)}",
         ]
@@ -489,10 +496,7 @@ class ClaudeInvoker:
 
             # Read MCP results BEFORE retry decision — tools may have executed real trades
             pre_retry_accumulated = self._read_session_results(results_path)
-            mcp_executed = [
-                t for t in pre_retry_accumulated.get("executed_trades", [])
-                if t.get("status") == "filled"
-            ]
+            mcp_executed = [t for t in pre_retry_accumulated.get("executed_trades", []) if t.get("status") == "filled"]
 
             # Detect "empty message" or lazy responses — but NOT if real trades were executed
             needs_retry = False
@@ -507,8 +511,12 @@ class ClaudeInvoker:
                 log.warning("claude_resume_empty_message_detected", session_id=session_id, session_type=session_type)
                 needs_retry = True
             elif session_id and self._is_lazy_response(response):
-                log.warning("claude_lazy_response_detected", session_id=session_id, session_type=session_type,
-                            reasoning=(response.get("reasoning") or "")[:200])
+                log.warning(
+                    "claude_lazy_response_detected",
+                    session_id=session_id,
+                    session_type=session_type,
+                    reasoning=(response.get("reasoning") or "")[:200],
+                )
                 needs_retry = True
 
             if needs_retry:
@@ -565,16 +573,46 @@ class ClaudeInvoker:
             log.error("claude_invoke_exception", error=str(e))
             return InvokeResult(error=str(e))
 
+    _SESSION_TASK_MAP: dict[str, str] = {
+        "morning": (
+            "TASKS: (1) Check regime + VIX for session posture. "
+            "(2) Review signal rankings — identify top 3 non-held tickers with momentum. "
+            "(3) Check cash level — if cash > 30% of portfolio, deploy into top-ranked commodities or discretionary. "
+            "(4) Enter new positions with trailing stops. "
+            "(5) Exit any positions in sectors with documented <30% win rate."
+        ),
+        "midday": (
+            "TASKS: (1) Scan held positions — take partial profits on any up >3% intraday. "
+            "(2) Tighten trailing stops on winners (ratchet up, never down). "
+            "(3) Exit positions that have broken below key support. "
+            "(4) Do NOT open large new positions — save powder for closing session. "
+            "(5) If cash > 40%, consider one small new entry in a winning sector."
+        ),
+        "closing": (
+            "TASKS: (1) Identify overnight risk — earnings, macro events after close. "
+            "(2) Trim or exit positions with earnings tonight or weekend risk (if Friday). "
+            "(3) Reduce exposure in sectors with negative momentum. "
+            "(4) Ensure trailing stops are set on all open positions. "
+            "(5) Assess if current cash level is appropriate for overnight. "
+            "This is your LAST session today — make defensive moves now."
+        ),
+    }
+
     def _build_cmd(self, session_type: str, session_id: str | None) -> list[str]:
         """Build the claude CLI command."""
+        session_tasks = self._SESSION_TASK_MAP.get(
+            session_type,
+            "TASKS: Assess market state, review positions, execute any needed trades.",
+        )
         prompt = (
             f"Session type: {session_type}. "
             "context.md has been UPDATED with fresh market data since your last turn. "
-            "Re-read context.md NOW, then provide your trading decision. "
+            "Re-read context.md NOW — this is NOT a duplicate of a previous session. "
+            f"{session_tasks} "
             "Your 'reasoning' MUST be 3-5 sentences describing: current prices, regime, "
             "what changed since last session, and why you are holding/buying/selling. "
-            "NEVER say 'already incorporated', 'session complete', or 'no changes needed' "
-            "as your entire reasoning — that is a bug. Even if holding, explain WHY based on current data. "
+            "NEVER say 'already incorporated', 'stale notification', 'session complete', or 'already processed' "
+            "as your reasoning — that is a bug. Each session type has different tasks. "
             "Return your final analysis as JSON matching the Output Format in CLAUDE.md."
         )
 
@@ -621,6 +659,8 @@ class ClaudeInvoker:
         "no updates needed",
         "nothing to update",
         "no new information",
+        "stale notification",
+        "already processed",
     )
 
     def _is_empty_message_response(self, response: dict) -> bool:
@@ -634,16 +674,17 @@ class ClaudeInvoker:
         return any(p in reasoning for p in self._EMPTY_MESSAGE_PATTERNS)
 
     def _is_lazy_response(self, response: dict) -> bool:
-        """Detect when Claude shortcuts with 'already incorporated' instead of analyzing."""
+        """Detect when Claude shortcuts with 'already incorporated' instead of analyzing.
+
+        Note: length gate intentionally removed — lazy patterns can appear in long responses
+        (e.g. "Stale notification — already processed and session complete. All actions executed.")
+        """
         reasoning = (response.get("reasoning") or "").lower()
         if not reasoning:
             return False
         if response.get("trades"):
             return False
-        # Short reasoning + lazy pattern = agent didn't actually analyze
-        if len(reasoning) < 150:
-            return any(p in reasoning for p in self._LAZY_RESPONSE_PATTERNS)
-        return False
+        return any(p in reasoning for p in self._LAZY_RESPONSE_PATTERNS)
 
     def _build_retry_cmd(self, session_type: str, session_id: str) -> list[str]:
         """Build a retry command with a more explicit prompt after empty/lazy response."""
@@ -754,9 +795,7 @@ class ClaudeInvoker:
                 closes = closes.sort_index()
 
                 current_prices = {
-                    t: float(closes[t].iloc[-1])
-                    for t in closes.columns
-                    if not pd.isna(closes[t].iloc[-1])
+                    t: float(closes[t].iloc[-1]) for t in closes.columns if not pd.isna(closes[t].iloc[-1])
                 }
 
                 # Get held tickers from positions (both portfolios)
@@ -782,8 +821,7 @@ class ClaudeInvoker:
                     workspace=self._workspace,
                     tenant_id=self._tenant_id,
                     closes_dict={
-                        col: {str(k): float(v) for k, v in closes[col].dropna().items()}
-                        for col in closes.columns
+                        col: {str(k): float(v) for k, v in closes[col].dropna().items()} for col in closes.columns
                     },
                     closes_index=[str(idx) for idx in closes.index],
                     current_prices=current_prices,
