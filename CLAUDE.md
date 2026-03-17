@@ -52,7 +52,7 @@ After completing significant work, update `~/.claude/projects/-Users-jramirezolm
 - Rate limiter state persists across tests — call `_reset_rate_limiter()` in API test fixtures
 
 ## Deployment
-- Server: Hetzner 128.140.102.191, path `/opt/kukulkan-trade`
+- Server: Hetzner (see `.env`), path `/opt/kukulkan-trade`
 - Deploy via GitHub Actions CI/CD (push to main triggers rsync)
 - Services: `kukulkan-bot`, `kukulkan-api`, `kukulkan-fe` (systemd, runs as `kukulkan` user)
 

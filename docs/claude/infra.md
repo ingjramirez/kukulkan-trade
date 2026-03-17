@@ -23,8 +23,8 @@ Machine-readable context for Claude. Covers server, CI/CD, Docker, testing patte
 
 ## Server (Hetzner)
 
-- IP: `128.140.102.191`
-- SSH: `ssh -i ~/.ssh/id_ed25519_personal root@128.140.102.191`
+- IP: (see `.env` or server provider dashboard)
+- SSH: `ssh -i ~/.ssh/id_ed25519_personal root@<SERVER_IP>`
 - Path: `/opt/kukulkan-trade`
 - DB: PostgreSQL (`postgresql+asyncpg://kukulkan:...@localhost:5432/kukulkan`)
 - Env: `/opt/kukulkan-trade/.env`
