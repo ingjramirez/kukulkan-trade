@@ -210,6 +210,14 @@ async def _execute_trade(
         except Exception as exc:
             log.warning("chat_trade_price_update_failed", ticker=ticker_upper, error=str(exc))
 
+    # 5b. Deactivate trailing stops when selling (mirrors orchestrator Step 7.2)
+    if side_upper == "SELL" and db is not None:
+        try:
+            await db.deactivate_trailing_stops_for_ticker(tenant_id, "B", ticker_upper)
+            log.info("chat_trade_trailing_stops_deactivated", ticker=ticker_upper)
+        except Exception as exc:
+            log.warning("chat_trade_trailing_stop_deactivation_failed", ticker=ticker_upper, error=str(exc))
+
     # 6. Record in state for session-results.json
     state.executed_trades.append(
         {

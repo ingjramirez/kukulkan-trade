@@ -2111,7 +2111,16 @@ class Orchestrator:
                     tenant_id=tenant_id,
                 )
                 pos = next((p for p in positions if p.ticker == stop.ticker), None)
-                if pos and pos.shares > 0:
+                if not pos or pos.shares <= 0:
+                    # Position gone — deactivate orphaned trailing stop
+                    await self._db.deactivate_trailing_stop(stop.id)
+                    log.info(
+                        "trailing_stop_orphan_deactivated",
+                        ticker=stop.ticker,
+                        portfolio=stop.portfolio,
+                    )
+                    continue
+                if pos.shares > 0:
                     sells.append(
                         TradeSchema(
                             portfolio=PortfolioName(stop.portfolio),
@@ -2333,12 +2342,16 @@ class Orchestrator:
         run_portfolio_b: bool,
         allocations: TenantAllocations,
     ) -> float | None:
-        """Reconcile internal portfolio cash against Alpaca broker equity.
+        """Reconcile internal portfolio cash against Alpaca broker cash.
 
-        Corrects small pricing/cash drift ($10–$50) that accumulates from
-        fill price differences, rounding, and dividends. Skips when the
-        drift is below RECONCILE_THRESHOLD (noise) or above DEPOSIT_THRESHOLD
-        positive (handled by _detect_deposits).
+        Compares the Alpaca account's actual cash against the sum of
+        tracked portfolio cash in the DB.  Only real cash discrepancies
+        (fill-price rounding, dividends, interest) produce drift here —
+        position price movements do NOT, because we compare cash-to-cash
+        instead of equity-to-equity.
+
+        Skips when drift is below RECONCILE_THRESHOLD (noise) or above
+        DEPOSIT_THRESHOLD positive (handled by _detect_deposits).
 
         Returns:
             Drift amount corrected, or None if no action was taken.
@@ -2348,13 +2361,13 @@ class Orchestrator:
 
         try:
             account = await asyncio.to_thread(self._executor._client.get_account)
-            broker_equity = float(account.equity)
+            broker_cash = float(account.cash)
         except Exception as e:
             log.warning("reconcile_equity_fetch_failed", error=str(e))
             return None
 
-        # Sum tracked totals for enabled portfolios
-        tracked_total = 0.0
+        # Sum tracked cash for enabled portfolios
+        tracked_cash = 0.0
         enabled = []
         if run_portfolio_a:
             enabled.append("A")
@@ -2363,44 +2376,42 @@ class Orchestrator:
         if not enabled:
             return None
 
+        portfolios = {}
         for pname in enabled:
             portfolio = await self._db.get_portfolio(pname, tenant_id=tenant_id)
             if portfolio:
-                tracked_total += portfolio.total_value
+                tracked_cash += portfolio.cash
+                portfolios[pname] = portfolio
 
-        drift = broker_equity - tracked_total
+        drift = broker_cash - tracked_cash
 
         if abs(drift) <= RECONCILE_THRESHOLD:
             return None
 
-        # Drift magnitude above deposit threshold — too large for cash reconciliation.
-        # Positive: likely a deposit (handled by _detect_deposits).
-        # Negative: likely position value changes, not cash drift.
-        if abs(drift) > DEPOSIT_THRESHOLD:
+        # Large positive drift likely a deposit (handled by _detect_deposits).
+        if drift > DEPOSIT_THRESHOLD:
             log.warning(
-                "equity_drift_too_large",
+                "cash_drift_too_large_positive",
                 drift=round(drift, 2),
                 threshold=DEPOSIT_THRESHOLD,
                 tenant_id=tenant_id,
             )
             return None
 
-        # Distribute small drift by each portfolio's current total_value ratio.
-        # This preserves ownership — NOT by allocation % which steals between portfolios.
-        portfolios = {}
-        for pname in enabled:
-            p = await self._db.get_portfolio(pname, tenant_id=tenant_id)
-            if p:
-                portfolios[pname] = p
+        # Negative drift means tracked cash exceeds broker cash (phantom money).
+        # Correct fully — removing phantom cash is always safe and prevents
+        # the inflation from persisting across sessions.
 
-        total_value = sum(p.total_value for p in portfolios.values())
-        if total_value <= 0:
+        # Distribute drift by each portfolio's current cash ratio.
+        total_cash = sum(p.cash for p in portfolios.values())
+        if total_cash <= 0:
             return None
 
         for pname, portfolio in portfolios.items():
-            share = portfolio.total_value / total_value
-            new_cash = portfolio.cash + drift * share
-            new_total = portfolio.total_value + drift * share
+            share = portfolio.cash / total_cash
+            correction = drift * share
+            new_cash = portfolio.cash + correction
+            new_total = portfolio.total_value + correction
             await self._db.upsert_portfolio(
                 pname,
                 cash=new_cash,
@@ -2409,8 +2420,10 @@ class Orchestrator:
             )
 
         log.info(
-            "equity_reconciled",
+            "cash_reconciled",
             drift=round(drift, 2),
+            broker_cash=round(broker_cash, 2),
+            tracked_cash=round(tracked_cash, 2),
             tenant_id=tenant_id,
             portfolios=enabled,
         )

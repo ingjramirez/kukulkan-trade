@@ -503,6 +503,12 @@ class AlpacaExecutor:
                 avg_price,
                 tenant_id=tenant_id,
             )
+            # Deactivate trailing stops for positions that disappeared
+            if alpaca_qty == 0 and db_qty > 0:
+                await self._db.deactivate_trailing_stops_for_ticker(
+                    tenant_id, portfolio, ticker,
+                )
+                log.info("trailing_stop_deactivated_by_sync", ticker=ticker, portfolio=portfolio)
             corrections.append(
                 {
                     "ticker": ticker,
@@ -522,7 +528,7 @@ class AlpacaExecutor:
         # Cash is NOT redistributed during position sync.
         # Each portfolio's cash changes only via its own trade executions.
         # New deposits are detected and distributed by _detect_deposits() in the orchestrator.
-        # The old proportional redistribution was stealing cash between portfolios.
+        # Cash drift is corrected by _reconcile_equity() using cash-to-cash comparison.
 
         if not drift:
             log.info("positions_in_sync", tickers=len(all_tickers))
