@@ -713,26 +713,6 @@ class TestClaudeInvoker:
         assert len(result.mcp_executed_trades) == 1
         assert result.mcp_executed_trades[0]["ticker"] == "GLD"
 
-    @pytest.mark.asyncio
-    async def test_invoke_env_strips_api_key(self, tmp_path: Path):
-        """Ensure ANTHROPIC_API_KEY is never passed to Claude Code (use Max sub)."""
-        invoker = ClaudeInvoker(workspace=tmp_path)
-
-        mock_result = subprocess.CompletedProcess(
-            args=["claude"],
-            returncode=0,
-            stdout=json.dumps({"result": "{}", "session_id": "s1"}),
-            stderr="",
-        )
-
-        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-ant-test"}, clear=False):
-            with patch("src.agent.claude_invoker._run_with_kill", return_value=mock_result) as mock_run:
-                await invoker.invoke("morning", today=date(2024, 6, 15))
-
-        # Second positional arg is the env dict
-        call_env = mock_run.call_args[0][1]
-        assert "ANTHROPIC_API_KEY" not in call_env
-
 
 # ── _run_with_kill tests ─────────────────────────────────────────────────────
 

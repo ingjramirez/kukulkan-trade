@@ -457,9 +457,7 @@ class ClaudeInvoker:
 
         cmd = self._build_cmd(session_type, session_id)
 
-        # Ensure ANTHROPIC_API_KEY is NOT set (use Max subscription auth)
         env = {**os.environ}
-        env.pop("ANTHROPIC_API_KEY", None)
 
         log.info(
             "claude_invoke_start",
@@ -961,7 +959,6 @@ class ClaudeInvoker:
 
         cmd = self._build_chat_cmd(message, session_id)
         env = {**os.environ}
-        env.pop("ANTHROPIC_API_KEY", None)
 
         results_path = self._workspace / "session-results.json"
         if results_path.exists():
@@ -1042,7 +1039,6 @@ class ClaudeInvoker:
 
         cmd = self._build_chat_stream_cmd(message, session_id)
         env = {**os.environ}
-        env.pop("ANTHROPIC_API_KEY", None)
 
         results_path = self._workspace / "session-results.json"
         if results_path.exists():
@@ -1226,7 +1222,6 @@ async def claude_cli_call(
     ]
 
     env = {**os.environ}
-    env.pop("ANTHROPIC_API_KEY", None)
 
     try:
         result = await asyncio.to_thread(
@@ -1285,7 +1280,6 @@ async def claude_cli_json(
     ]
 
     env = {**os.environ}
-    env.pop("ANTHROPIC_API_KEY", None)
 
     try:
         result = await asyncio.to_thread(

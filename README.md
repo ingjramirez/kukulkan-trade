@@ -87,7 +87,6 @@ cp .env.example .env
 #   JWT_SECRET             — API authentication
 #   TENANT_ENCRYPTION_KEY  — Fernet key for credential encryption
 #   FRED_API_KEY           — macro data (optional)
-# Note: ANTHROPIC_API_KEY is NOT needed — the bot uses Claude Code CLI (Max subscription)
 
 # Start ChromaDB (Docker)
 docker compose up -d

@@ -256,5 +256,5 @@ settings = Settings()  # singleton, loaded at import
 - Tests that set `app.state.db` must clean up after yield -- otherwise `login()` uses stale DB
 - `POST /api/run` module-level state -- call `_reset_run_state()` in test fixtures
 - Mock executors must accept `**kwargs` (tenant_id parameter added)
-- Agentic tests must patch `orch._strategy_b._agent.analyze()` to avoid ANTHROPIC_API_KEY dependency in CI
+- Agentic tests must patch `orch._strategy_b._agent.analyze()` to avoid Anthropic API dependency in CI
 - `AgentSettings` env prefix is `AGENT_` -- field `agent_tool_model` becomes env var `AGENT_AGENT_TOOL_MODEL`

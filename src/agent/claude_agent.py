@@ -7,7 +7,6 @@ Uses Anthropic Claude API (Sonnet 4.5) to:
 """
 
 import json
-import os
 from datetime import date
 
 import anthropic
@@ -615,7 +614,7 @@ class ClaudeAgent:
         api_key: str | None = None,
         model: str = PORTFOLIO_B.model,
     ) -> None:
-        self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+        self._api_key = api_key or ""
         self._model = model
         self._client: anthropic.Anthropic | None = None
 
@@ -624,7 +623,7 @@ class ClaudeAgent:
         """Lazy-init Anthropic client."""
         if self._client is None:
             if not self._api_key:
-                raise ValueError("ANTHROPIC_API_KEY not set")
+                raise ValueError("Anthropic API key not provided")
             self._client = anthropic.Anthropic(api_key=self._api_key, max_retries=settings.agent.max_retries)
         return self._client
 

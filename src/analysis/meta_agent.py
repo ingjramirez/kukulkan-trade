@@ -89,7 +89,7 @@ class MetaAgentRunner:
                 model=self._model,
             )
 
-            env = os.environ.copy()
+            env = {**os.environ}
             env["PATH"] = f"{self._repo_path / '.venv' / 'bin'}:{env.get('PATH', '')}"
 
             proc = await asyncio.to_thread(
