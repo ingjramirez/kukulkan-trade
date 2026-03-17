@@ -125,7 +125,8 @@ def test_trail_pct_conservative_high():
 
 
 def test_trail_pct_aggressive_low():
-    assert TRAIL_PCT["aggressive"]["low"] == 0.15
+    # Tightened from 0.15 → 0.12 (meta-agent 2026-03-17: reduce avg loss at low WR)
+    assert TRAIL_PCT["aggressive"]["low"] == 0.12
 
 
 def test_get_trail_pct_high_conviction():
@@ -151,7 +152,7 @@ def test_get_trail_pct_low_conviction():
         reason="low conviction speculative",
     )
     pct = _get_trail_pct("aggressive", trade)
-    assert pct == 0.15
+    assert pct == 0.12  # tightened from 0.15 → 0.12 (meta-agent 2026-03-17)
 
 
 def test_get_trail_pct_default_medium():

@@ -67,5 +67,8 @@ RISK_RULES = RiskRules()
 TRAIL_PCT: dict[str, dict[str, float]] = {
     "conservative": {"high": 0.05, "medium": 0.07, "low": 0.10},
     "standard": {"high": 0.07, "medium": 0.10, "low": 0.12},
-    "aggressive": {"high": 0.10, "medium": 0.12, "low": 0.15},
+    # Aggressive tightened: high 10→7%, medium 12→9%, low 15→12%.
+    # With 15.5% win rate in CONSOLIDATION, wide stops compound losses.
+    # At 1.2× multiplier: high=8.4%, medium=10.8%, low=14.4% effective trail.
+    "aggressive": {"high": 0.07, "medium": 0.09, "low": 0.12},
 }
