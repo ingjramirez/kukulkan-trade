@@ -164,8 +164,11 @@ class RegimeClassifier:
                 f"CORRECTION: SPY above SMA200 ({spy_vs_sma200:+.1%}) but drawdown {drawdown:+.1f}% from 52w high.",
             )
 
-        # BULL: above SMA200 AND drawdown > -5% AND (VIX < 20 or unknown)
-        if vix is None or vix < 20:
+        # BULL: above SMA200 AND drawdown > -5% AND (VIX < 18 or unknown)
+        # Threshold raised from 20 → 18 to add hysteresis: VIX must drop substantially
+        # below 20 before a BULL signal fires. VIX oscillating 19-21 no longer causes
+        # repeated BULL/CONSOLIDATION flips and the sentinel activations they trigger.
+        if vix is None or vix < 18:
             breadth_str = f", breadth {breadth_pct:.0f}%" if breadth_pct is not None else ""
             return (
                 MarketRegime.BULL,
@@ -175,7 +178,7 @@ class RegimeClassifier:
                 f"{breadth_str}.",
             )
 
-        # Everything else → CONSOLIDATION (e.g. above SMA200, VIX 20-25, mild drawdown)
+        # Everything else → CONSOLIDATION (e.g. above SMA200, VIX 18-25, mild drawdown)
         return (
             MarketRegime.CONSOLIDATION,
             f"SPY {spy_vs_sma200:+.1%} above SMA200, VIX {vix:.0f}, drawdown {drawdown:+.1f}% — CONSOLIDATION.",

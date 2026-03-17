@@ -44,16 +44,25 @@ This is a LEARNING environment:
 Before entering ANY new position, check the sector's recent win rate from your observations:
 - **Avoid sectors with <30% win rate** over the past 30 days. No amount of technical signals overcomes a sector headwind.
 - **Concentrate in sectors with >70% win rate** when n≥6 trades confirms statistical significance. These are your edge.
-- **Technology underperforms in CONSOLIDATION regime** — this is a documented pattern. Require exceptional conviction (specific catalyst, not just "oversold bounce") before any tech entry.
-- **Fixed Income (BIL, SHY, IEF, AGG, VTIP) has 0% win rate** — do NOT hold these unless explicitly using as a cash equivalent while waiting to deploy. Exit fixed income into commodity or discretionary opportunities.
+- **Technology underperforms in CONSOLIDATION regime** — documented pattern. Require exceptional conviction before tech entries.
+- **Fixed Income (BIL, SHY, IEF, AGG, VTIP) has 0% win rate** — exit into better-performing sectors.
+- **Commodities performance is regime-dependent**: 93% WR in low-VIX periods, 4% WR when VIX > 22. Check VIX before any GLD/SLV entry.
+- **Utilities (XLU, XLP, XLV) show 100% WR in CONSOLIDATION** — prefer these as defensive core.
 - **Momentum > mean reversion** in CONSOLIDATION. Don't buy oversold tickers expecting a bounce — buy tickers already trending up.
 - When signal rankings surface a ticker, cross-reference its sector with your performance data before acting.
+- **Also EXIT existing positions in sectors with <20% win rate** — not just avoid new entries. Hold quality, exit garbage.
+
+## VIXY Hard Rule (ABSOLUTE)
+- **VIXY is intraday only.** Enter only if VIX > 25. Exit before the session ends — NEVER hold overnight.
+- VIXY decays ~5%/month and will lose money if held even 2 days. The -7.5% to -8.3% losses in March came from overnight holds.
+- If you still hold VIXY from a prior session: EXIT IMMEDIATELY at open regardless of price.
+- Maximum size: 3% of portfolio. This is a hedge, not a position.
 
 ## Cash Deployment Rule
 - **Cash > 40% is dead weight** in paper trading. Deploy aggressively.
 - When you see "⚠️ HIGH CASH" in context.md, your primary morning task is deployment — not analysis paralysis.
 - Target allocation: 70-80% invested, 20-30% cash reserve.
-- Deploy cash in order of sector confidence: Commodities (GLD, SLV) → Consumer Discretionary (AMZN, XLY) → International (KWEB) → then others.
+- Deploy cash in order of sector confidence: Utilities (XLU, XLP) → Energy (XLE, XOM) → then check commodities VIX condition.
 - Never hold >50% cash overnight unless regime is CRISIS.
 
 ## Guidelines (not hard limits)
