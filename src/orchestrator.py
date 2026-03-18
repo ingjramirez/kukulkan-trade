@@ -562,6 +562,7 @@ class Orchestrator:
             run_portfolio_a,
             run_portfolio_b,
             summary,
+            session=session,
         )
 
         # Step 8.6: Merge MCP-executed trades (already filled by agent via MCP tools)
@@ -1130,11 +1131,16 @@ class Orchestrator:
         run_portfolio_a: bool,
         run_portfolio_b: bool,
         summary: dict,
+        session: str = "",
     ) -> list:
         """Execute trades, manage trailing stops, take snapshots, reconcile equity.
 
         Returns the list of executed trades.
         """
+        # Enforce VIXY pre-close sell (overnight decay rule)
+        if session == "Closing":
+            all_trades = await self._enforce_vixy_close(tenant_id, all_trades)
+
         executed: list = []
         if all_trades:
             executed = await self._executor.execute_trades(all_trades, tenant_id=tenant_id)
@@ -1348,6 +1354,38 @@ class Orchestrator:
             return True
         lower = reasoning.lower()
         return any(p in lower for p in cls._LAZY_PATTERNS)
+
+    async def _enforce_vixy_close(self, tenant_id: str, all_trades: list) -> list:
+        """Force-sell VIXY before close if still held. Prevents overnight decay."""
+        positions = await self._db.get_positions("B", tenant_id=tenant_id)
+        vixy_pos = next((p for p in positions if p.ticker == "VIXY" and float(p.shares) > 0), None)
+        if not vixy_pos:
+            return all_trades
+
+        # Skip if there's already a VIXY SELL queued
+        if any(t.ticker == "VIXY" and t.side.value == "SELL" for t in all_trades):
+            return all_trades
+
+        from src.storage.models import OrderSide, PortfolioName, TradeSchema
+
+        price = float(vixy_pos.avg_price)
+        try:
+            import yfinance as yf
+
+            price = yf.Ticker("VIXY").fast_info.get("lastPrice", price) or price
+        except Exception:
+            pass
+
+        vixy_sell = TradeSchema(
+            portfolio=PortfolioName.B,
+            ticker="VIXY",
+            side=OrderSide.SELL,
+            shares=float(vixy_pos.shares),
+            price=float(price),
+            reason="Enforced pre-close VIXY sell (overnight decay rule)",
+        )
+        log.info("vixy_overnight_enforcement", shares=float(vixy_pos.shares), tenant_id=tenant_id)
+        return [vixy_sell] + list(all_trades)
 
     @staticmethod
     async def _humanize_reasoning(result, mcp_fills: list[dict]) -> str:

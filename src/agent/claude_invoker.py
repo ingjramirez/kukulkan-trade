@@ -344,7 +344,7 @@ class ClaudeInvoker:
         self._model = model
         self._tenant_id = tenant_id
         self._session_id_file = self._workspace / ".session-id"
-        self._chat_session_id_file = self._workspace / ".chat-session-id"
+        self._chat_session_id_file = self._session_id_file  # unified: chat + trading share one session
 
     def _get_daily_session_id(self, today: date) -> str | None:
         """Read the persistent session ID (no date expiry — sessions live forever)."""

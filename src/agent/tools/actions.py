@@ -33,6 +33,8 @@ class ActionState:
     trailing_stop_requests: list[dict] = field(default_factory=list)
     discovery_proposals: list[dict] = field(default_factory=list)
     declared_posture: str | None = None
+    regime: str | None = None
+    vix: float | None = None
 
     def get_accumulated_state(self) -> dict:
         """Return all accumulated actions as a dict."""
@@ -103,6 +105,10 @@ async def _execute_trade(
     if side_upper not in ("BUY", "SELL"):
         return {"error": f"Invalid side: {side}. Must be BUY or SELL."}
 
+    try:
+        shares = float(shares)
+    except (TypeError, ValueError):
+        return {"error": f"Invalid shares value: {shares}"}
     if shares <= 0:
         return {"error": "shares must be positive"}
 
@@ -183,6 +189,26 @@ async def _execute_trade(
                 "reason": f"Insufficient Portfolio B cash: need ${estimated_cost:,.0f}, have ${b_cash:,.0f}",
             }
 
+    # 3c. Hedge gate — block new longs in bearish regime without a hedge position
+    hedge_tickers = {"SH", "PSQ", "RWM", "TBF", "VIXY", "GLD", "TLT", "SHY", "BIL", "VTIP"}
+    if (
+        side_upper == "BUY"
+        and ticker_upper not in hedge_tickers
+        and state.vix is not None
+        and state.vix > 22
+        and state.regime in ("BEAR", "CRISIS")
+        and db is not None
+    ):
+        positions = await db.get_positions("B", tenant_id=tenant_id)
+        has_hedge = any(p.ticker in hedge_tickers and float(p.shares) > 0 for p in positions)
+        if not has_hedge:
+            return {
+                "status": "blocked",
+                "ticker": ticker_upper,
+                "reason": f"Hedge gate: VIX={state.vix:.0f}, regime={state.regime}. "
+                f"Add a hedge position (SH, PSQ, GLD, TLT, etc.) before opening new longs.",
+            }
+
     # 4. Execute
     try:
         executed = await executor.execute_trades([trade_schema], tenant_id=tenant_id)
@@ -198,6 +224,25 @@ async def _execute_trade(
         }
 
     fill = executed[0]
+
+    # 4b. Post-trade verification — confirm position actually changed
+    if db is not None:
+        try:
+            positions_after = await db.get_positions("B", tenant_id=tenant_id)
+            pos_after = next((p for p in positions_after if p.ticker == ticker_upper), None)
+            if side_upper == "BUY" and pos_after is None:
+                log.error("trade_verification_failed", ticker=ticker_upper, side=side_upper,
+                          reason="Position not found after BUY fill")
+                return {
+                    "status": "verification_failed",
+                    "ticker": ticker_upper,
+                    "message": f"Trade reported as filled but position for {ticker_upper} not found. Check broker.",
+                }
+            if side_upper == "SELL" and pos_after is not None:
+                log.warning("trade_verification_sell_position_remains", ticker=ticker_upper,
+                            remaining_shares=float(pos_after.shares), sold_shares=float(fill.shares))
+        except Exception as exc:
+            log.warning("trade_verification_check_failed", ticker=ticker_upper, error=str(exc))
 
     # 5. Update current_price/market_value so the frontend shows correct data immediately
     if db is not None:
@@ -264,6 +309,10 @@ async def _set_trailing_stop(
     if not ticker:
         return {"error": "ticker is required"}
 
+    try:
+        trail_pct = float(trail_pct)
+    except (TypeError, ValueError):
+        return {"error": f"Invalid trail_pct value: {trail_pct}"}
     if trail_pct < 0.03 or trail_pct > 0.20:
         return {"error": f"trail_pct must be 0.03-0.20, got {trail_pct}"}
 

@@ -1737,6 +1737,9 @@ class Database:
             ).scalar_one_or_none()
             if not latest_time:
                 return []
+            # Normalize TZ — asyncpg may return aware, SQLite may return naive
+            if latest_time.tzinfo is None:
+                latest_time = latest_time.replace(tzinfo=timezone.utc)
             result = await s.execute(
                 select(TickerSignalRow)
                 .where(

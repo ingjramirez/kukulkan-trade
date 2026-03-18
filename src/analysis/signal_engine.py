@@ -482,7 +482,11 @@ def db_rows_to_signals(rows: list[TickerSignalRow]) -> list[TickerSignal]:
             bollinger_pct_b=r.bollinger_pct_b or 0.5,
             volume_ratio=r.volume_ratio or 1.0,
             alerts=json.loads(r.alerts) if r.alerts else [],
-            scored_at=r.scored_at if r.scored_at else datetime.now(timezone.utc),
+            scored_at=(
+                r.scored_at.replace(tzinfo=timezone.utc)
+                if r.scored_at and r.scored_at.tzinfo is None
+                else r.scored_at or datetime.now(timezone.utc)
+            ),
         )
         for r in rows
     ]

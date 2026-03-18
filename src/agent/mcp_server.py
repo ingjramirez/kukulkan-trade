@@ -153,7 +153,7 @@ async def _init_registry(state: dict) -> ToolRegistry:
         log.warning("mcp_executor_init_failed", error=str(exc))
 
     global _action_state
-    _action_state = ActionState()
+    _action_state = ActionState(regime=state.get("regime"), vix=state.get("vix"))
     ticker_discovery = TickerDiscovery(db)
     register_action_tools(
         registry,
